@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FPO Decision Layer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">FPO</span>
+    <span class="brand-name">Pooling &amp; Market Allocation</span>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-view="entry" class="tab active">Data entry</button>
+    <button data-view="dash" class="tab">Recommended plan</button>
+    <button data-view="compare" class="tab">Comparison</button>
+  </nav>
+</header>
+
+<main>
+  <section class="apibar card">
+    <label for="apiBase">Backend API base URL</label>
+    <div class="apibar-row">
+      <input id="apiBase" placeholder="http://localhost:5000">
+      <button id="saveApi" class="btn-secondary">Save</button>
+      <span id="apiStatus" class="muted"></span>
+    </div>
+  </section>
+
+  <!-- DATA ENTRY -->
+  <section id="view-entry" class="view active">
+
+    <div class="entry-block card">
+      <h2>Farmers</h2>
+      <form id="farmerForm" class="grid-form">
+        <div><label>Name</label><input name="name" required></div>
+        <div><label>Location</label><input name="location" placeholder="village / lat,lng" required></div>
+        <div><label>Crop</label><input name="crop" required></div>
+        <div><label>Quantity (kg)</label><input name="quantity_kg" type="number" min="0" step="0.1" required></div>
+        <div><label>Pickup window</label><input name="pickup_window" placeholder="e.g. 6am&ndash;9am"></div>
+        <div class="check"><label><input name="refrigeration_needed" type="checkbox"> Needs refrigeration</label></div>
+        <button type="submit" class="btn-primary">Add farmer</button>
+      </form>
+      <div class="tablewrap"><table id="farmerTable"><thead><tr>
+        <th>Name</th><th>Location</th><th>Crop</th><th>Qty (kg)</th><th>Pickup</th><th>Refrig.</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="entry-block card">
+      <h2>Vehicles</h2>
+      <form id="vehicleForm" class="grid-form">
+        <div><label>Type</label><input name="type" placeholder="e.g. mini-truck" required></div>
+        <div><label>Capacity (kg)</label><input name="capacity_kg" type="number" min="0" step="0.1" required></div>
+        <div class="check"><label><input name="refrigerated" type="checkbox"> Refrigerated</label></div>
+        <div><label>Cost per km (&#8377;)</label><input name="cost_per_km" type="number" min="0" step="0.1" required></div>
+        <button type="submit" class="btn-primary">Add vehicle</button>
+      </form>
+      <div class="tablewrap"><table id="vehicleTable"><thead><tr>
+        <th>Type</th><th>Capacity (kg)</th><th>Refrigerated</th><th>Cost/km</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div class="entry-block card">
+      <h2>Markets</h2>
+      <form id="marketForm" class="grid-form">
+        <div><label>Name</label><input name="name" required></div>
+        <div><label>Location</label><input name="location" placeholder="town / lat,lng" required></div>
+        <div><label>Crop</label><input name="crop" required></div>
+        <div><label>Price per kg (&#8377;)</label><input name="price_per_kg" type="number" min="0" step="0.1" required></div>
+        <div><label>Capacity for this crop (kg)</label><input name="capacity_kg" type="number" min="0" step="0.1" required></div>
+        <button type="submit" class="btn-primary">Add market</button>
+      </form>
+      <div class="tablewrap"><table id="marketTable"><thead><tr>
+        <th>Name</th><th>Location</th><th>Crop</th><th>Price/kg</th><th>Capacity (kg)</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+
+  </section>
+
+  <!-- DASHBOARD -->
+  <section id="view-dash" class="view">
+    <div class="card dash-head">
+      <div>
+        <h2>Recommended plan &mdash; Our System</h2>
+        <p class="muted">Computes a fresh plan from everything entered so far.</p>
+      </div>
+      <button id="computeBtn" class="btn-primary">Compute plan</button>
+    </div>
+
+    <div id="dashSummary" class="summary-row"></div>
+    <div id="dashCoverageNote" class="coverage-note"></div>
+
+    <h3 class="section-h">Pools</h3>
+    <div id="poolCards" class="pool-grid">
+      <p class="muted">No plan computed yet.</p>
+    </div>
+
+    <div class="card sensor-panel">
+      <h3>Live sensor data</h3>
+      <p class="placeholder">Placeholder &mdash; ESP32 readings are being received on the backend, but the algorithm cannot yet recompute a plan from them. This panel will show live temperature/humidity per pool once that's wired up.</p>
+    </div>
+  </section>
+
+  <!-- COMPARISON -->
+  <section id="view-compare" class="view">
+    <div class="card dash-head">
+      <div>
+        <h2>Our System vs. the baselines</h2>
+        <p class="muted">Read both charts together &mdash; net return alone doesn't tell you who actually got paid.</p>
+      </div>
+      <button id="compareBtn" class="btn-primary">Run comparison</button>
+    </div>
+    <div class="two-col">
+      <div class="card chart-card">
+        <h3>Total net return (&#8377;)</h3>
+        <canvas id="netReturnChart"></canvas>
+      </div>
+      <div class="card chart-card">
+        <h3>Produce actually sold (%)</h3>
+        <canvas id="coverageChart"></canvas>
+      </div>
+    </div>
+    <p id="compareEmpty" class="muted">Run the comparison to see all three approaches side by side.</p>
+  </section>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.9/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
