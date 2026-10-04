@@ -1,0 +1,6 @@
+# Only needed for the real-data pipeline (scrape/geocode/build). The API itself
+# does not need these.
+agmarknet==0.2.2   # unofficial client for the official Agmarknet 2.0 REST API
+pandas>=2.0
+requests>=2.31     # already pulled in by agmarknet; used by geocode_mandis.py
+pytest>=8          # tests only

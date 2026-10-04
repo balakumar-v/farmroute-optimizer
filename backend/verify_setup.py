@@ -4,10 +4,9 @@ verify_setup.py
 Sanity-checks the running setup by exercising every endpoint with a
 FastAPI TestClient (no server needs to be running separately).
 
-Safe to run BEFORE the real algorithms_v2.py is added (CRUD + sensors
-are checked; /plan/compute is expected to 500 with a clear message) and
-AFTER it's added (in which case /plan/compute is checked for real and
-its summary is printed).
+Exercises CRUD for farmers/vehicles/markets, sensor readings,
+/plan/compute (checked for real, summaries printed), /plan/{id}, and
+/reset.
 
 Usage:  python3 verify_setup.py
 """
@@ -65,16 +64,14 @@ r = c.post("/sensors/reading", json={
 })
 check("post sensor reading", r.status_code == 200)
 
-# --- plan/compute: shape depends on whether algorithms_v2.py is present ---
+# --- plan/compute ---
 r = c.post("/plan/compute")
-if r.status_code == 500:
-    print("\nplan/compute -> 500 (expected until you add the real algorithms_v2.py)")
-    print("  detail:", r.json()["detail"][:200], "...")
-elif r.status_code == 200:
+check("plan/compute succeeds", r.status_code == 200)
+if r.status_code == 200:
     data = r.json()
     check("plan/compute returns all three algorithms",
-          set(["our_system", "individual_transport", "proximity_pooling"]) <= set(data))
-    for key in ("our_system", "individual_transport", "proximity_pooling"):
+          set(["integrated_logistics_optimization", "individual_transport", "proximity_pooling"]) <= set(data))
+    for key in ("integrated_logistics_optimization", "individual_transport", "proximity_pooling"):
         s = data[key]["summary"]
         check(f"{key} summary has pct_qty_served", "pct_qty_served" in s)
         print(f"  {key}: net_return={s.get('net_return')}, pct_qty_served={s.get('pct_qty_served')}")
@@ -82,6 +79,13 @@ elif r.status_code == 200:
     r2 = c.get(f"/plan/{data['id']}")
     check("fetch stored plan run", r2.status_code == 200)
 else:
-    check(f"unexpected plan/compute status {r.status_code}", False)
+    print("  detail:", r.json().get("detail"))
+
+# --- reset ---
+r = c.post("/reset")
+check("reset succeeds", r.status_code == 200)
+check("reset clears farmers", r.status_code == 200 and r.json()["cleared"]["farmers"] >= 2)
+r = c.get("/farmers")
+check("farmers empty after reset", r.status_code == 200 and r.json() == [])
 
 print("\nAll checks passed.")

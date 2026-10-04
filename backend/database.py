@@ -49,9 +49,19 @@ CREATE TABLE IF NOT EXISTS plan_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
     input_snapshot TEXT NOT NULL,              -- JSON
-    result_our_system TEXT NOT NULL,           -- JSON {pools, summary}
+    result_integrated_logistics_optimization TEXT NOT NULL, -- JSON {pools, summary}
     result_individual_transport TEXT NOT NULL, -- JSON {pools, summary}
-    result_proximity_pooling TEXT NOT NULL     -- JSON {pools, summary}
+    result_proximity_pooling TEXT NOT NULL,    -- JSON {pools, summary}
+    result_ilo_trace TEXT                      -- JSON {pool_id: {crop_allocations}} or NULL;
+                                                -- run_ilo_v2(..., return_trace=True)'s per-crop
+                                                -- market-allocation edges, otherwise discarded.
+                                                -- Used by visualization_adapter.py for exact
+                                                -- per-market kg breakdowns. Nullable because it
+                                                -- was added after this table already existed --
+                                                -- see the migration below.
+    ,result_realistic_baselines TEXT           -- JSON from baselines_v3.py (farm-gate / self-haul /
+                                                -- neighbour pooling + farm-gate-valued summaries). Nullable,
+                                                -- same migration pattern as result_ilo_trace.
 );
 
 CREATE TABLE IF NOT EXISTS sensor_readings (
@@ -77,4 +87,18 @@ def get_conn():
 def init_db():
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        # Lightweight migration for a fpo.db created before result_ilo_trace
+        # existed: CREATE TABLE IF NOT EXISTS above is a no-op on a table
+        # that already exists, so an old file needs the column added by
+        # hand. No migration framework for a one-file local demo -- this is
+        # the whole story. Safe to run every startup: ADD COLUMN fails with
+        # "duplicate column" once it's already there, which we just ignore.
+        try:
+            conn.execute("ALTER TABLE plan_runs ADD COLUMN result_ilo_trace TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE plan_runs ADD COLUMN result_realistic_baselines TEXT")
+        except sqlite3.OperationalError:
+            pass
         conn.commit()

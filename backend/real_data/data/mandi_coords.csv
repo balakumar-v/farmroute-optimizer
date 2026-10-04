@@ -1,0 +1,8 @@
+state,district,market,lat,lng,source,query
+Bihar,Banka,Barahat Apmc,24.88692,87.02964,nominatim,"Barahat, Banka, Bihar, India"
+Bihar,Bhojpur,Aarah Apmc,25.56032,84.66321,nominatim,"Arrah, Bhojpur, Bihar, India"
+Bihar,Buxar,Buxur Apmc,25.56119,83.98133,nominatim,"Buxar, Buxar, Bihar, India"
+Bihar,Purbi Champaran,Chakia Apmc,26.42341,85.04116,nominatim,"Chakia, Bihar, India"
+Bihar,Samastipur,Tajpur Apmc,25.85948,85.66133,nominatim,"Tajpur, Samastipur, Bihar, India"
+Bihar,Sheohar,Sheohar Apmc,26.51575,85.2849,nominatim,"Sheohar, Sheohar, Bihar, India"
+Bihar,Rohtas,Sasaram Apmc,24.95097,84.01487,nominatim,"Sasaram, Rohtas, Bihar, India"

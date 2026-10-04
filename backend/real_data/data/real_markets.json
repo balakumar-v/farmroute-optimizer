@@ -1,0 +1,171 @@
+{
+  "meta": {
+    "source": "Agmarknet 2.0 (agmarknet.gov.in), Directorate of Marketing & Inspection, GoI",
+    "raw_file": "C:\\Codes\\Farmroute Optimizer\\backend\\real_data\\data\\raw\\agmarknet_idp_Bihar_2026-03-03_2026-04-01.csv",
+    "generated_at": "2026-10-02T12:35:36",
+    "units": {
+      "price": "Rs/kg (Agmarknet modal price, Rs/quintal / 100)",
+      "capacity_kg": "kg/day (median reported daily arrival x capacity_scale)"
+    },
+    "min_days": 5,
+    "capacity_scale": 1.0,
+    "data_window": [
+      "2026-03-03",
+      "2026-04-01"
+    ],
+    "markets_per_crop": {
+      "onion": 4,
+      "potato": 4
+    },
+    "coordinate_warnings": [],
+    "dropped_no_coords": [
+      "Bihar | Rohtas | Natwar Apmc"
+    ]
+  },
+  "markets": [
+    {
+      "name": "Barahat Apmc",
+      "district": "Banka",
+      "state": "Bihar",
+      "lat": 24.88692,
+      "lng": 87.02964,
+      "geocode_source": "nominatim",
+      "price": {
+        "onion": 26.0
+      },
+      "capacity_kg": {
+        "onion": 4000.0
+      },
+      "n_days": {
+        "onion": 28
+      },
+      "last_date": {
+        "onion": "2026-04-01"
+      }
+    },
+    {
+      "name": "Aarah Apmc",
+      "district": "Bhojpur",
+      "state": "Bihar",
+      "lat": 25.56032,
+      "lng": 84.66321,
+      "geocode_source": "nominatim",
+      "price": {
+        "potato": 11.0
+      },
+      "capacity_kg": {
+        "potato": 1330.0
+      },
+      "n_days": {
+        "potato": 26
+      },
+      "last_date": {
+        "potato": "2026-03-30"
+      }
+    },
+    {
+      "name": "Buxur Apmc",
+      "district": "Buxar",
+      "state": "Bihar",
+      "lat": 25.56119,
+      "lng": 83.98133,
+      "geocode_source": "nominatim",
+      "price": {
+        "potato": 11.0
+      },
+      "capacity_kg": {
+        "potato": 5000.0
+      },
+      "n_days": {
+        "potato": 11
+      },
+      "last_date": {
+        "potato": "2026-04-01"
+      }
+    },
+    {
+      "name": "Chakia Apmc",
+      "district": "Purbi Champaran",
+      "state": "Bihar",
+      "lat": 26.42341,
+      "lng": 85.04116,
+      "geocode_source": "nominatim",
+      "price": {
+        "potato": 9.0
+      },
+      "capacity_kg": {
+        "potato": 60000.0
+      },
+      "n_days": {
+        "potato": 18
+      },
+      "last_date": {
+        "potato": "2026-04-01"
+      }
+    },
+    {
+      "name": "Sasaram Apmc",
+      "district": "Rohtas",
+      "state": "Bihar",
+      "lat": 24.95097,
+      "lng": 84.01487,
+      "geocode_source": "nominatim",
+      "price": {
+        "onion": 18.0
+      },
+      "capacity_kg": {
+        "onion": 20000.0
+      },
+      "n_days": {
+        "onion": 7
+      },
+      "last_date": {
+        "onion": "2026-03-30"
+      }
+    },
+    {
+      "name": "Tajpur Apmc",
+      "district": "Samastipur",
+      "state": "Bihar",
+      "lat": 25.85948,
+      "lng": 85.66133,
+      "geocode_source": "nominatim",
+      "price": {
+        "onion": 16.0
+      },
+      "capacity_kg": {
+        "onion": 2000.0
+      },
+      "n_days": {
+        "onion": 14
+      },
+      "last_date": {
+        "onion": "2026-03-31"
+      }
+    },
+    {
+      "name": "Sheohar Apmc",
+      "district": "Sheohar",
+      "state": "Bihar",
+      "lat": 26.51575,
+      "lng": 85.2849,
+      "geocode_source": "nominatim",
+      "price": {
+        "onion": 20.0,
+        "potato": 16.0
+      },
+      "capacity_kg": {
+        "onion": 3000.0,
+        "potato": 6000.0
+      },
+      "n_days": {
+        "onion": 14,
+        "potato": 14
+      },
+      "last_date": {
+        "onion": "2026-04-01",
+        "potato": "2026-04-01"
+      }
+    }
+  ]
+}

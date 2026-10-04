@@ -21,7 +21,16 @@ prototype:
 
 import math
 import random
+from collections import defaultdict
 from dataclasses import dataclass, field
+
+import numpy as np
+
+try:
+    from sklearn.cluster import KMeans
+    _HAVE_SKLEARN = True
+except ImportError:
+    _HAVE_SKLEARN = False
 
 AVG_SPEED_KMPH = 32
 DISPATCH_OVERHEAD_HR = 0.5
@@ -104,6 +113,23 @@ def spoilage_fraction(crop, vehicle_refrigerated, transit_hours):
     return min(rate * transit_hours, 0.6)
 
 
+def spoilage_fraction_from_temp(crop, observed_temp_c, transit_hours):
+    """Sensor-driven counterpart to spoilage_fraction(): the base pipeline
+    only ever knows a vehicle's refrigerated/not design fact (a binary);
+    a real sensor gives a continuous temperature. Spoilage rate increases
+    linearly with how far observed_temp_c sits above a per-crop safe
+    transit threshold (4C for crops needing refrigeration, 20C otherwise),
+    +8%/C above that, capped at the same 0.6 loss ceiling as the rest of
+    the model. Explicitly-not-fit assumption, same caveat as the rest of
+    this prototype's spoilage modeling."""
+    info = CROPS[crop]
+    rate = info["base_spoil_per_hr"]
+    threshold_c = 4.0 if info["needs_refrigeration"] else 20.0
+    excess_c = max(0.0, observed_temp_c - threshold_c)
+    rate *= (1.0 + 0.08 * excess_c)
+    return min(rate * transit_hours, 0.6)
+
+
 def make_fleet(fleet_composition, seed=0):
     """fleet_composition: dict {type_name: count}. Returns a list of
     Vehicle instances -- this is the actual, finite fleet."""
@@ -120,14 +146,195 @@ def make_fleet(fleet_composition, seed=0):
     return fleet
 
 
+# Type-mix weights shared by both fleet-sizing functions below (kept as
+# one constant so the depot-aware version can't silently drift out of
+# sync with the flat one it's meant to supersede as the default).
+_FLEET_TYPE_WEIGHTS = {"mini_pickup": 0.10, "van": 0.20, "reefer_van": 0.10,
+                       "truck_2t": 0.25, "reefer_2t": 0.15, "truck_5t": 0.13, "reefer_5t": 0.07}
+
+
 def default_fleet_composition(n_farmers):
-    """Scales a plausible fleet with farmer count -- roughly 1 vehicle
-    per 40 farmers, split across types, skewed toward mid-size trucks.
-    This is a judgment call for the POC, not a measured ratio."""
+    """Scales a plausible fleet with TOTAL farmer count -- roughly 1
+    vehicle per 40 farmers, split across types, skewed toward mid-size
+    trucks. This is a judgment call for the POC, not a measured ratio.
+
+    Superseded as generate_scenario_v2's default by
+    depot_aware_fleet_composition() below -- this flat version sizes
+    the whole fleet off n_farmers alone, blind to how those farmers are
+    distributed in space. Kept for callers that only have a count, not
+    farmer positions (e.g. quick what-if sizing)."""
     n_vehicles = max(4, round(n_farmers / 40))
-    weights = {"mini_pickup": 0.10, "van": 0.20, "reefer_van": 0.10,
-               "truck_2t": 0.25, "reefer_2t": 0.15, "truck_5t": 0.13, "reefer_5t": 0.07}
-    comp = {name: max(0, round(n_vehicles * w)) for name, w in weights.items()}
+    comp = {name: max(0, round(n_vehicles * w)) for name, w in _FLEET_TYPE_WEIGHTS.items()}
+    if sum(comp.values()) == 0:
+        comp["van"] = 1
+    return comp
+
+
+# Depot partition -- moved here (from algorithms_v2.py, unchanged logic)
+# so fleet composition can be sized per-depot instead of off a single
+# global farmer count. algorithms_v2.py imports these back for its own
+# clustering step, so both stay on the exact same partition.
+#
+# FARMERS_PER_DEPOT is tied to the fleet-sizing ratio (~1 vehicle per 40
+# farmers) so a depot's expected demand is roughly one vehicle-load's
+# worth -- a reasoned default, not a fitted one.
+FARMERS_PER_DEPOT = 40
+
+# Fixed-size grid partition -- fallback only, for when sklearn isn't
+# available (KMeans needs it). 2.2x the clustering eps_km used in
+# algorithms_v2.py (EPS_KM=12.0); kept as a literal here (rather than
+# importing algorithms_v2, which would be circular) since it only
+# matters for the no-sklearn fallback path.
+DEPOT_CELL_KM = 26.4
+
+# Reference per-depot bounding-box area for _spread_based_depot_floor()
+# below -- empirically ~2,880 km^2/depot at n=300-10,000 in this
+# module's own generate_scenario_v2() scenarios (where farmer density
+# is roughly constant by construction), i.e. what FARMERS_PER_DEPOT=40
+# already implies spatially once n is past small-count rounding
+# artifacts. NOT the same constant as DEPOT_CELL_KM (that one comes
+# from the unrelated DBSCAN clustering radius and was never calibrated
+# to agree with FARMERS_PER_DEPOT -- see _spread_based_depot_floor()'s
+# docstring for what went wrong when an earlier version used it here).
+DEPOT_REFERENCE_AREA_KM2 = 2880.0
+
+
+def _grid_partition(farmer_list, cell_km=DEPOT_CELL_KM):
+    if not farmer_list:
+        return []
+    cells = defaultdict(list)
+    for f in farmer_list:
+        lat_step = cell_km / 111.0
+        lng_step = cell_km / max(1e-6, 111.0 * math.cos(math.radians(f.lat)))
+        cells[(int(f.lat // lat_step), int(f.lng // lng_step))].append(f)
+    return list(cells.values())
+
+
+def _spread_based_depot_floor(farmer_list, reference_area_km2=DEPOT_REFERENCE_AREA_KM2):
+    """Fix for the n<=100 regression traced in ALGORITHM_AND_RESULTS_V2.md
+    s3/s6: farmer-count-based sizing alone (round(n/farmers_per_depot))
+    can floor to 1 depot even when the farmers span a non-trivial area,
+    because it has no notion of physical distance -- a spread-out n=50
+    gets the exact same 1-depot treatment as a tightly-clustered n=50
+    would.
+
+    reference_area_km2 is the per-depot bounding-box area the
+    count-based formula ITSELF already implies once farmer count is
+    large enough to be past low-count rounding artifacts (empirically
+    ~2,880 km^2/depot at n=300-10,000 in the benchmark's own synthetic
+    scenarios, i.e. what FARMERS_PER_DEPOT=40 actually corresponds to
+    spatially under that data's typical density). This floor only adds
+    depots when a population's actual area is large relative to THAT
+    reference for its own count-based depot number -- so a normally-
+    proportioned population (small n, small area, matching the same
+    density every larger scenario has) is untouched, and this doesn't
+    become a second, uncalibrated depot-count formula that silently
+    outranks the farmer-count one at every scale.
+
+    An earlier version of this function tiled the whole bounding box
+    with fixed DEPOT_CELL_KM-sized cells (the grid-partition fallback's
+    cell size) and used the cell count directly as the floor. Caught
+    before benchmarking: DEPOT_CELL_KM (derived from the DBSCAN
+    clustering radius, EPS_KM) and FARMERS_PER_DEPOT (the fleet-sizing
+    ratio) were never calibrated to agree, and in fact differ by a
+    roughly constant ~4x factor in implied per-depot area at every
+    scale (not just small n) -- so that version wasn't a spread-anomaly
+    check at all, it silently forced ~4x more depots than the
+    count-based formula EVERYWHERE, including the n=300-10,000 range
+    already validated in prior rounds. Confirmed by testing: it
+    produced 1,054 depots (~3-9 farmers each) at n=10,000 vs. the
+    validated 250, which would also have wrecked
+    depot_aware_fleet_composition()'s per-depot vehicle-equivalent sum
+    (each of those 1,054 tiny depots floors to its own vehicle).
+    """
+    if len(farmer_list) <= 1:
+        return 1
+    lats = [f.lat for f in farmer_list]
+    lngs = [f.lng for f in farmer_list]
+    mean_lat = sum(lats) / len(lats)
+    lat_span_km = (max(lats) - min(lats)) * 111.0
+    lng_span_km = (max(lngs) - min(lngs)) * 111.0 * max(1e-6, math.cos(math.radians(mean_lat)))
+    area_km2 = lat_span_km * lng_span_km
+    return max(1, round(area_km2 / reference_area_km2))
+
+
+def _depot_partition(farmer_list, farmers_per_depot=FARMERS_PER_DEPOT):
+    n = len(farmer_list)
+    if n <= 1:
+        return [farmer_list]
+    n_depots = max(1, round(n / farmers_per_depot))
+    # Take the max of the count-based figure and the spread-based floor
+    # (not swapping one count-only heuristic for another, per the
+    # ALGORITHM_AND_RESULTS_V2.md s6 next-step note) -- whichever calls
+    # for more depots wins; a low-n, wide-spread population no longer
+    # collapses to a single depot just because round(n/40)==1.
+    n_depots = max(n_depots, _spread_based_depot_floor(farmer_list))
+    n_depots = min(n_depots, n)  # can't ask KMeans for more clusters than points
+    if not _HAVE_SKLEARN or n_depots >= n:
+        return _grid_partition(farmer_list)  # fallback: no sklearn, or too few farmers to cluster
+    coords = np.array([[f.lat, f.lng] for f in farmer_list])
+    labels = KMeans(n_clusters=n_depots, n_init=4, random_state=0).fit(coords).labels_
+    groups = defaultdict(list)
+    for f, lab in zip(farmer_list, labels):
+        groups[lab].append(f)
+    return list(groups.values())
+
+
+def depot_aware_fleet_composition(farmers, farmers_per_depot=FARMERS_PER_DEPOT):
+    """Fix for the confirmed coverage-plateau root cause (see
+    ALGORITHM_AND_RESULTS_V2.md s6): default_fleet_composition() sized
+    the WHOLE fleet off a single global farmer count, so two scenarios
+    with the same n but different spatial spread (one dense clump vs.
+    several separate pockets) got the identical fleet -- even though
+    each independent pocket genuinely needs its own minimum service
+    capacity; one pocket's vehicle can't be "shared" with a pocket
+    hours away inside the same tight ready/deadline window.
+
+    Partitions farmers the same way _depot_partition() does for
+    clustering, sizes each depot's fleet independently off ITS OWN
+    farmer count (same ~1-per-40 ratio and type-mix weights as the flat
+    version, just applied per depot instead of once globally), then
+    sums the per-depot compositions into the single fleet
+    make_fleet() still expects.
+
+    This directly "adds capacity where the density is": a population
+    spread across several small pockets now gets a vehicle per pocket
+    (each independently floored at >=1), rather than being smoothed
+    into one global ratio that can undercount how many independent
+    service pockets actually exist. A single dense population behaves
+    the same as before (one depot, same math as the flat version).
+
+    Vehicles are still a single shared, location-agnostic pool at
+    assignment time (assign_fleet() in algorithms_v2.py isn't
+    depot-bound) -- this fix targets fleet SIZE, not routing.
+    Distributing vehicles to be depot-BOUND is a separate, larger
+    change and is not what this function does.
+
+    Important: this recomputes the TOTAL vehicle count (still applying
+    the type-mix weights once, globally, exactly like the flat
+    version) rather than re-deriving a separate type mix per depot.
+    An earlier version of this function applied the ~1-per-40 formula
+    a SECOND time within each depot -- but FARMERS_PER_DEPOT is the
+    same constant depots are already sized around, so a typical
+    depot's own farmer count divided by 40 rounds to ~1 almost every
+    time, collapsing every depot's local type mix to a single
+    fallback vehicle (observed in testing: 100% "van" fleets at
+    n=1,000-10,000, a real regression, not just a style choice).
+    Keeping the type-mix computation global and letting only the
+    TOTAL vary with depot count avoids that collapse.
+    """
+    depots = _depot_partition(list(farmers), farmers_per_depot)
+    # Each depot's demand contributes at least one full "vehicle
+    # equivalent" toward the total, even if its own farmer count is
+    # well under farmers_per_depot -- this is what actually captures
+    # "many small, separate pockets need more total capacity than one
+    # flat n/40 ratio assumes," without touching the type-mix step.
+    # A single depot (or evenly-sized depots near farmers_per_depot)
+    # reduces to ~n/farmers_per_depot, the same total the flat version
+    # computed.
+    vehicle_equivalents = sum(max(1.0, len(d) / farmers_per_depot) for d in depots)
+    n_vehicles = max(4, round(vehicle_equivalents))
+    comp = {name: max(0, round(n_vehicles * w)) for name, w in _FLEET_TYPE_WEIGHTS.items()}
     if sum(comp.values()) == 0:
         comp["van"] = 1
     return comp
@@ -156,7 +363,7 @@ def generate_scenario_v2(n_farmers=20, n_markets=3, fleet_composition=None, seed
         ))
 
     if fleet_composition is None:
-        fleet_composition = default_fleet_composition(n_farmers)
+        fleet_composition = depot_aware_fleet_composition(farmers)
     vehicles = make_fleet(fleet_composition, seed=seed)
 
     markets = []
@@ -189,6 +396,8 @@ def market_demand_nodes(markets, crop, elastic_pricing, tranches=3):
     tranche_shares = [0.5, 0.3, 0.2][:tranches]
     tranche_price_mult = [1.0, 0.90, 0.78][:tranches]
     for m in markets:
+        if crop not in m.capacity_kg or crop not in m.price:
+            continue  # this market doesn't quote `crop` at all -- not a demand node for it
         cap = m.capacity_kg[crop]
         price = m.price[crop]
         if not elastic_pricing:

@@ -3,38 +3,25 @@
 FastAPI + SQLite backend for the farmer-pooling / market-allocation course
 project. Local course demo — no auth, no deployment config, no Docker.
 
-## ⚠️ Before you run this: one missing file
-
-This backend was built against `CONTRACT.md`'s verified interface spec, but
-the **real `algorithms_v2.py`** (the Algorithm sub-agent's actual
-implementation of `run_our_system_v2`, `run_individual_transport_v2`,
-`run_proximity_pooling_v2`, and `summarize`) was not part of this delivery —
-the file that arrived under that name was actually the dispatch prompt text
-for this sub-agent, and `benchmark_v2.py` came through instead of the real
-module. Every endpoint below works without it *except* `/plan/compute`,
-which will return a `500` with an explanatory message until you:
-
-```bash
-cp /path/to/real/algorithms_v2.py backend/algorithms_v2.py
-```
-
-(It needs to sit next to `logistics_lib_v2.py` in this folder, since both
-are imported by `main.py`.) Everything else in this backend — schema,
-endpoints, validation, storage — was written directly from `CONTRACT.md`'s
-verified signatures, so no other change should be needed once the real file
-is dropped in.
-
 ## Setup
+
+Run every command from inside this `backend/` folder (the app imports
+`database`, `schemas`, `logistics_lib_v2`, `algorithms_v2` as plain
+same-directory modules, not a package — running `uvicorn` from the
+project root, or `python3 main.py` directly, will not find them).
 
 ```bash
 cd backend
 pip install -r requirements.txt
-python3 verify_setup.py   # sanity-checks every endpoint; safe to run
-                           # before or after algorithms_v2.py is added
+python3 verify_setup.py   # sanity-checks every endpoint; safe to run any time
 uvicorn main:app --reload --port 8000
 ```
 
 Interactive API docs (from FastAPI automatically): `http://localhost:8000/docs`
+
+The frontend (`../frontend/index.html`) expects the API at
+`http://localhost:8000` by default — open it after the server above is
+running.
 
 ## Endpoints
 
@@ -76,7 +63,8 @@ Valid `type_name` values: `mini_pickup`, `van`, `reefer_van`, `truck_2t`,
 
 ### `POST /markets`, `GET /markets`
 Mirrors `Market`. `price` and `capacity_kg` are `{crop: value}` dicts; keys
-must be a subset of the 6 known crops.
+must be a subset of the 6 known crops. A single market can quote a price and
+capacity for several crops at once.
 
 ```json
 // POST /markets
@@ -89,6 +77,8 @@ must be a subset of the 6 known crops.
  "price": {"tomato": 20.5, "potato": 11.0},
  "capacity_kg": {"tomato": 5000, "potato": 5000}}
 ```
+
+Valid crop keys: `tomato`, `onion`, `potato`, `cauliflower`, `mango`, `spinach`.
 
 ### `POST /plan/compute`
 Pulls all farmers/vehicles/markets currently in the DB, runs all three
@@ -105,7 +95,7 @@ from `CONTRACT.md`, not invented ones):
 {
   "id": 1,
   "created_at": "2026-09-23T11:40:00",
-  "our_system": {
+  "integrated_logistics_optimization": {
     "pools": [
       {"farmer_ids": [1, 8, 0], "vehicle_id": 3, "markets_used": [1, 2],
        "total_qty_kg": 2650.6, "revenue": 32370.6, "transport_cost": 6313.1,
@@ -137,6 +127,63 @@ collapsed into one "unsold" number.
 Fetches a stored plan run in the same shape as above, plus `input_snapshot`
 (the exact farmers/fleet/markets used for that run).
 
+### `GET /plan/{id}/visualization`
+Adapter endpoint for the frontend's Map & simulation tab
+(`backend/visualization_adapter.py`) — reshapes the same stored plan into a
+frontend-facing form: farmers/vehicles/markets/routes/simulation-events per
+algorithm, so the frontend never has to know about pools, fleets, or LP
+allocation edges. Nothing is recomputed here; it's a pure reshape of what
+`/plan/compute` already stored. `404` if `id` doesn't exist.
+
+```json
+{
+  "id": 1, "created_at": "2026-09-23T11:40:00",
+  "solutions": {
+    "integrated_logistics_optimization": {
+      "algorithm": "integrated_logistics_optimization",
+      "farmers": [{"id": 1, "lat": 25.61, "lng": 84.92, "crop": "tomato",
+                   "loadKg": 320, "needsRefrigeration": true,
+                   "timeWindow": {"start": 1.0, "end": 9.0},
+                   "tripId": "trip-0", "served": true}],
+      "vehicles": [{"id": 3, "typeName": "reefer_2t", "capacityKg": 2000,
+                     "refrigerated": true, "fixedCost": 2200, "perKmCost": 24,
+                     "tripIds": ["trip-0"], "used": true,
+                     "assignedLoadKgTotal": 1820.0}],
+      "markets": [{"id": 1, "lat": 25.70, "lng": 85.00,
+                    "price": {"tomato": 20.5}, "capacityKg": {"tomato": 5000},
+                    "receivedKg": {"tomato": 1820.0}}],
+      "routes": [{"id": "trip-0", "vehicleId": 3, "farmerIds": [1, 8, 0],
+                   "marketIds": [1], "stops": [...], "coordinates": [...],
+                   "geometry": "straight_line", "distanceKm": 12.4,
+                   "distanceIsDerived": true, "totalQtyKg": 1820.0,
+                   "revenue": 32370.6, "transportCost": 6313.1,
+                   "netReturn": 26057.5, "spoilageLossKg": 803.4,
+                   "unsoldKg": 0.0, "marketAllocations": [...]}],
+      "unservedFarmerIds": [4, 9],
+      "simulationEvents": [{"tripId": "trip-0", "vehicleId": 3,
+                              "type": "dispatch", "timestamp": 1.0}, "..."],
+      "summary": { "...same summarize() fields as /plan/compute..." },
+      "marketBreakdownAvailable": true, "timingModel": "reconstructed",
+      "notes": "..."
+    },
+    "individual_transport": { "...same shape..." },
+    "proximity_pooling": { "...same shape..." }
+  }
+}
+```
+
+See the module docstring in `visualization_adapter.py` for exactly which
+fields are real optimizer output vs. deliberately-labeled derived/
+reconstructed display data (route geometry, distances, timestamps,
+per-market breakdowns) — nothing is fabricated, and everything derived is
+computed with the same constants/formulas `algorithms_v2.py` itself uses.
+
+`integrated_logistics_optimization`'s `marketAllocations`/`receivedKg` are
+only exact when `/plan/compute` was run after the `result_ilo_trace` column
+existed (see `database.py`'s migration note) — older stored plans simply
+have `marketBreakdownAvailable: false` for that algorithm instead of a
+guessed split.
+
 ### `POST /sensors/reading`
 ```json
 {"pool_id": "1:3", "temperature": 6.4, "humidity": 82.0, "timestamp": 3.5}
@@ -153,16 +200,50 @@ here. `"<plan_run_id>:<vehicle_id>"` is a reasonable one if the frontend/IoT
 team wants a suggestion, but that's their call to make, not something this
 backend assumes.
 
+### `GET /sensors/readings`
+Added alongside the Map & simulation tab's IoT panel — `POST /sensors/reading`
+existed with no way to read readings back. Optional `?pool_id=` filters to
+one pool's readings (ordered by `timestamp`); omit it to list everything.
+Returns `[]`, not fabricated data, when nothing has been posted yet.
+
+```json
+// GET /sensors/readings?pool_id=1:3
+[{"id": 1, "pool_id": "1:3", "temperature": 6.4, "humidity": 82.0, "timestamp": 3.5}]
+```
+
+### `POST /reset`
+Clears every farmer, vehicle, market, plan run and sensor reading, and
+resets the autoincrement counters so a fresh load afterwards starts IDs
+at 1 again. For starting over between demos without deleting `fpo.db`
+by hand.
+
+```json
+// 200 response
+{"cleared": {"sensor_readings": 2, "plan_runs": 1, "farmers": 11,
+             "vehicles": 4, "markets": 2}}
+```
+
 ## Files
 
 | File | Purpose |
 |---|---|
-| `main.py` | FastAPI app, all routes |
-| `database.py` | sqlite3 connection + schema (`fpo.db`, created on first run) |
+| `main.py` | FastAPI app, all routes, CORS |
+| `database.py` | sqlite3 connection + schema (`fpo.db`, created on first run — not committed) |
 | `schemas.py` | Pydantic request/response models |
-| `logistics_lib_v2.py` | Real data model (copied as provided — `Farmer`, `Vehicle`, `Market`, `CROPS`, `VEHICLE_TYPES`, `fresh_capacity`, etc.) |
-| `algorithms_v2.py` | **Not included — see warning above.** Must be added before `/plan/compute` will work. |
+| `logistics_lib_v2.py` | Real data model (`Farmer`, `Vehicle`, `Market`, `CROPS`, `VEHICLE_TYPES`, `fresh_capacity`, etc.) |
+| `algorithms_v2.py` | The three allocation algorithms (`run_ilo_v2` -- internally `run_our_system_v2` -- `run_individual_transport_v2`, `run_proximity_pooling_v2`, `summarize`) |
+| `visualization_adapter.py` | Reshapes a stored plan run into the Map & simulation tab's frontend-facing schema. Pure consumer of the algorithm output — no optimization logic |
 | `verify_setup.py` | Exercises every endpoint via `TestClient`; run after `pip install -r requirements.txt` |
+| `verify_visualization.py` | Exercises `GET /plan/{id}/visualization` and `GET /sensors/readings` against a realistic multi-vehicle scenario, including multi-trip vehicle-reuse and served/unserved-farmer edge cases |
+| `benchmark_v2.py` | Standalone scale/economics benchmark, not used by the API. Needs `pandas` (`pip install pandas`), which isn't in `requirements.txt` since the app itself doesn't need it. Run with `python3 benchmark_v2.py` from this folder. |
+
+`database.py` adds a `result_ilo_trace` column to `plan_runs` (used by
+`visualization_adapter.py` for exact per-market breakdowns on the Our
+System/ILO algorithm) and runs a one-line `ALTER TABLE ... ADD COLUMN`
+migration on startup for any `fpo.db` created before this column existed —
+safe to run repeatedly, and the column is nullable so older stored plans
+still load fine, just without that one extra breakdown.
+
 
 ## Known simplifications (inherited, not re-litigated here)
 

@@ -10,9 +10,9 @@ Two things this measures, matching what was asked for:
 
 Baselines got the same two structural fixes (real finite fleet with
 multi-trip reuse, fleet-aware pool sizing) so the comparison isn't
-just "fixed vs still-broken" -- Our System's edge is specifically the
-mixed-crop pooling + LP-optimal, multi-market, never-trade-at-a-loss
-allocation, exactly as before.
+just "fixed vs still-broken" -- Integrated Logistics Optimization's edge
+is specifically the mixed-crop pooling + LP-optimal, multi-market,
+never-trade-at-a-loss allocation, exactly as before.
 """
 import time
 import copy
@@ -21,7 +21,7 @@ import pandas as pd
 
 from logistics_lib_v2 import generate_scenario_v2, fresh_capacity
 from algorithms_v2 import (
-    run_our_system_v2, run_individual_transport_v2, run_proximity_pooling_v2, summarize,
+    run_ilo_v2, run_individual_transport_v2, run_proximity_pooling_v2, summarize,
 )
 
 N_VALUES = [50, 100, 300, 600, 1000, 2000, 4000, 6000, 8000, 10000]
@@ -36,8 +36,8 @@ def run_all(seed, n):
     farmers, fleet, markets = generate_scenario_v2(n_farmers=n, n_markets=n_markets_for(n), seed=seed)
 
     t0 = time.time()
-    res_ours = run_our_system_v2(farmers, copy.deepcopy(fleet), markets)
-    t_ours = time.time() - t0
+    res_ilo = run_ilo_v2(farmers, copy.deepcopy(fleet), markets)
+    t_ilo = time.time() - t0
 
     t0 = time.time()
     res_ind = run_individual_transport_v2(farmers, copy.deepcopy(fleet), markets, fresh_capacity(markets))
@@ -48,7 +48,7 @@ def run_all(seed, n):
     t_prox = time.time() - t0
 
     rows = []
-    for algo, res, t_elapsed in [("Our System", res_ours, t_ours),
+    for algo, res, t_elapsed in [("Integrated Logistics Optimization", res_ilo, t_ilo),
                                   ("Individual Transport", res_ind, t_ind),
                                   ("Proximity Pooling", res_prox, t_prox)]:
         s = summarize(res, n, len(fleet))
@@ -92,7 +92,7 @@ def main():
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(8, 5))
-    for algo in ["Our System", "Individual Transport", "Proximity Pooling"]:
+    for algo in ["Integrated Logistics Optimization", "Individual Transport", "Proximity Pooling"]:
         sub = summary[summary.algorithm == algo]
         ax.plot(sub.n_farmers, sub.net_return_mean, marker="o", label=algo)
     ax.axhline(0, color="gray", linewidth=0.8)
@@ -105,17 +105,17 @@ def main():
     fig.savefig("chart_net_return_v2.png", dpi=130)
 
     fig2, ax2 = plt.subplots(figsize=(8, 5))
-    ours = summary[summary.algorithm == "Our System"]
-    ax2.plot(ours.n_farmers, ours.runtime_mean, marker="o", color="darkorange")
+    ilo = summary[summary.algorithm == "Integrated Logistics Optimization"]
+    ax2.plot(ilo.n_farmers, ilo.runtime_mean, marker="o", color="darkorange")
     ax2.set_xlabel("Number of farmers")
     ax2.set_ylabel("Wall-clock runtime (seconds)")
-    ax2.set_title("Our System v2: runtime vs. scale (up to 10,000 farmers)")
+    ax2.set_title("Integrated Logistics Optimization v2: runtime vs. scale (up to 10,000 farmers)")
     ax2.grid(alpha=0.3)
     fig2.tight_layout()
     fig2.savefig("chart_runtime_scaling_v2.png", dpi=130)
 
     fig3, ax3 = plt.subplots(figsize=(8, 5))
-    for algo in ["Our System", "Individual Transport", "Proximity Pooling"]:
+    for algo in ["Integrated Logistics Optimization", "Individual Transport", "Proximity Pooling"]:
         sub = summary[summary.algorithm == algo]
         ax3.plot(sub.n_farmers, sub.pct_served_mean, marker="o", label=algo)
     ax3.set_xlabel("Number of farmers")
