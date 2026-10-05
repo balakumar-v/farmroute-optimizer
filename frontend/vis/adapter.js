@@ -110,6 +110,7 @@
 
   Vis.STATUS_COLORS = {
     unserved: [179, 48, 26],        // oxide red, matches --red
+    farmgate: [86, 97, 112],        // slate: sold to a trader at the doorstep (not a failure, so not red)
     unvisited: [150, 158, 166],
     visited: [27, 79, 156],         // enamel blue, matches --blue
   };

@@ -1,7 +1,7 @@
 """
 benchmark_baselines_v3.py
 --------------------------
-ILO vs the LEGACY baselines vs the REALISTIC baselines (baselines_v3.py), on the project's synthetic
+ILO v2 vs the LEGACY baselines vs the BEHAVIOURAL and RATIONAL baselines (baselines_v3.py), on the project's synthetic
 scenarios. Every number is farmer-side value INCLUDING the farm-gate sale of anything the plan did not haul
 (net_return_incl_farmgate), so algorithms that haul less are not penalised with Rs 0 for the rest.
 
@@ -36,9 +36,13 @@ def one_scenario(n, seed, discount, match):
         "legacy Individual": S(run_individual_transport_v2(farmers, copy.deepcopy(fleet), markets, fresh_capacity(markets))),
         "legacy Proximity": S(run_proximity_pooling_v2(farmers, copy.deepcopy(fleet), markets, fresh_capacity(markets))),
         "Farm-gate only": S(run_farmgate_baseline_v2(farmers, markets)),
-        "Self-haul": S(run_self_haul_v2(farmers, fleet, markets, fresh_capacity(markets), discount, match)),
-        "Neighbour pooling": S(run_neighbour_pooling_v2(farmers, fleet, markets, fresh_capacity(markets), discount,
-                                                       match_ilo_accounting=match)),
+        "Self-haul (behavioural)": S(run_self_haul_v2(farmers, fleet, markets, fresh_capacity(markets), discount, match)),
+        "Neighbour (behavioural)": S(run_neighbour_pooling_v2(farmers, fleet, markets, fresh_capacity(markets), discount,
+                                                             match_ilo_accounting=match)),
+        "Self-haul (rational)": S(run_self_haul_v2(farmers, fleet, markets, fresh_capacity(markets), discount, match,
+                                                   behaviour=None)),
+        "Neighbour (rational)": S(run_neighbour_pooling_v2(farmers, fleet, markets, fresh_capacity(markets), discount,
+                                                          match_ilo_accounting=match, behaviour=None)),
     }
     return out
 
@@ -55,7 +59,7 @@ def table(ns, seeds, discount, match, title):
             st = statistics.mean(r[algo]["spot_trips"] for r in runs)
             vu = statistics.mean(r[algo]["vehicles_used"] for r in runs)
             print(f"{n:>5} {algo:<19} {v:>21,.0f} {h:>20,.0f} {st:>10.0f} {vu:>12.0f}")
-            if algo in ("Farm-gate only", "Self-haul", "Neighbour pooling"):
+            if algo not in ("ILO", "legacy Individual", "legacy Proximity"):
                 best_real = v if best_real is None else max(best_real, v)
         ilo = statistics.mean(r["ILO"]["net_return_incl_farmgate"] for r in runs)
         print(f"{'':>5} ILO vs best realistic baseline: {100 * (ilo / best_real - 1):+.1f}%")

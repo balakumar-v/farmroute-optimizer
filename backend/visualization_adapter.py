@@ -15,7 +15,11 @@ physics. Nothing here mutates or re-runs the optimizer.
 Honesty rules this module follows (see the project brief it was written
 against):
   - A pool with vehicle_id=None never got a truck. It is NOT rendered as a
-    "route" -- its farmers are reported in `unserved_farmer_ids` instead.
+    "route" -- its farmers are reported in `unserved_farmer_ids` instead, UNLESS the pool is flagged
+    sold_at_farmgate (a baseline farmer who chose to sell to a trader): those go in `farmgate_farmer_ids`
+    so they are never shown as failures.
+  - Spot-hired vehicles (behavioural baselines) are not part of the FPO fleet; they are listed as
+    separate vehicles labelled "Spot-hired ..." so every route resolves to a vehicle.
   - Route polyline geometry is a straight line between real stops (farmer /
     market coordinates already in the data). This project has no road
     network, so that's the best honest geometry available. `geometry` is
@@ -82,6 +86,29 @@ def _vehicle_color_seed(vehicle_id: Optional[int]) -> int:
     presentation concern), this just guarantees the same vehicle always
     seeds the same way."""
     return -1 if vehicle_id is None else int(vehicle_id)
+
+
+def _remap_spot_vehicles(pools: List[dict], fleet: List[dict]):
+    """The behavioural baselines hire SPOT vehicles that are not in the FPO fleet (negative vehicle ids,
+    spot_hire=True, plus a vehicle_spec). The frontend looks every route's vehicle up in `vehicles`, so each
+    hire is shown as its own vehicle under a fresh positive id that cannot collide with a fleet id, and its
+    type is labelled "Spot-hired ...". Returns (pools_with_display_ids, {display_id: spec}). Stored data is
+    not mutated."""
+    spot_ids = sorted({p["vehicle_id"] for p in pools if p.get("spot_hire") and p.get("vehicle_id") is not None})
+    if not spot_ids:
+        return pools, {}
+    base = max((v["id"] for v in fleet), default=0)
+    mapping = {vid: base + 1 + k for k, vid in enumerate(spot_ids)}
+    out, specs = [], {}
+    for p in pools:
+        if p.get("spot_hire") and p.get("vehicle_id") in mapping:
+            q = dict(p)
+            q["vehicle_id"] = mapping[p["vehicle_id"]]
+            specs[q["vehicle_id"]] = p.get("vehicle_spec") or {}
+            out.append(q)
+        else:
+            out.append(p)
+    return out, specs
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +269,7 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
     farmers = input_snapshot["farmers"]
     fleet = input_snapshot["fleet"]
     markets = input_snapshot["markets"]
-    pools = algo_result["pools"]
+    pools, spot_specs = _remap_spot_vehicles(algo_result["pools"], fleet)
     summary = algo_result["summary"]
 
     farmers_by_id = {f["id"]: f for f in farmers}
@@ -265,14 +292,19 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
     # ---- farmers ----
     farmer_to_trip: Dict[int, str] = {}
     unserved_farmer_ids: List[int] = []
+    farmgate_farmer_ids: List[int] = []     # chose / ended up selling at the doorstep (not "unserved")
     for i, pool in enumerate(pools):
         trip_id = f"trip-{i}"
         if pool.get("vehicle_id") is None:
-            unserved_farmer_ids.extend(pool["farmer_ids"])
+            if pool.get("sold_at_farmgate"):
+                farmgate_farmer_ids.extend(pool["farmer_ids"])
+            else:
+                unserved_farmer_ids.extend(pool["farmer_ids"])
         else:
             for fid in pool["farmer_ids"]:
                 farmer_to_trip[fid] = trip_id
 
+    farmgate_set = set(farmgate_farmer_ids)
     farmers_out = []
     for f in farmers:
         served = f["id"] in farmer_to_trip
@@ -282,6 +314,7 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
             "timeWindow": {"start": f["ready_hr"], "end": f["deadline_hr"]},
             "tripId": farmer_to_trip.get(f["id"]),
             "served": served,
+            "soldAtFarmGate": f["id"] in farmgate_set,
         })
 
     # ---- routes (dispatched trips only) + simulation events ----
@@ -315,7 +348,7 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
             all_events.extend(events)
             vehicle_trip_ids[vid].append(trip_id)
 
-            vehicle = fleet_by_id.get(vid, {})
+            vehicle = fleet_by_id.get(vid) or {"refrigerated": spot_specs.get(vid, {}).get("refrigerated")}
             distance_km = _route_distance_km(
                 [{"lat": s["lat"], "lng": s["lng"]} for s in stops]
             )
@@ -354,6 +387,17 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
             "assignedLoadKgTotal": assigned_load,
         })
 
+    for vid, spec in sorted(spot_specs.items()):
+        trip_ids = vehicle_trip_ids.get(vid, [])
+        vehicles_out.append({
+            "id": vid, "typeName": "Spot-hired " + str(spec.get("type_name", "vehicle")),
+            "capacityKg": spec.get("capacity_kg"), "refrigerated": bool(spec.get("refrigerated", False)),
+            "fixedCost": spec.get("fixed_cost"), "perKmCost": spec.get("per_km_cost"),
+            "tripIds": trip_ids, "used": len(trip_ids) > 0, "colorSeed": _vehicle_color_seed(vid),
+            "assignedLoadKgTotal": sum(r["totalQtyKg"] for r in routes_out if r["vehicleId"] == vid),
+            "spotHire": True,
+        })
+
     # ---- markets (+ exact receipts where available) ----
     markets_out = []
     for m in markets:
@@ -375,6 +419,7 @@ def build_visualization_solution(algo_key: str, input_snapshot: dict, algo_resul
         "markets": markets_out,
         "routes": routes_out,
         "unservedFarmerIds": unserved_farmer_ids,
+        "farmgateFarmerIds": farmgate_farmer_ids,
         "simulationEvents": all_events,
         "summary": summary,
         "marketBreakdownAvailable": market_breakdown_available,

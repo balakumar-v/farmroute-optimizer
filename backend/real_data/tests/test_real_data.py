@@ -83,6 +83,25 @@ def test_build_conversions_and_arrival_not_double_counted():
     assert m["n_days"]["onion"] == 7 and dropped == []
 
 
+def test_build_flags_arrivals_that_look_like_a_reporting_default():
+    rows = []
+    for day in range(1, 29):                             # 28 days at exactly 4 t: a default, not a measurement
+        d = f"2026-09-{day:02d}"
+        rows.append(_row(d, "Alpha", "onion", "Red", 2000, 4))
+        rows.append(_row(d, "Alpha", "potato", "Red", 1500, 3 + (day % 7)))      # genuinely varying arrivals
+    markets, _ = brm.build(pd.DataFrame(rows), COORDS, min_days=5)
+    m = markets[0]
+    assert m["capacity_is_placeholder"] == {"onion": True, "potato": False}
+    assert m["capacity_top_share"]["onion"] == pytest.approx(1.0)
+    assert m["capacity_kg"]["onion"] == pytest.approx(4000.0)      # still emitted as reported, only flagged
+
+
+def test_build_does_not_flag_a_short_series_even_if_constant():
+    rows = [_row(f"2026-09-{day:02d}", "Alpha", "onion", "Red", 2000, 4) for day in range(1, 8)]   # 7 days only
+    markets, _ = brm.build(pd.DataFrame(rows), COORDS, min_days=5)
+    assert markets[0]["capacity_is_placeholder"] == {"onion": False}
+
+
 def test_build_filters():
     rows = []
     for day in range(1, 8):

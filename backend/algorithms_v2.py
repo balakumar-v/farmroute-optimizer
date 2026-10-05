@@ -589,7 +589,8 @@ def _assign_fleet_joint_attempt(pool_descs, fleet):
 # ----------------------------------------------------------------------
 # B) Global LP market allocation (one crop at a time)
 # ----------------------------------------------------------------------
-def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranches=3, top_k=6):
+def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranches=3, top_k=6,
+                        return_leg=False):
     """pool_infos: list of dicts with 'total_qty', 'last_point' (lat,lng),
     't_after_pickup', 'vehicle'. Returns a list (aligned to pool_infos)
     of dicts: revenue, spoil_loss_kg, market_legs_km, unsold_kg, markets_used.
@@ -614,7 +615,10 @@ def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranch
             dist = haversine(p["last_point"][0], p["last_point"][1], m.lat, m.lng)
             transit_hr = p["t_after_pickup"] + dist / AVG_SPEED_KMPH
             spoil = spoilage_fraction(crop, p["vehicle"].refrigerated, transit_hr)
-            transport_per_kg = (p["vehicle"].per_km_cost * dist) / max(p["total_qty"], 1)
+            # return_leg=True also prices the empty leg back from the market to the pool's first stop
+            back = (haversine(p["first_point"][0], p["first_point"][1], m.lat, m.lng)
+                    if (return_leg and p.get("first_point")) else 0.0)
+            transport_per_kg = (p["vehicle"].per_km_cost * (dist + back)) / max(p["total_qty"], 1)
             net_val = node["price"] * (1 - spoil) - transport_per_kg
             cand.append((net_val, ni, dist, spoil))
         cand.sort(key=lambda c: -c[0])
@@ -663,7 +667,7 @@ def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranch
 # Shared: turn a finished pool (possibly multiple crops, one per
 # allocation entry) into the standard result dict.
 # ----------------------------------------------------------------------
-def _finalize(pool, vehicle, order, route_dist, allocs):
+def _finalize(pool, vehicle, order, route_dist, allocs, markets_by_id=None, charge_return_leg=False):
     # farmer_ids is reported in `order` (the routed visiting sequence from
     # order_route()), not `pool` (the unordered grouping) -- `order` was
     # already threaded through as a parameter but unused, so the API was
@@ -678,6 +682,10 @@ def _finalize(pool, vehicle, order, route_dist, allocs):
     for a in allocs:
         market_dist.update(a["market_dist"])  # same distance regardless of which crop reached it
     market_legs_km = sum(market_dist.values())
+    if charge_return_leg and market_dist and markets_by_id:
+        # empty leg home: from the farthest market visited back to the pool's first stop
+        far = markets_by_id[max(market_dist, key=market_dist.get)]
+        market_legs_km += haversine(far.lat, far.lng, order[0].lat, order[0].lng)
     transport_cost = vehicle.fixed_cost + vehicle.per_km_cost * (route_dist + market_legs_km)
     net_return = revenue - transport_cost
     per_farmer = {f.id: (f.qty_kg / total_qty) * net_return for f in pool} if total_qty else {}
@@ -843,20 +851,69 @@ def _order_key_for(mode, descs):
     raise ValueError(mode)
 
 
+def _timeline_from(order, start):
+    """Pickup time of each stop (and the time the loaded vehicle leaves the last one) for a trip
+    dispatched at `start`."""
+    t = start + DISPATCH_OVERHEAD_HR
+    pickups = []
+    for i, f in enumerate(order):
+        if i > 0:
+            t += haversine(order[i - 1].lat, order[i - 1].lng, f.lat, f.lng) / AVG_SPEED_KMPH
+        t = max(t, f.ready_hr)
+        pickups.append(t)
+        t += STOP_OVERHEAD_HR
+    return pickups, t
+
+
+def _route_duration(order, t_end, fix):
+    """Pickup-leg duration used by assign_fleet. Legacy: t_end - overhead, where t_end is simulated from
+    clock 0 and so includes waiting for ready times that have already passed by dispatch time (overstates
+    duration, shrinking vehicle reuse). fix=True simulates from the pool's earliest ready time instead."""
+    if not fix:
+        return t_end - DISPATCH_OVERHEAD_HR
+    d0 = min(f.ready_hr for f in order)
+    _, t_leave = _timeline_from(order, d0)
+    return t_leave - d0 - DISPATCH_OVERHEAD_HR
+
+
+def _t_after_pickup(comp, duration, order, flist, from_pickup):
+    """Hours of transit already accumulated when the loaded vehicle leaves the last stop. Legacy: the absolute
+    clock `comp` (produce 'spoils' from hour 0). from_pickup=True: hours since the crop's (quantity-weighted)
+    pickup instead."""
+    if not from_pickup:
+        return comp
+    pk, _ = _timeline_from(order, comp - duration)
+    pk_of = {f.id: t for f, t in zip(order, pk)}
+    q = sum(f.qty_kg for f in flist)
+    return max(0.0, comp - sum(f.qty_kg * pk_of[f.id] for f in flist) / q)
+
+
 def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, return_trace=False,
-                      withhold_uneconomic=True):
+                      withhold_uneconomic=True, farmgate_value_fn=None, dispatch_margin=0.0,
+                      fix_route_duration=False, spoilage_from_pickup=False, charge_return_leg=False,
+                      raw_pools_override=None):
     """withhold_uneconomic=False reproduces the previous behaviour exactly (every pool that
     can get a vehicle is dispatched, even at a loss). True (default) adds economic dispatch:
     the plan is re-computed with loss-making trips withheld, so their vehicle-time and market
     capacity go to trips that earn money, and the best plan found is kept. The returned plan's
-    total net return is never lower than the withhold_uneconomic=False plan's."""
+    total net return is never lower than the withhold_uneconomic=False plan's.
+    Optional v3 arguments (all default to the exact previous behaviour):
+      farmgate_value_fn(pool)->Rs: the pool's opportunity cost, i.e. what its farmers get if NOT hauled.
+        When given, the objective counts that value for every pool that is not dispatched, and a trip is
+        dispatched only if it beats DISPATCH_MIN_NET + farmgate value * (1 + dispatch_margin).
+      fix_route_duration / spoilage_from_pickup / charge_return_leg: see _route_duration, _t_after_pickup
+        and _finalize.
+      raw_pools_override: use these pools (lists of Farmer) instead of the geographic clustering."""
     capacity_slots = fleet_capacity_cycle(fleet)
     raw_pools = []
-    refrig_eps = _refrig_eps_km(farmers, fleet)
-    scarcity_eps = {"refrig": (lambda f: f.needs_refrigeration, refrig_eps)}
-    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
-        for tg in _split_by_time_window(gc):  # still crop-blind; only timing matters here
-            raw_pools.extend(_bin_pack_fleet_aware(tg, capacity_slots))
+    if raw_pools_override is not None:
+        raw_pools = [list(p) for p in raw_pools_override if p]
+    else:
+        refrig_eps = _refrig_eps_km(farmers, fleet)
+        scarcity_eps = {"refrig": (lambda f: f.needs_refrigeration, refrig_eps)}
+        for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+            for tg in _split_by_time_window(gc):  # still crop-blind; only timing matters here
+                raw_pools.extend(_bin_pack_fleet_aware(tg, capacity_slots))
     raw_pools.sort(key=lambda p: min(f.id for f in p))
 
     # Route every pool first (route timing doesn't depend on which
@@ -871,8 +928,14 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
         "needs_refrigeration": any(f.needs_refrigeration for f in pool),
         "ready_hr": min(f.ready_hr for f in pool),
         "deadline_hr": min(f.deadline_hr for f in pool),
-        "route_duration": t_end - DISPATCH_OVERHEAD_HR,
+        "route_duration": _route_duration(order, t_end, fix_route_duration),
     } for pool, order, route_dist, t_end in routed]
+    markets_by_id = {m.id: m for m in markets}
+    pool_fg = [farmgate_value_fn(pool) for pool, _o, _d, _t in routed] if farmgate_value_fn else None
+
+    def hurdle(i):
+        """Net return a dispatched pool must reach to be worth running."""
+        return DISPATCH_MIN_NET + (pool_fg[i] * (1.0 + dispatch_margin) if pool_fg else 0.0)
 
     base_avail = [v.available_at_hr for v in fleet]
 
@@ -904,13 +967,16 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
             for crop, flist in by_crop_in_pool.items():
                 by_crop_lp[crop].append((i, {
                     "total_qty": sum(f.qty_kg for f in flist), "last_point": last_point,
-                    "t_after_pickup": comp_of[i], "vehicle": vehicle,
+                    "t_after_pickup": _t_after_pickup(comp_of[i], pool_descs[i]["route_duration"], order,
+                                                      flist, spoilage_from_pickup),
+                    "first_point": (order[0].lat, order[0].lng), "vehicle": vehicle,
                 }))
 
         pool_alloc_lists = defaultdict(list)   # pool_idx -> list of per-crop alloc dicts (tagged with "crop")
         for crop, entries in by_crop_lp.items():
             infos = [e[1] for e in entries]
-            allocs = allocate_markets_lp(infos, crop, markets, elastic_pricing=elastic_pricing, top_k=top_k)
+            allocs = allocate_markets_lp(infos, crop, markets, elastic_pricing=elastic_pricing, top_k=top_k,
+                                         return_leg=charge_return_leg)
             for (i, info), alloc in zip(entries, allocs):
                 alloc["crop"] = crop
                 pool_alloc_lists[i].append(alloc)
@@ -920,8 +986,11 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
             if i not in active_set:
                 results[i] = _withheld_result(pool)
             elif i not in results:
-                results[i] = _finalize(pool, veh_of[i], order, route_dist, pool_alloc_lists[i])
+                results[i] = _finalize(pool, veh_of[i], order, route_dist, pool_alloc_lists[i],
+                                       markets_by_id, charge_return_leg)
         total_net = sum(r["net_return"] for r in results.values())
+        if pool_fg:     # undispatched pools' farmers sell at the farm gate: that value is part of the objective
+            total_net += sum(pool_fg[i] for i, r in results.items() if r["vehicle_id"] is None)
         return results, total_net, pool_alloc_lists, veh_of, avail_after
 
     n_pools = len(routed)
@@ -938,7 +1007,7 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
         cur_active, cur_results = active, best[1]
         for _ in range(MAX_WITHHOLD_PASSES):
             losers = {i for i in cur_active
-                      if cur_results[i]["vehicle_id"] is not None and cur_results[i]["net_return"] < DISPATCH_MIN_NET}
+                      if cur_results[i]["vehicle_id"] is not None and cur_results[i]["net_return"] < hurdle(i)}
             if not losers:
                 break
             cur_active = [i for i in cur_active if i not in losers]
@@ -960,11 +1029,11 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
                 starved = any(b_results[i].get("unserved_no_vehicle_kg", 0.0) > 0 for i in b_active)
                 moves = []
                 dispatched = sorted((i for i in b_active if b_results[i]["vehicle_id"] is not None),
-                                    key=lambda i: b_results[i]["net_return"])
+                                    key=lambda i: b_results[i]["net_return"] - (pool_fg[i] if pool_fg else 0.0))
                 if starved:   # frees vehicle-time for starved pools: try dropping the lowest earners first
                     moves += [("drop", i) for i in dispatched]
                 else:         # nothing starved: still try dropping a trip that loses money on its own
-                    moves += [("drop", i) for i in dispatched if b_results[i]["net_return"] < DISPATCH_MIN_NET]
+                    moves += [("drop", i) for i in dispatched if b_results[i]["net_return"] < hurdle(i)]
                 moves += [("add", i) for i in sorted(set(range(n_pools)) - b_set,
                                                       key=lambda i: -pool_descs[i]["total_qty"])]
                 for kind, i in moves:

@@ -63,7 +63,7 @@ const SCENARIOS = {
   cold_chain: {
     label: "1. Cold chain: refrigeration-aware pooling",
     category: "synthetic",
-    blurb: "11 farmers, all growing crops that need refrigeration, against a fleet with only ONE refrigerated vehicle (plus 3 ordinary trucks). Watch spoilage (kg) and net return: Proximity Pooling never checks whether a pool needs refrigeration at all, so it regularly loads perishables onto a plain truck.",
+    blurb: "11 farmers, all growing crops that need refrigeration, against a fleet with only ONE refrigerated vehicle (plus 3 ordinary trucks). Watch spoilage (kg) and farmer value: both baselines hire ordinary (non-refrigerated) trucks and never check whether a load needs refrigeration, so perishables ride unrefrigerated. At these short distances (mandis about 6 km away) spoilage is small and the baselines finish about level with ILO, so this scenario shows the mechanism, not a win.",
     // Vehicle order matters here: van is listed before reefer_van so a
     // capacity tie between them (both 1000kg) resolves toward the
     // non-refrigerated option for the refrigeration-BLIND baseline
@@ -127,7 +127,7 @@ const SCENARIOS = {
   fleet_scarcity: {
     label: "3. Fleet scarcity + incompatible pickup windows",
     category: "synthetic",
-    blurb: "15 potato farmers split into a morning group (ready hour 0, strict deadline by hour ~3-4) and an afternoon group (ready hour ~6-7.5, deadline by hour ~12-13.5) in the same neighborhood, sharing only 3 vehicles. Watch coverage (%): Proximity Pooling groups purely by location and ignores pickup windows entirely, which can make an ENTIRE pool's route miss its deadline -- including farmers whose own window was perfectly fine.",
+    blurb: "15 potato farmers split into a morning group (ready hour 0, strict deadline by hour ~3-4) and an afternoon group (ready hour ~6-7.5, deadline by hour ~12-13.5) in the same neighborhood, sharing only 3 vehicles (the baselines hire their own trucks, so only ILO is held to that fleet). Watch coverage (%) and farmer value: ILO leaves some produce unhauled rather than run losing trips, while Proximity Pooling groups purely by location, waits for the last member, and so the strict-deadline morning farmers miss their pickup and sell at the farm gate.",
     farmers: [
       // morning group -- tight window
       { lat: 25.610, lng: 84.915, crop: "potato", qty_kg: 260, ready_hr: 0.0, deadline_hr: 3.0 },
@@ -157,10 +157,10 @@ const SCENARIOS = {
     ],
   },
   // ---- Real data ----
-  bihar_mar2026: {
+  bihar_dec2025_feb2026: {
     category: "real",
-    label: "Bihar mandis, Mar 2026: potato & onion",
-    blurb: "REAL: 7 Bihar mandis (Aarah, Tajpur, Buxar, Chakia, Sheohar, Sasaram, Barahat) with potato/onion prices and daily capacity from Agmarknet via India Data Portal, 3 Mar - 1 Apr 2026 (median daily modal price; median reported daily arrivals); coordinates from OpenStreetMap. Each mandi quotes only the crops it reported. SYNTHETIC: the 34 farmers and the 8-vehicle fleet (no public farmer or fleet data exists). Fleet size is an assumption: with 4 vehicles about 13% of produce goes unshipped. Barahat is 228 km away but pays the most for onion.",
+    label: "Bihar mandis, Dec 2025 - Feb 2026: potato & onion",
+    blurb: "REAL: 8 Bihar mandis (Aarah, Piro, Tajpur, Natwar, Buxar, Chakia, Sheohar, Sasaram) with potato/onion prices from Agmarknet via India Data Portal, 1 Dec 2025 - 28 Feb 2026 (median daily modal price; one window for every mandi so prices are from the same season). Capacity is the median reported daily arrival, a proxy and not a limit: Aarah, Tajpur, Natwar, Buxar and Chakia repeat one value on 95%+ of days, so treat their capacity as an assumption. Piro (Bhojpur, the farmers' own district) stopped reporting on 23 Feb, so its prices rest on 18 days. Coordinates: OpenStreetMap; Piro and Natwar from public place listings (Natwar is uncertain by ~9 km). Left out: Barahat (184 km+ from every farmer) and Brahmpur, Motihari, Bahadurganj (reported prices but no reliable coordinates). SYNTHETIC: the 34 farmers (same generator and seed as the previous preset, so only the mandis changed) and the 8-vehicle fleet; no public farmer or fleet data exists. The farm-gate price used in the comparison is an assumption.",
     farmers: [
       { lat: 25.70438, lng: 84.67999, crop: "onion", qty_kg: 559.4, ready_hr: 3.02, deadline_hr: 16.89 },
       { lat: 25.54195, lng: 84.99778, crop: "potato", qty_kg: 560.9, ready_hr: 0.4, deadline_hr: 14.14 },
@@ -204,13 +204,14 @@ const SCENARIOS = {
       { type_name: "truck_5t", count: 2 },
     ],
     markets: [
-      { lat: 25.5603, lng: 84.6632, price: { potato: 11.0 }, capacity_kg: { potato: 1330 } }, // Aarah (Bhojpur), 24 km from farmers
-      { lat: 25.8595, lng: 85.6613, price: { onion: 16.0 }, capacity_kg: { onion: 2000 } }, // Tajpur (Samastipur), 82 km from farmers
-      { lat: 25.5612, lng: 83.9813, price: { potato: 11.0 }, capacity_kg: { potato: 5000 } }, // Buxur (Buxar), 92 km from farmers
-      { lat: 26.4234, lng: 85.0412, price: { potato: 9.0 }, capacity_kg: { potato: 60000 } }, // Chakia (Purbi Champaran), 93 km from farmers
-      { lat: 26.5158, lng: 85.2849, price: { onion: 20.0, potato: 16.0 }, capacity_kg: { onion: 3000, potato: 6000 } }, // Sheohar (Sheohar), 109 km from farmers
-      { lat: 24.951, lng: 84.0149, price: { onion: 18.0 }, capacity_kg: { onion: 20000 } }, // Sasaram (Rohtas), 115 km from farmers
-      { lat: 24.8869, lng: 87.0296, price: { onion: 26.0 }, capacity_kg: { onion: 4000 } }, // Barahat (Banka), 228 km from farmers
+      { lat: 25.5603, lng: 84.6632, price: { potato: 11.0 }, capacity_kg: { potato: 1330 } }, // Aarah (Bhojpur), 24 km from farmers | capacity looks like a reporting default: potato 1.33 t on 95% of days
+      { lat: 25.33, lng: 84.42, price: { onion: 13.2, potato: 15.9 }, capacity_kg: { onion: 9000, potato: 4500 } }, // Piro (Bhojpur), 57 km from farmers
+      { lat: 25.8595, lng: 85.6613, price: { onion: 20.0 }, capacity_kg: { onion: 2000 } }, // Tajpur (Samastipur), 82 km from farmers | capacity looks like a reporting default: onion 2 t on 96% of days
+      { lat: 25.23, lng: 84.16, price: { potato: 11.0 }, capacity_kg: { potato: 4000 } }, // Natwar (Rohtas), 85 km from farmers | capacity looks like a reporting default: potato 4 t on 99% of days
+      { lat: 25.5612, lng: 83.9813, price: { potato: 14.0 }, capacity_kg: { potato: 5000 } }, // Buxur (Buxar), 92 km from farmers | capacity looks like a reporting default: potato 5 t on 98% of days
+      { lat: 26.4234, lng: 85.0412, price: { potato: 11.0 }, capacity_kg: { potato: 60000 } }, // Chakia (Purbi Champaran), 93 km from farmers | capacity looks like a reporting default: potato 60 t on 98% of days
+      { lat: 26.5158, lng: 85.2849, price: { onion: 24.0, potato: 22.0 }, capacity_kg: { onion: 2000, potato: 5250 } }, // Sheohar (Sheohar), 109 km from farmers
+      { lat: 24.951, lng: 84.0149, price: { onion: 19.0 }, capacity_kg: { onion: 18000 } }, // Sasaram (Rohtas), 115 km from farmers
     ],
   },
 };
@@ -744,6 +745,9 @@ function renderDashboard(data) {
   const total = s.total_qty_kg || 0;
   const pctOf = (kg) => (total > 0 ? Math.max(0, (kg || 0) / total * 100) : 0);
   const unsold = s.total_unsold_kg || 0, noTruck = s.total_unserved_no_vehicle_kg || 0, withheld = s.total_withheld_kg || 0;
+  const hasFg = s.farmgate_revenue !== undefined;
+  const meta = data.realistic_baselines?.ilo_meta;
+  const fellBack = !!(meta && meta.chosen && meta.chosen.startsWith("fallback:"));
   const missed = unsold + noTruck + withheld;
   const soldPct = Math.max(0, 100 - pctOf(missed));
 
@@ -764,25 +768,34 @@ function renderDashboard(data) {
     `</div><dl>` +
     (unsold ? line(`<span class="key unsold"></span>Unsold at market`, `${fmt(unsold, 1)} kg`) : "") +
     (noTruck ? line(`<span class="key notruck"></span>Never got a truck`, `<span class="bad-text">${fmt(noTruck, 1)} kg</span>`) : "") +
-    (withheld ? line(`<span class="key withheld"></span>Withheld as unprofitable`, `${fmt(withheld, 1)} kg`) : "") +
+    (withheld ? line(`<span class="key withheld"></span>${hasFg ? "Not hauled: sold at the farm gate" : "Withheld as unprofitable"}`, `${fmt(withheld, 1)} kg`) : "") +
     line("Spoilage in transit", `${fmt(s.total_spoilage_kg, 1)} kg`, "sub") +
     line("Pools formed", fmt(s.pools_formed), "sub") +
     line("Vehicles used", fmt(s.vehicles_used) + (s.vehicle_utilization_pct !== undefined ? ` (${fmt(s.vehicle_utilization_pct, 0)}% utilised)` : ""), "sub") + `</dl>`;
 
   $("dashSummary").innerHTML =
-    `<div><h2>Return</h2><dl>${ret}${line("Net return", inr(s.net_return), "total")}${line("Per farmer", inr(s.net_return_per_farmer), "sub")}</dl></div>` +
+    `<div><h2>Return</h2><dl>${ret}${line("Net return", inr(s.net_return), "total")}${line("Per farmer", inr(s.net_return_per_farmer), "sub")}` +
+      (hasFg ? line("Produce not hauled, at the assumed farm-gate price", inr(s.farmgate_revenue), "sub") + line("Farmer value (net return + farm gate)", inr(s.net_return_incl_farmgate), "total") : "") + `</dl></div>` +
     `<div><h2>Harvest</h2>${harvest}</div>`;
 
-  $("dashCoverageNote").className = missed > 0.05 ? "note warn" : "note";
-  $("dashCoverageNote").innerHTML = missed > 0.05
-    ? `${icon("alert", "i")}<span>${fmt(100 - soldPct, 1)}% of the harvest (${fmt(missed, 1)} kg) never reached a paying market. A high net return with low coverage means the plan is leaving produce behind, so read the two together.</span>`
+  $("dashCoverageNote").className = missed > 0.05 || fellBack ? "note warn" : "note";
+  const coverageText = missed > 0.05
+    ? (hasFg
+      ? `${fmt(100 - soldPct, 1)}% of the harvest (${fmt(missed, 1)} kg) was not sold at a market. Produce the plan did not haul is valued at the assumed farm-gate price (${fmt((s.farmgate_discount || 0) * 100, 0)}% below the median mandi price), which is an assumption, not data. Read net return and coverage together.`
+      : `${fmt(100 - soldPct, 1)}% of the harvest (${fmt(missed, 1)} kg) never reached a paying market. A high net return with low coverage means the plan is leaving produce behind, so read the two together.`)
+    : "";
+  const fallbackText = fellBack
+    ? `ILO found no set of trips that beats a simpler plan under these prices, so it recommends that plan instead (${meta.chosen.replace("fallback:", "").replace(/_/g, " ")}). On this scenario the pooling logic adds nothing; try a lower farm-gate price or nearer mandis.`
+    : "";
+  $("dashCoverageNote").innerHTML = (missed > 0.05 || fellBack)
+    ? `${icon("alert", "i")}<span>${[fallbackText, coverageText].filter(Boolean).join(" ")}</span>`
     : "";
 
   const pools = ilo.pools || [];
   $("poolCount").textContent = pools.length;
   const th = (t, num) => `<th${num ? ' class="num"' : ""}>${t}</th>`;
   const rows = pools.map((p, i) => {
-    const veh = p.withheld ? `<span class="tag warn">Withheld: unprofitable</span>` : `Vehicle ${p.vehicle_id}` + (p.infeasible ? ` <span class="tag bad">Infeasible</span>` : "");
+    const veh = p.sold_at_farmgate ? `<span class="tag warn">Sold at the farm gate</span>` : p.withheld ? `<span class="tag warn">Withheld: unprofitable</span>` : p.spot_hire ? `Hired truck` : `Vehicle ${p.vehicle_id}` + (p.infeasible ? ` <span class="tag bad">Infeasible</span>` : "");
     const mk = (p.markets_used || []).map((m) => `<span class="tag">Market ${m}</span>`).join(" ") || "\u2013";
     const bad = (v) => (v > 0 ? ` class="num bad-text"` : ` class="num"`);
     return `<tr>
@@ -809,9 +822,9 @@ function renderDashboard(data) {
 
 // ---------- comparison view ----------
 const ALGO_BLURB = {
-  integrated_logistics_optimization: "Pools by location, refrigeration and pickup window, and splits produce across markets so overflow reroutes to the next-best one.",
-  proximity_pooling: "Pools by location only. Ignores refrigeration and pickup windows, and can't reroute overflow to a second market.",
-  individual_transport: "One dedicated trip per farmer. No pooling.",
+  integrated_logistics_optimization: "Hauls only what beats selling at the farm gate. Merges farmers heading to the same mandi into full trucks, respects refrigeration and pickup windows, picks the best set of trips with an exact solver, and splits produce across markets so overflow reroutes to the next-best one.",
+  proximity_pooling: "Up to 4 neighbours within 5 km share one hired truck to the nearest mandi, if it is within reach and clearly beats the trader's offer. No profit check, no refrigeration or window planning, no rerouting.",
+  individual_transport: "Each farmer hires a truck to the nearest mandi, if it is within reach and clearly beats the trader's offer; otherwise sells at the farm gate. No profit check, no pooling.",
 };
 const ALGO_NAME = {
   integrated_logistics_optimization: "ILO (ours)",
@@ -822,27 +835,31 @@ const ALGO_NAME = {
 function renderComparison(data) {
   const sum = (k) => data[k]?.summary || {};
   const ilo = sum(KEYS[0]);
-  const maxNet = Math.max(1, ...KEYS.map((k) => sum(k).net_return || 0));
+  // The baselines let farmers sell at the farm gate, which a plain "net return" would score as zero, so the
+  // headline is net return PLUS farm-gate sales whenever the API provides it (older stored plans fall back).
+  const hasFg = KEYS.every((k) => sum(k).net_return_incl_farmgate !== undefined);
+  const valueOf = (s) => (hasFg ? s.net_return_incl_farmgate : s.net_return) || 0;
+  const maxNet = Math.max(1, ...KEYS.map((k) => valueOf(sum(k))));
 
-  const head = `<div class="sb-head"><span>Approach</span><span>Net return (\u20B9)</span><span>Produce sold (%)</span><span style="text-align:right">ILO vs this</span></div>`;
+  const head = `<div class="sb-head"><span>Approach</span><span>${hasFg ? "Farmer value (\u20B9)" : "Net return (\u20B9)"}</span><span>${hasFg ? "Sold at a market (%)" : "Produce sold (%)"}</span><span style="text-align:right">ILO vs this</span></div>`;
   const rows = KEYS.map((k) => {
     const s = sum(k);
-    const net = s.net_return || 0;
+    const net = valueOf(s);
     const w = Math.max(0, net) / maxNet * 100;
     const pct = s.pct_qty_served ?? 0;
     const isIlo = k === KEYS[0];
     let delta = `<span class="sb-delta">\u2013<small>reference</small></span>`;
     if (!isIlo) {
-      const diff = (ilo.net_return || 0) - net;
+      const diff = valueOf(ilo) - net;
       const rel = net !== 0 ? diff / Math.abs(net) * 100 : null;
       const cls = diff > 0.5 ? "up" : diff < -0.5 ? "down" : "";
       const word = diff > 0.5 ? "more" : diff < -0.5 ? "less" : "same";
-      delta = `<span class="sb-delta ${cls}">${diff > 0.5 ? "+" : diff < -0.5 ? "\u2212" : ""}${inr(Math.abs(diff))}<small>${word === "same" ? "equal net return" : `ILO nets ${word}` + (rel !== null ? ` (${fmt(Math.abs(rel), 0)}%)` : "")}</small></span>`;
+      delta = `<span class="sb-delta ${cls}">${diff > 0.5 ? "+" : diff < -0.5 ? "\u2212" : ""}${inr(Math.abs(diff))}<small>${word === "same" ? (hasFg ? "equal value" : "equal net return") : `ILO ${hasFg ? "earns" : "nets"} ${word}` + (rel !== null ? ` (${fmt(Math.abs(rel), 0)}%)` : "")}</small></span>`;
     }
     return `<div class="sb-row ${isIlo ? "is-ilo" : ""}">
       <div class="sb-name"><h2>${ALGO_NAME[k]}</h2><p>${ALGO_BLURB[k]}</p></div>
-      <div class="sb-col"><div class="sb-cap">Net return</div><div class="bar-cell"><div class="bar-track"><div class="bar-fill ${net < 0 ? "neg" : ""}" style="width:${w}%"></div></div><span class="bar-val">${inr(net)}</span></div></div>
-      <div class="sb-col"><div class="sb-cap">Produce sold</div><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, pct)}%"></div></div><span class="bar-val">${fmt(pct, 1)}%</span></div></div>
+      <div class="sb-col"><div class="sb-cap">${hasFg ? "Farmer value" : "Net return"}</div><div class="bar-cell"><div class="bar-track"><div class="bar-fill ${net < 0 ? "neg" : ""}" style="width:${w}%"></div></div><span class="bar-val">${inr(net)}</span></div></div>
+      <div class="sb-col"><div class="sb-cap">${hasFg ? "Sold at a market" : "Produce sold"}</div><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, pct)}%"></div></div><span class="bar-val">${fmt(pct, 1)}%</span></div></div>
       ${delta}
     </div>`;
   }).join("");
@@ -851,9 +868,13 @@ function renderComparison(data) {
   const metrics = [
     { label: "Revenue", key: "total_revenue", fmt: (v) => inr(v), best: "max" },
     { label: "Transport cost", key: "total_transport_cost", fmt: (v) => inr(v), best: "min" },
-    { label: "Net return", key: "net_return", fmt: (v) => inr(v), best: "max" },
-    { label: "Net return per farmer", key: "net_return_per_farmer", fmt: (v) => inr(v), best: "max" },
-    { label: "Produce sold", key: "pct_qty_served", fmt: (v) => fmt(v, 1) + "%", best: "max" },
+    { label: "Net return (hauled trips)", key: "net_return", fmt: (v) => inr(v), best: "max" },
+    { label: "Value of produce not hauled, at the assumed farm-gate price", key: "farmgate_revenue", fmt: (v) => inr(v), best: null },
+    { label: "Farmer value (net return + farm-gate sales)", key: "net_return_incl_farmgate", fmt: (v) => inr(v), best: "max" },
+    { label: "Farmer value per farmer", key: "net_return_per_farmer_incl_farmgate", fmt: (v) => inr(v), best: "max" },
+    { label: "Net return per farmer (hauled only)", key: "net_return_per_farmer", fmt: (v) => inr(v), best: "max" },
+    { label: "Produce sold at a market", key: "pct_qty_served", fmt: (v) => fmt(v, 1) + "%", best: "max" },
+    { label: "Produce not hauled (sold at the farm gate)", key: "farmgate_kg", fmt: (v) => fmt(v, 1) + " kg", best: null },
     { label: "Spoilage in transit", key: "total_spoilage_kg", fmt: (v) => fmt(v, 1) + " kg", best: "min" },
     { label: "Unsold at market", key: "total_unsold_kg", fmt: (v) => fmt(v, 1) + " kg", best: "min" },
     { label: "Never got a truck", key: "total_unserved_no_vehicle_kg", fmt: (v) => fmt(v, 1) + " kg", best: "min" },
@@ -867,8 +888,13 @@ function renderComparison(data) {
     const allSame = nums.every((v) => Math.abs(v - nums[0]) < 1e-9);
     return `<tr><td>${m.label}</td>${vals.map((v) => `<td${target !== null && !allSame && v === target ? ' class="best"' : ""}>${v === undefined ? "\u2013" : m.fmt(v)}</td>`).join("")}</tr>`;
   }).join("");
+  const beh = data.realistic_baselines?.assumptions?.behaviour;
+  const disc = ilo.farmgate_discount;
+  const fgNote = hasFg
+    ? `<p class="hint"><b>Assumptions, not data.</b> Produce a plan does not haul is valued at the farm-gate price, taken as ${disc !== undefined ? fmt(disc * 100, 0) + "%" : "a fixed share"} below the median mandi price. ILO and both baselines are costed the same way (the empty return leg is paid and spoilage counts from pickup), so the comparison is like-for-like. Individual Transport and Proximity Pooling model farmers who haul by simple rules${beh ? ` (mandi within ${fmt(beh.max_haul_km, 0)} km and at least ${fmt(beh.price_margin * 100, 0)}% above the trader's offer)` : ""}, hire spot trucks${beh ? ` at a ${fmt((beh.spot_markup - 1) * 100, 0)}% markup with a ${fmt(beh.spot_lead_hr, 1)} h wait` : ""}, and do not calculate profit, so some of their trips lose money.</p>`
+    : "";
   $("compareTable").innerHTML = `<table class="data"><thead><tr><th>Measure</th>${KEYS.map((k) => `<th>${ALGO_NAME[k]}</th>`).join("")}</tr></thead><tbody>${trs}</tbody></table>
-    <p class="hint">Highlighted cell = best value in that row. Vehicles used and pools formed describe how a plan is built, not how good it is, so they're never highlighted.</p>`;
+    <p class="hint">Highlighted cell = best value in that row. Vehicles used and pools formed describe how a plan is built, not how good it is, so they're never highlighted.</p>${fgNote}`;
 
   $("compareEmpty").hidden = true;
   $("compareBody").hidden = false;

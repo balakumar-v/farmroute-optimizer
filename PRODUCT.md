@@ -16,7 +16,7 @@ Farmroute Optimizer is a decision layer for farmer produce pooling and market al
 
 ## Positioning
 
-The algorithm (ILO, Integrated Logistics Optimization) pools farmers, respects refrigeration and pickup windows, and solves market allocation as an LP, so it can reroute overflow when a market fills. The UI's distinguishing job is explaining each decision (the "why" for every pool, route, and market) and being honest about what is real versus derived.
+The algorithm (ILO, Integrated Logistics Optimization, now v3) pools farmers, respects refrigeration and pickup windows, solves market allocation as an LP so it can reroute overflow when a market fills, hauls only what beats selling at the farm gate, merges farmers heading to the same mandi into full trucks, and picks the trip set with an exact solver. It returns the best of its own plans and the baselines, and says which it chose. The UI's distinguishing job is explaining each decision (the "why" for every pool, route, and market) and being honest about what is real versus derived.
 
 ## Operating Context
 
@@ -29,12 +29,12 @@ FastAPI + SQLite backend, plain HTML/CSS/JS frontend, no build step, vendored Ma
 - Fixed vocabularies: 6 crops (tomato, onion, potato, cauliflower, mango, spinach), 7 vehicle types.
 - Honesty rules that the UI must preserve: routes are straight lines, never real roads; per-stop times are a reconstruction; per-market received-kg is shown only when exactly derivable; items are tagged exact / derived / aggregate-only; sensor panel shows real ESP32 data or nothing, never simulated data.
 - Net return and % produce sold must be read together; a high return with low coverage is misleading.
-- Decision (user): keep the legacy three-way comparison for now. The "realistic baselines" (farm-gate, self-haul, neighbour pooling) are work in progress and are not surfaced in the UI yet.
+- Decision (user): the comparison keeps its three rows, but Individual Transport and Proximity Pooling are now the BEHAVIOURAL farmer baselines (hire a spot truck to the nearest mandi if it is within reach and clearly beats the trader; no profit calculation; otherwise sell at the farm gate). The headline is "farmer value" = net return + farm-gate sales, with the farm-gate price labelled as an assumption. Farm-gate sellers get their own colour on the map (slate), never the red used for unserved farmers. The rational variants and the legacy baselines are returned by the API under `realistic_baselines` but not shown.
 - Every DOM id and vis/*.js hook used by app.js and vis/* must keep working; backend API unchanged.
 
 ## Evidence on Hand
 
-Real scenario data in frontend/app.js (Bihar mandis, from Agmarknet via India Data Portal, with sourcing noted in its blurb). Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
+Real scenario data in frontend/app.js (Bihar mandis, Dec 2025 - Feb 2026, from Agmarknet via India Data Portal, rebuilt with backend/real_data/*; sourcing and known data problems are in its blurb). The farmers and fleet in that preset are synthetic; no FPO records exist. Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
 
 ## Product Principles
 

@@ -53,6 +53,8 @@
         html += checkRow(!!vehicle.refrigerated, "Assigned vehicle is refrigerated");
       }
       html += `<p class="derived-note">Belongs to pooling group ${esc(route.id)} for this plan (a display grouping, not a persisted cluster id from the optimizer).</p>`;
+    } else if (farmer.soldAtFarmGate) {
+      html += `<div class="check-row"><span>Did not haul: sold to a trader at the farm gate. The price is an assumption (a fixed share below the median mandi price), not data.</span></div>`;
     } else {
       html += `<div class="check-row check-bad"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg><span>Never picked up \u2014 no vehicle in the fleet reached it within its pickup window under this plan.</span></div>`;
     }

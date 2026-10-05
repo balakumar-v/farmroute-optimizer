@@ -61,6 +61,10 @@
     }
     const u = Vis.STATUS_COLORS.unserved, mk = Vis.MARKET_COLOR;
     html += `<div class="legend-row"><span class="swatch" style="background:rgb(${u.join(",")})"></span>Unserved farmer</div>`;
+    if (sol.farmgateFarmerIds && sol.farmgateFarmerIds.length) {
+      const g = Vis.STATUS_COLORS.farmgate;
+      html += `<div class="legend-row"><span class="swatch" style="background:rgb(${g.join(",")})"></span>Sold at farm gate</div>`;
+    }
     html += `<div class="legend-row"><span class="swatch" style="background:rgb(${mk.join(",")})"></span>Market</div>`;
     legend.innerHTML = html;
   }

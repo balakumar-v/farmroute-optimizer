@@ -46,9 +46,12 @@ def render(data, preset_id, label, blurb, anchor, n_farmers, seed, max_markets, 
     out += ["    ],", "    markets: ["]
     for m in chosen:
         d = haversine(anchor[0], anchor[1], m["lat"], m["lng"])
+        ph = [f'{c} {m["capacity_kg"][c] / 1000:g} t on {m["capacity_top_share"][c]:.0%} of days'
+              for c in m["capacity_kg"] if m.get("capacity_is_placeholder", {}).get(c)]
+        note = (" | capacity looks like a reporting default: " + "; ".join(ph)) if ph else ""
         out.append(f'      {{ lat: {round(m["lat"], 5)}, lng: {round(m["lng"], 5)}, price: {_d(m["price"])}, '
                    f'capacity_kg: {_d({k: round(v) for k, v in m["capacity_kg"].items()})} }}, '
-                   f'// {m["name"].replace(" Apmc", "")} ({m["district"]}), {d:.0f} km from farmers')
+                   f'// {m["name"].replace(" Apmc", "")} ({m["district"]}), {d:.0f} km from farmers{note}')
     out += ["    ],", "  },"]
     return "\n".join(out)
 

@@ -1,0 +1,10 @@
+state,district,market,lat,lng,source
+Bihar,Bhojpur,Aarah Apmc,25.5603,84.6632,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Samastipur,Tajpur Apmc,25.8595,85.6613,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Buxar,Buxur Apmc,25.5612,83.9813,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Purbi Champaran,Chakia Apmc,26.4234,85.0412,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Sheohar,Sheohar Apmc,26.5158,85.2849,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Rohtas,Sasaram Apmc,24.951,84.0149,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Banka,Barahat Apmc,24.8869,87.0296,OpenStreetMap (carried over from the previous Bihar preset)
+Bihar,Bhojpur,Piro Apmc,25.33,84.42,Wikipedia (Piro block page; 2 decimals so ~1 km)
+Bihar,Rohtas,Natwar Apmc,25.23,84.16,India Post office list on data.gov.in (Natwar SO); another site put it at 25.21 84.25 (~9 km away)

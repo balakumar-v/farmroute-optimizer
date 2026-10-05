@@ -1,25 +1,28 @@
 {
   "meta": {
     "source": "Agmarknet 2.0 (agmarknet.gov.in), Directorate of Marketing & Inspection, GoI",
-    "raw_file": "C:\\Codes\\Farmroute Optimizer\\backend\\real_data\\data\\raw\\agmarknet_idp_Bihar_2026-03-03_2026-04-01.csv",
-    "generated_at": "2026-10-02T12:35:36",
+    "raw_file": "/home/claude/r/backend/real_data/data/raw/agmarknet_idp_Bihar_2025-12-01_2026-02-28.csv",
+    "generated_at": "2026-10-04T12:44:15",
     "units": {
       "price": "Rs/kg (Agmarknet modal price, Rs/quintal / 100)",
       "capacity_kg": "kg/day (median reported daily arrival x capacity_scale)"
     },
     "min_days": 5,
     "capacity_scale": 1.0,
+    "placeholder_share_threshold": 0.7,
     "data_window": [
-      "2026-03-03",
-      "2026-04-01"
+      "2025-12-01",
+      "2026-02-28"
     ],
     "markets_per_crop": {
-      "onion": 4,
-      "potato": 4
+      "onion": 5,
+      "potato": 6
     },
     "coordinate_warnings": [],
     "dropped_no_coords": [
-      "Bihar | Rohtas | Natwar Apmc"
+      "Bihar | Buxar | Brahmpur Apmc",
+      "Bihar | Kishanganj | Bahadurganj Apmc",
+      "Bihar | Purbi Champaran | Motihari Apmc"
     ]
   },
   "markets": [
@@ -27,9 +30,9 @@
       "name": "Barahat Apmc",
       "district": "Banka",
       "state": "Bihar",
-      "lat": 24.88692,
-      "lng": 87.02964,
-      "geocode_source": "nominatim",
+      "lat": 24.8869,
+      "lng": 87.0296,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
         "onion": 26.0
       },
@@ -37,19 +40,25 @@
         "onion": 4000.0
       },
       "n_days": {
-        "onion": 28
+        "onion": 78
       },
       "last_date": {
-        "onion": "2026-04-01"
+        "onion": "2026-02-28"
+      },
+      "capacity_top_share": {
+        "onion": 1.0
+      },
+      "capacity_is_placeholder": {
+        "onion": true
       }
     },
     {
       "name": "Aarah Apmc",
       "district": "Bhojpur",
       "state": "Bihar",
-      "lat": 25.56032,
-      "lng": 84.66321,
-      "geocode_source": "nominatim",
+      "lat": 25.5603,
+      "lng": 84.6632,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
         "potato": 11.0
       },
@@ -57,114 +66,210 @@
         "potato": 1330.0
       },
       "n_days": {
-        "potato": 26
+        "potato": 76
       },
       "last_date": {
-        "potato": "2026-03-30"
+        "potato": "2026-02-28"
+      },
+      "capacity_top_share": {
+        "potato": 0.95
+      },
+      "capacity_is_placeholder": {
+        "potato": true
+      }
+    },
+    {
+      "name": "Piro Apmc",
+      "district": "Bhojpur",
+      "state": "Bihar",
+      "lat": 25.33,
+      "lng": 84.42,
+      "geocode_source": "Wikipedia (Piro block page; 2 decimals so ~1 km)",
+      "price": {
+        "onion": 13.2,
+        "potato": 15.9
+      },
+      "capacity_kg": {
+        "onion": 9000.0,
+        "potato": 4500.0
+      },
+      "n_days": {
+        "onion": 18,
+        "potato": 18
+      },
+      "last_date": {
+        "onion": "2026-02-23",
+        "potato": "2026-02-23"
+      },
+      "capacity_top_share": {
+        "onion": 0.39,
+        "potato": 0.5
+      },
+      "capacity_is_placeholder": {
+        "onion": false,
+        "potato": false
       }
     },
     {
       "name": "Buxur Apmc",
       "district": "Buxar",
       "state": "Bihar",
-      "lat": 25.56119,
-      "lng": 83.98133,
-      "geocode_source": "nominatim",
+      "lat": 25.5612,
+      "lng": 83.9813,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
-        "potato": 11.0
+        "potato": 14.0
       },
       "capacity_kg": {
         "potato": 5000.0
       },
       "n_days": {
-        "potato": 11
+        "potato": 49
       },
       "last_date": {
-        "potato": "2026-04-01"
+        "potato": "2026-02-25"
+      },
+      "capacity_top_share": {
+        "potato": 0.98
+      },
+      "capacity_is_placeholder": {
+        "potato": true
       }
     },
     {
       "name": "Chakia Apmc",
       "district": "Purbi Champaran",
       "state": "Bihar",
-      "lat": 26.42341,
-      "lng": 85.04116,
-      "geocode_source": "nominatim",
+      "lat": 26.4234,
+      "lng": 85.0412,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
-        "potato": 9.0
+        "potato": 11.0
       },
       "capacity_kg": {
         "potato": 60000.0
       },
       "n_days": {
-        "potato": 18
+        "potato": 44
       },
       "last_date": {
-        "potato": "2026-04-01"
+        "potato": "2026-02-28"
+      },
+      "capacity_top_share": {
+        "potato": 0.98
+      },
+      "capacity_is_placeholder": {
+        "potato": true
+      }
+    },
+    {
+      "name": "Natwar Apmc",
+      "district": "Rohtas",
+      "state": "Bihar",
+      "lat": 25.23,
+      "lng": 84.16,
+      "geocode_source": "India Post office list on data.gov.in (Natwar SO); another site put it at 25.21 84.25 (~9 km away)",
+      "price": {
+        "potato": 11.0
+      },
+      "capacity_kg": {
+        "potato": 4000.0
+      },
+      "n_days": {
+        "potato": 75
+      },
+      "last_date": {
+        "potato": "2026-02-28"
+      },
+      "capacity_top_share": {
+        "potato": 0.99
+      },
+      "capacity_is_placeholder": {
+        "potato": true
       }
     },
     {
       "name": "Sasaram Apmc",
       "district": "Rohtas",
       "state": "Bihar",
-      "lat": 24.95097,
-      "lng": 84.01487,
-      "geocode_source": "nominatim",
+      "lat": 24.951,
+      "lng": 84.0149,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
-        "onion": 18.0
+        "onion": 19.0
       },
       "capacity_kg": {
-        "onion": 20000.0
+        "onion": 18000.0
       },
       "n_days": {
-        "onion": 7
+        "onion": 19
       },
       "last_date": {
-        "onion": "2026-03-30"
+        "onion": "2026-02-15"
+      },
+      "capacity_top_share": {
+        "onion": 0.26
+      },
+      "capacity_is_placeholder": {
+        "onion": false
       }
     },
     {
       "name": "Tajpur Apmc",
       "district": "Samastipur",
       "state": "Bihar",
-      "lat": 25.85948,
-      "lng": 85.66133,
-      "geocode_source": "nominatim",
+      "lat": 25.8595,
+      "lng": 85.6613,
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
-        "onion": 16.0
+        "onion": 20.0
       },
       "capacity_kg": {
         "onion": 2000.0
       },
       "n_days": {
-        "onion": 14
+        "onion": 47
       },
       "last_date": {
-        "onion": "2026-03-31"
+        "onion": "2026-02-26"
+      },
+      "capacity_top_share": {
+        "onion": 0.96
+      },
+      "capacity_is_placeholder": {
+        "onion": true
       }
     },
     {
       "name": "Sheohar Apmc",
       "district": "Sheohar",
       "state": "Bihar",
-      "lat": 26.51575,
+      "lat": 26.5158,
       "lng": 85.2849,
-      "geocode_source": "nominatim",
+      "geocode_source": "OpenStreetMap (carried over from the previous Bihar preset)",
       "price": {
-        "onion": 20.0,
-        "potato": 16.0
+        "onion": 24.0,
+        "potato": 22.0
       },
       "capacity_kg": {
-        "onion": 3000.0,
-        "potato": 6000.0
+        "onion": 2000.0,
+        "potato": 5250.0
       },
       "n_days": {
-        "onion": 14,
-        "potato": 14
+        "onion": 40,
+        "potato": 40
       },
       "last_date": {
-        "onion": "2026-04-01",
-        "potato": "2026-04-01"
+        "onion": "2026-02-27",
+        "potato": "2026-02-27"
+      },
+      "capacity_top_share": {
+        "onion": 0.57,
+        "potato": 0.5
+      },
+      "capacity_is_placeholder": {
+        "onion": false,
+        "potato": false
       }
     }
   ]

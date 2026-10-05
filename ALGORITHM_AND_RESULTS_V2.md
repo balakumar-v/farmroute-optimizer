@@ -855,3 +855,100 @@ Re-run on the Bihar real-data preset before quoting any figure externally.
 mode neutralises this for the comparison but ILO itself is unchanged. Self-haul/neighbour decisions use expected, not
 crowding-adjusted, revenue. Tests: `backend/tests/test_realistic_baselines.py` (existing economic-dispatch tests also
 re-run, all passing; run here through a small shim because pytest could not be installed offline).
+
+
+---
+
+## 19. Behavioural baselines and the rebuilt Bihar preset
+
+### 19.1 Baselines are now behavioural (what the comparison tab shows)
+Individual Transport and Proximity Pooling are `run_self_haul_v2` and `run_neighbour_pooling_v2` (`baselines_v3.py`)
+in their BEHAVIOURAL tier. Farmers do not compute profit. A farmer (or a group of up to 4 neighbours within 5 km)
+hauls iff the nearest mandi buying the crop is within `max_haul_km` (40) AND its posted price beats the trader's offer
+by `price_margin` (10%); otherwise they sell at the farm gate. Hired trucks are SPOT hires (not the FPO fleet): they cost
+`spot_markup` (1.15x) and arrive `spot_lead_hr` (1 h) after the request. A group waits for its last member, routes
+nearest-first, and a pickup after someone's deadline is a no-show (that farmer sells at the farm gate). Because nobody
+checks the arithmetic, some trips lose money and some profitable ones are skipped.
+All four numbers are ASSUMPTIONS, not data (`Behaviour` dataclass; change them in one place). The RATIONAL tier
+(`behaviour=None`: exact economics, hauls only if it beats the farm gate) and the farm-gate-only reference are kept as
+yardsticks and returned by the API under `realistic_baselines`; the legacy strawmen are kept there as `legacy_*`.
+Farm-gate price = (1 - `FARMGATE_DISCOUNT`) x median mandi price (20%, an ASSUMPTION), via `FarmgatePrices`.
+
+Accounting. ILO v2 charges no empty-return leg and measures spoilage from hour 0. `main.py` therefore costs the
+baselines the same way (`match_ilo_accounting=True`) so the comparison is like-for-like; with the physically correct
+accounting the baselines would pay a return leg and ILO would not, which tilts the table in ILO's favour.
+
+UI changes: the headline is "farmer value" (net return + value of produce not hauled at the farm-gate price) because a
+plain net return scores a farmer who sold at the doorstep as zero. Farm-gate sellers are slate on the map and are listed
+in `farmgateFarmerIds`, never in `unservedFarmerIds`; spot trucks appear as "Spot-hired ..." vehicles with ids that cannot
+collide with the fleet. The three synthetic demo scenarios were re-run: ILO still beats both baselines in all three under
+the like-for-like accounting (cold chain 44.7k vs 37.1k / 31.9k, market arbitrage 53.4k vs 11.8k / 12.3k, fleet scarcity
+45.7k vs 42.0k / 42.5k farmer value). In scenario 3 only ILO is limited to the 3-vehicle fleet (the baselines hire), so ILO
+sells less produce at a market (46.6% vs 100% / 53.4%) and still earns more.
+
+### 19.2 Rebuilt Bihar preset (`bihar_dec2025_feb2026`)
+Source: the India Data Portal "APMC Arrivals and Prices (New Source)" CSV, 27 Oct 2025 - 1 Apr 2026, imported with
+`import_idp_csv.py --from 2025-12-01 --to 2026-02-28` and built with `build_real_markets.py`. What changed vs the old preset
+(`bihar_mar2026`):
+- One window for all mandis (Dec-Feb) instead of 3 Mar - 1 Apr. Potato fell across Bihar from October to March, so a
+  one-month window is a snapshot of a falling price, and Piro (Bhojpur, the farmers' own district; the only onion mandi near
+  them) stopped reporting on 23 Feb and was invisible to the March window.
+- Added Piro (25.33, 84.42; Wikipedia, ~1 km) and Natwar (25.23, 84.16; India Post list; another site says 25.21, 84.25).
+  Dropped Barahat (184 km+ from every farmer). Brahmpur, Motihari and Bahadurganj report prices but have no reliable
+  coordinates, so they are left out and listed in `meta.dropped_no_coords`.
+- Capacity is still the median reported daily arrival, but series where one value repeats on over 70% of days (and at
+  least 20 days) are now flagged `capacity_is_placeholder`: Aarah 1.33 t (95% of days), Tajpur 2 t (96%), Natwar 4 t (99%),
+  Buxur 5 t (98%), Chakia 60 t (98%), Barahat 4 t (100%). These are reporting defaults, not measurements.
+- Farmers and fleet are UNCHANGED (same generator, seed 0, 34 farmers, 8 vehicles): they are SYNTHETIC, so only the mandis
+  changed and the two presets are directly comparable on that axis. No FPO records were available.
+- Farmer reach to a buying mandi is now: potato median 44 km, 7 of 17 farmers within 40 km; onion median 51 km, 5 of 17
+  within 40 km (before: none within 40 km for onion).
+Result (ILO v2 vs the behavioural baselines, like-for-like accounting, synthetic farmers, ASSUMED farm-gate discount; farmer
+value): discount 10%: +0.7% vs both baselines and vs farm-gate only (no trip pays, so everyone sells at the doorstep);
+20%: +32.4% vs Individual, +23.5% vs Proximity, +12.9% vs farm-gate only; 30%: +50.0% / +39.6% / +28.7%.
+If farmers will travel further (reach 80-150 km) the behavioural baselines make 16-20 trips and lose money on most of them,
+so ILO's lead grows to +88% / +44% at 20% (the baselines' lead over farm-gate shrinks as they haul more). The rational
+baselines stay within about 3% of farm-gate only: their best option is almost always not to haul.
+Caveats that matter: the size of ILO's lead depends on the assumed discount and on Sheohar's premium (potato Rs 22/kg and
+onion Rs 24 against medians of Rs 12.5 and Rs 20), which the baselines never reach because they only visit the nearest
+mandi; whether Sheohar's price holds when more volume arrives is untested; and the farmers are synthetic.
+Reproduce: `python real_data/import_idp_csv.py <csv> --state Bihar --from 2025-12-01 --to 2026-02-28`, then
+`python real_data/build_real_markets.py`, then `python real_data/make_preset_block.py --id bihar_dec2025_feb2026 ...`.
+
+
+---
+
+## 20. ILO v3 applied to this project
+
+`ilo_v3.py` (Phases 1-5, see its module docstring) now produces the recommended plan (`integrated_logistics_optimization`
+in `/plan/compute`). It needs the new options added to `run_our_system_v2` in `algorithms_v2.py` (all default to the old
+behaviour; with them off the output is identical to the previous version). ILO v2 is still computed, only as a legacy
+reference under `realistic_baselines.legacy_ilo_v2`; `realistic_baselines.ilo_meta` says which plan v3 returned
+(`chosen`), its candidate counts and solver status. The comparison baselines are now costed with the correct accounting
+(empty return leg, spoilage from pickup), the same as v3. ILO's per-market received-kg (map and story) still comes from an
+exact trace; it is empty when v3 returns a baseline plan. Deliberately unhauled pools are flagged `sold_at_farmgate`, so the
+map shows them slate, not red; pools that wanted a truck and got none stay red.
+
+### 20.1 Results, rebuilt Bihar preset (synthetic farmers; farm-gate discount ASSUMED; value = net return + farm-gate sales)
+At the default 20% discount: ILO v3 Rs 208,586 vs best baseline Rs 167,803 (rational neighbour pooling) = +24.3%; vs
+behavioural Individual +54.0%, behavioural Proximity +42.2%, farm-gate only +28.3%. v3 runs 4 trips (8.2 t hauled, 64.5%
+sold at a market, 14 farmers at the farm gate); ILO v2 ran 17 trips but its number omits the return leg and counts spoilage
+from hour 0, so it is not comparable (it would not survive the honest accounting).
+Across discount 5/10/20/30/40%: +12.2 / +15.5 / +24.3 / +33.0 / +53.9% vs the best baseline. If the planner assumes 20% and the
+truth is 10% / 30%: +16.4% / +33.3%. Stress tests: mandi capacities x0.5 / x2 / x5: +10.0 / +28.8 / +34.1%; Sheohar's prices
+cut 15 / 30 / 45%: +14.5 / +8.7 / +11.2%; Sheohar removed: +9.3%.
+Fairness check: the shipped "rational" baselines only visit the NEAREST mandi. A stronger rational baseline that picks the
+best mandi per farmer or neighbour group with exact economics (not a shipped baseline) reaches Rs 193-197k / 177-181k /
+136-145k at 10 / 20 / 30%; ILO v3 is still +9.4 / +15.3 / +37.8% ahead of it. So the lead is not only market choice.
+### 20.2 Demo scenarios (20% discount, same accounting for all)
+- Cold chain: ILO v3 56.2k vs behavioural Proximity 56.1k / rational Proximity 55.9k / behavioural Individual 53.3k: a tie
+  (+0.1% vs the best). Pulling the mandis further away does not help: at ~32 km +1.9%, at 64 km+ nobody hauls. The earlier
+  advantage came from ILO v2's spoilage clock (from hour 0) charged to the baselines; with spoilage counted from pickup the
+  refrigeration effect is small at these distances. The scenario shows the mechanism, not a win (its blurb now says so).
+- Market arbitrage: 54.3k vs best baseline 13.4k (+306%). Fleet scarcity: 50.4k vs 45.6k (+10.4%), 93% sold at a market in 3
+  trips (v2: 2 trips, 47%).
+### 20.3 What this does not show
+Farmers, lots, ready times and the fleet are synthetic and the farm-gate price is an assumption; the result depends on price
+differences between mandis (Sheohar potato Rs 22, Piro Rs 15.9, Buxur Rs 14 against a median of Rs 12.5) being capturable,
+and no price response to extra volume is modelled. Six of the mandi-crop capacities are reporting defaults. ILO's own
+safeguard never fell back to a baseline in these runs. 71 backend tests pass.

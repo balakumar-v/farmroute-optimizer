@@ -401,6 +401,7 @@
     // ---- layer builders ---------------------------------------------------
 
     _farmerColor(f, colored) {
+      if (f.soldAtFarmGate && !f.served) return [...Vis.STATUS_COLORS.farmgate, 235];
       if (!f.served) return [...Vis.STATUS_COLORS.unserved, 235];
       if (!colored) return [140, 140, 140, 200];
       const vid = this._tripVehicle && this._tripVehicle.get(f.tripId);

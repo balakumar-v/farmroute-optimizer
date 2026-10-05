@@ -21,7 +21,6 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # backend/
 from logistics_lib_v2 import depot_aware_fleet_composition, generate_scenario_v2, haversine  # noqa: E402
@@ -66,6 +65,8 @@ def main(argv=None):
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--reset", action="store_true", help="POST /reset first (clears ALL data)")
     args = ap.parse_args(argv)
+
+    import httpx   # only needed to POST to the API; make_preset_block.py imports this module without it
 
     data = json.loads(Path(args.json).read_text())
     anchor = tuple(float(x) for x in args.anchor.split(","))

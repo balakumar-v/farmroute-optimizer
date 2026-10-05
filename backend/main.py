@@ -16,6 +16,7 @@ See README.md for example request/response JSON.
 """
 
 import copy
+import dataclasses
 import datetime
 import json
 from typing import List
@@ -201,7 +202,10 @@ def compute_plan():
             run_proximity_pooling_v2,
             summarize,
         )
+        from ilo_v3 import run_ilo_v3
         from baselines_v3 import (
+            DEFAULT_BEHAVIOUR,
+            FARMGATE_DISCOUNT,
             run_farmgate_baseline_v2,
             run_neighbour_pooling_v2,
             run_self_haul_v2,
@@ -254,44 +258,59 @@ def compute_plan():
     # existing "live sensor-override hook" (see algorithms_v2.py) mechanism,
     # repurposed to also give the visualization layer an exact per-market kg
     # breakdown instead of only the aggregate revenue/cost numbers below.
-    res_ilo, trace_ilo = run_ilo_v2(farmers, copy.deepcopy(fleet_template), markets, return_trace=True)
-    res_ind = run_individual_transport_v2(
+    # The recommended plan is ILO v3 (ilo_v3.py): value-based planner that only hauls what beats the farm-gate
+    # price, merges farmers heading to the same mandi into full trucks, picks the trip set with an exact solver,
+    # and returns the best of its own plans and every baseline under identical accounting (meta["chosen"] says
+    # which). ILO v2 is still computed, only as a legacy reference under realistic_baselines.
+    res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3(farmers, fleet_template, markets, return_meta=True,
+                                                   return_trace=True)
+    res_ilo_v2 = run_ilo_v2(farmers, copy.deepcopy(fleet_template), markets)
+    # The two comparison baselines are the BEHAVIOURAL farmer baselines from baselines_v3.py, not the old
+    # strawmen: "individual_transport" = each farmer hires a spot truck to the nearest mandi if it is within
+    # reach and clearly pays more than the trader (no profit calculation), else sells at the farm gate;
+    # "proximity_pooling" = up to 4 neighbours within 5 km share one hired truck on the same rule. They hire
+    # spot vehicles (negative vehicle ids, flagged spot_hire), not the FPO fleet, so the fleet is not used.
+    # The old versions are kept under realistic_baselines (legacy_*) for reference. Rational variants
+    # (exact economics, hauls only if it beats the farm gate) are the upper-bound yardstick.
+    # ILO v3 and the baselines share the same accounting: the empty return leg is charged and spoilage is
+    # counted from pickup. (ILO v2, the legacy reference below, does neither, which is why it is not the
+    # recommended plan any more.)
+    like = {}
+    res_ind = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
+    res_prox = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
+    res_ind_legacy = run_individual_transport_v2(
         farmers, copy.deepcopy(fleet_template), markets, fresh_capacity(markets)
     )
-    res_prox = run_proximity_pooling_v2(
+    res_prox_legacy = run_proximity_pooling_v2(
         farmers, copy.deepcopy(fleet_template), markets, fresh_capacity(markets)
     )
-    # Realistic status-quo baselines (baselines_v3.py). ADDITIVE: the three keys above keep their legacy
-    # meaning so the existing frontend/visualization adapter are untouched; these are returned and stored
-    # under a separate key. Every summary here also carries net_return_incl_farmgate (produce the plan did
-    # not haul is valued at the farm-gate price) -- compare THAT number across algorithms.
-    res_selfhaul = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets))
-    res_neighbour = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets))
+    res_selfhaul_rat = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets),
+                                        behaviour=None, **like)
+    res_neighbour_rat = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets),
+                                                 behaviour=None, **like)
     res_farmgate = run_farmgate_baseline_v2(farmers, markets)
 
-    # JSON object keys are always strings, so pool_id is stringified here
-    # rather than left as PoolTrace's native int -- visualization_adapter.py
-    # expects that (it reads this same column back after a json round trip).
-    ilo_trace_json = {
-        str(pt.pool_id): {"crop_allocations": dict(pt.crop_allocations)}
-        for pt in trace_ilo.values()
-    }
-
-    n_farmers, fleet_size = len(farmers), len(fleet_template)
-    result_payload = {
-        "integrated_logistics_optimization": {"pools": res_ilo, "summary": summarize(res_ilo, n_farmers, fleet_size)},
-        "individual_transport": {"pools": res_ind, "summary": summarize(res_ind, n_farmers, fleet_size)},
-        "proximity_pooling": {"pools": res_prox, "summary": summarize(res_prox, n_farmers, fleet_size)},
-    }
-
     fs = len(fleet_template)
+    # Every summary carries the farm-gate fields: produce a plan did not haul (withheld, no truck, or a farmer
+    # who chose the farm gate) is valued at the doorstep price, so net_return_incl_farmgate is the number to
+    # compare across approaches. The doorstep price is an ASSUMPTION (FARMGATE_DISCOUNT below the median
+    # mandi price); it is echoed in every summary as farmgate_discount so the UI can say so.
+    S = lambda res: summarize_with_farmgate(res, farmers, markets, fs)  # noqa: E731
+    result_payload = {
+        "integrated_logistics_optimization": {"pools": res_ilo, "summary": S(res_ilo)},
+        "individual_transport": {"pools": res_ind, "summary": S(res_ind)},
+        "proximity_pooling": {"pools": res_prox, "summary": S(res_prox)},
+    }
     realistic_baselines = {
-        "ilo_with_farmgate": summarize_with_farmgate(res_ilo, farmers, markets, fs),
-        "individual_transport_legacy_with_farmgate": summarize_with_farmgate(res_ind, farmers, markets, fs),
-        "proximity_pooling_legacy_with_farmgate": summarize_with_farmgate(res_prox, farmers, markets, fs),
-        "farmgate_only": {"pools": res_farmgate, "summary": summarize_with_farmgate(res_farmgate, farmers, markets, fs)},
-        "self_haul": {"pools": res_selfhaul, "summary": summarize_with_farmgate(res_selfhaul, farmers, markets, fs)},
-        "neighbour_pooling": {"pools": res_neighbour, "summary": summarize_with_farmgate(res_neighbour, farmers, markets, fs)},
+        "assumptions": {"farmgate_discount": FARMGATE_DISCOUNT, "behaviour": dataclasses.asdict(DEFAULT_BEHAVIOUR),
+                        "baselines_use_ilo_accounting": False},
+        "ilo_meta": ilo_meta,
+        "legacy_ilo_v2": {"pools": res_ilo_v2, "summary": S(res_ilo_v2)},
+        "farmgate_only": {"pools": res_farmgate, "summary": S(res_farmgate)},
+        "self_haul_rational": {"pools": res_selfhaul_rat, "summary": S(res_selfhaul_rat)},
+        "neighbour_pooling_rational": {"pools": res_neighbour_rat, "summary": S(res_neighbour_rat)},
+        "legacy_individual_transport": {"pools": res_ind_legacy, "summary": S(res_ind_legacy)},
+        "legacy_proximity_pooling": {"pools": res_prox_legacy, "summary": S(res_prox_legacy)},
     }
 
     input_snapshot = {

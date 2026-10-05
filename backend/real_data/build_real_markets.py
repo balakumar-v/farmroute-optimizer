@@ -11,6 +11,10 @@ How each number is derived (all from REAL reported rows):
                      daily ARRIVAL of that crop, converted to kg. This is what the
                      mandi actually absorbed per day -- a proxy for the model's
                      "kg absorbed this cycle", NOT a hard physical limit.
+  capacity_top_share share of days on which the reported arrival equals the single most common value. Above
+                     PLACEHOLDER_SHARE (0.7) the "arrival" is almost certainly a default that mandi keeps
+                     re-reporting (e.g. exactly 4 t on 136 days), not a measurement: the capacity is still
+                     emitted (as reported) but flagged, and it should be treated as an assumption.
 A (mandi, crop) pair is kept only if it has >= --min-days days with both a
 price and an arrival. Mandis without coordinates are dropped (and listed in
 meta.dropped_no_coords), never given made-up coordinates.
@@ -24,6 +28,9 @@ import pandas as pd
 
 from common import (COMMODITY_TO_CROP, COORDS_CSV, OVERRIDES_CSV, RAW_DIR, REAL_MARKETS_JSON,
                     STATE_BBOX)
+
+
+PLACEHOLDER_SHARE = 0.7   # > this share of days at one arrival value => treat the capacity as a reporting default
 
 
 def price_per_kg_factor(unit):
@@ -132,7 +139,8 @@ def build(raw_df, coords, min_days=5, capacity_scale=1.0):
     both = price_day.merge(arr_day, on=keys + ["date"], how="inner")
 
     agg = both.groupby(keys).agg(price=("price_kg", "median"), cap=("arr_kg", "median"),
-                                 n_days=("date", "nunique"), last_date=("date", "max")).reset_index()
+                                 n_days=("date", "nunique"), last_date=("date", "max"),
+                                 top_share=("arr_kg", lambda x: float(x.value_counts(normalize=True).iloc[0]))).reset_index()
     agg = agg[agg["n_days"] >= min_days]
 
     embedded = embedded_coords(df)   # lat/lng carried in the raw rows (India Data Portal export)
@@ -148,11 +156,14 @@ def build(raw_df, coords, min_days=5, capacity_scale=1.0):
             continue
         m = markets.setdefault(mk, {"name": r.market_name, "district": r.district_name, "state": r.state_name,
                                     "lat": lat, "lng": lng, "geocode_source": src,
-                                    "price": {}, "capacity_kg": {}, "n_days": {}, "last_date": {}})
+                                    "price": {}, "capacity_kg": {}, "n_days": {}, "last_date": {},
+                                    "capacity_top_share": {}, "capacity_is_placeholder": {}})
         m["price"][r.crop] = round(float(r.price), 2)
         m["capacity_kg"][r.crop] = round(float(r.cap) * capacity_scale, 1)
         m["n_days"][r.crop] = int(r.n_days)
         m["last_date"][r.crop] = r.last_date.strftime("%Y-%m-%d")
+        m["capacity_top_share"][r.crop] = round(float(r.top_share), 2)
+        m["capacity_is_placeholder"][r.crop] = bool(r.top_share > PLACEHOLDER_SHARE and r.n_days >= 20)
     return list(markets.values()), sorted(dropped)
 
 
@@ -188,6 +199,7 @@ def main(argv=None):
                     "units": {"price": "Rs/kg (Agmarknet modal price, Rs/quintal / 100)",
                               "capacity_kg": "kg/day (median reported daily arrival x capacity_scale)"},
                     "min_days": args.min_days, "capacity_scale": args.capacity_scale,
+                    "placeholder_share_threshold": PLACEHOLDER_SHARE,
                     "data_window": [str(dts.min().date()), str(dts.max().date())] if len(dts) else None,
                     "markets_per_crop": per_crop, "coordinate_warnings": warns,
                     "dropped_no_coords": [" | ".join(d) for d in dropped]},
