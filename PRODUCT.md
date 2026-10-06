@@ -34,7 +34,7 @@ FastAPI + SQLite backend, plain HTML/CSS/JS frontend, no build step, vendored Ma
 
 ## Evidence on Hand
 
-Real scenario data in frontend/app.js (Bihar mandis, Dec 2025 - Feb 2026, from Agmarknet via India Data Portal, rebuilt with backend/real_data/*; sourcing and known data problems are in its blurb). The farmers and fleet in that preset are synthetic; no FPO records exist. Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
+Real scenario data in frontend/app.js (Bihar mandis, Dec 2025 - Feb 2026, from Agmarknet via India Data Portal, rebuilt with backend/real_data/*; sourcing and known data problems are in its blurb). The farmers and fleet in that preset are synthetic; no FPO records exist. Four more real-mandi presets (Karnataka/Bengaluru, Uttar Pradesh/Aligarh, Maharashtra/Junnar, Madhya Pradesh/Indore) are built by backend/real_data/build_regional_presets.py from state-wide CSVs; their blurbs list what was cleaned and which counts are assumptions. Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
 
 ## Product Principles
 

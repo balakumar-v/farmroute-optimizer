@@ -952,3 +952,71 @@ Farmers, lots, ready times and the fleet are synthetic and the farm-gate price i
 differences between mandis (Sheohar potato Rs 22, Piro Rs 15.9, Buxur Rs 14 against a median of Rs 12.5) being capturable,
 and no price response to extra volume is modelled. Six of the mandi-crop capacities are reporting defaults. ILO's own
 safeguard never fell back to a baseline in these runs. 71 backend tests pass.
+
+
+---
+
+## 21. Four regional presets from state-wide India Data Portal CSVs
+
+Added presets (all `category: "real"` in `frontend/app.js`): `karnataka_bengaluru`, `up_aligarh`, `maharashtra_junnar`,
+`mp_indore`. Built by `backend/real_data/build_regional_presets.py` from the four state CSVs (27 Oct 2025 - 31 May 2026, every
+commodity); one command per preset, and each writes a `.js` block plus a `.json` record of everything cleaned, imputed and
+assumed to `backend/real_data/data/regional/`. Only the six crops the simulator supports are used.
+
+### 21.1 What is real and what is assumed
+REAL: mandi coordinates (the portal's own latitude/longitude, which every row carried; mandis with none were dropped, never
+geocoded or invented), prices and daily arrivals. SYNTHETIC: the farmers, the fleet, and the counts below. The farm-gate price
+used in the comparison is an assumption (20% below the median mandi price) here as everywhere.
+
+### 21.2 Cleaning (counts are in each preset's JSON and summarised in its blurb)
+- Row level: modal price <= 0; modal outside [min, max]; min > max; price unit not Rs/quintal or Rs/kg.
+- Day level, per (mandi, crop): modal price outside 1/3x-3x of the series median; arrival above 20x the series median
+  (typos such as 60,500 t).
+- Units: leafy crops are often traded by the bundle but labelled "Rs/quintal" and "tonnes", giving Rs 0.1/kg prices and
+  thousands of tonnes of spinach. Series are dropped when the median price is outside Rs 2-150/kg (mango 5-400) or the median
+  arrival exceeds a per-crop ceiling. Arrival units that are not weight (Nos, Bundle) make the arrival unusable.
+- Coordinates: must fall inside the state's bounding box; a mandi more than 120 km from its district's other mandis is
+  dropped; shared coordinates are flagged. Mandis without coordinates: Karnataka 0, Uttar Pradesh 0, Maharashtra 5,
+  Madhya Pradesh 27 (reported as dropped, not guessed).
+- A (mandi, crop) needs at least 15 days with price and arrival in the window.
+Counts (rows in the state/window/supported crops -> dropped by row and day cleaning; series dropped for implausible units;
+series dropped as under 1 t/day; placeholder capacities raised): Karnataka 5,178 -> 79; 0; 9; 2. Uttar Pradesh 28,512 -> 51;
+1; 36; 5. Maharashtra 12,841 -> 34; 13; 12; 3. Madhya Pradesh 9,587 -> 47; 0; 23; 2. Windows: Karnataka, Maharashtra and
+Madhya Pradesh Feb-Apr 2026, Uttar Pradesh Nov 2025 - Jan 2026 (chosen for the densest reporting of the mix crops).
+
+### 21.3 Capacity (a proxy, with an assumption layered on it)
+Capacity = median reported daily arrival. Where one value repeats on over 70% of days (>= 20 days) it is a reporting default;
+that capacity is RAISED to the lower quartile of the state's non-flagged mandis for the same crop (at least 5 peers needed),
+never lowered. Lower quartile rather than median because mandi sizes are heavy-tailed. After that, any series absorbing under
+1 t/day is removed: a yard that small is not a market for a pickup round. Flagged and imputed series are marked in each
+mandi's comment in `app.js` and in the JSON.
+
+### 21.4 Counts (assumptions, written into every blurb)
+- Mandis: the 8 nearest to the farmer cluster centre (up to 12 until at least 3 crops have 2+ buyers). Madhya Pradesh uses 11.
+- Farmers: about 60 pickups, a realistic collection round for one FPO, shared across crops in proportion to sqrt(local
+  absorption) and capped so that a crop's produce never exceeds 30% of what the chosen mandis absorb of it per day; a crop
+  that would get fewer than 3 farmers is left out. Results: Bengaluru 61, Aligarh 59, Junnar 60, Indore 57 farmers.
+- Layout: villages (n/5, within 18 km of the centre), farmers jittered ~1 km around them, each village leaning 60% to one crop.
+  This differs from the older presets, which scatter farmers uniformly.
+- Lots 150-600 kg, ready 0-4 h, deadline 6-14 h later (the project generator's distributions).
+- Fleet: capacity 1.5x the day's produce, refrigerated and plain sized separately (50% 5 t, 35% 2 t, 15% 1 t vehicles).
+Resulting scale: 20.6-23.9 t of produce, 13-16 vehicles. Hub mandis: Bengaluru, Aligarh, Junnar (Otur), Indore (Sanwer was
+tried first and left with no series after the tiny-yard filter).
+
+### 21.5 Results (ILO v3 vs the best of the five baselines, same accounting, farm-gate price ASSUMED)
+| Preset | 10% discount | 20% | 30% | planner assumes 20%, truth 10% / 30% |
+|---|---|---|---|---|
+| Karnataka (Bengaluru) | +6.2% | +12.2% | +19.5% | +5.3% / +19.5% |
+| Uttar Pradesh (Aligarh) | +16.4% | +23.3% | +24.0% | +15.9% / +23.4% |
+| Maharashtra (Junnar) | +11.3% | +17.8% | +24.3% | +11.1% / +23.5% |
+| Madhya Pradesh (Indore) | +11.6% | +19.7% | +37.3% | +9.5% / +37.3% |
+ILO v3 was ahead in all 12 cells, took 0.5-3.8 s, and returned its own plan every time (never a baseline fallback). Mandi capacity
+x0.5 / x2 changes the lead by less than 5 points in three presets (Karnataka +10.0/+14.2%, Aligarh +19.2/+24.4%, Junnar
+unchanged, Indore +22.0/+16.5%).
+### 21.6 Caveats
+In these presets the farmer cluster sits 9-16 km (median) from the nearest buyer by construction (the cluster is centred on a
+mandi hub), so hauling pays far more often than in Bihar, where the nearest buyer was 44-51 km away; do not compare lead sizes
+across presets as a statement about the regions. Farmers are synthetic and the farm-gate price is an assumption. Imputed
+capacities, the 30% absorption cap and the 60-pickup round are modelling choices. Madhya Pradesh lost 27 mandis to missing
+coordinates, which thins its mandi set. No farmer-level data exists for any state.
+Reproduce: `python real_data/build_regional_presets.py --preset <id> --csv <state csv>`; `--list` shows the four configs.

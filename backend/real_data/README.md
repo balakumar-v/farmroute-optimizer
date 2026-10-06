@@ -81,3 +81,17 @@ and paste the printed entry into `SCENARIOS` in `frontend/app.js`. It appears un
 
 ## Tests
 `python -m pytest real_data/tests tests -q` (from `backend/`) - offline; all numbers in the tests are synthetic fixtures.
+
+
+## Regional presets from a whole-state CSV (`build_regional_presets.py`)
+
+For a state-wide India Data Portal "APMC Arrivals and Prices" CSV that carries the portal's own mandi coordinates:
+
+    python real_data/build_regional_presets.py --list
+    python real_data/build_regional_presets.py --preset karnataka_bengaluru --csv <Karnataka csv>
+
+It cleans the rows (bad prices, min/max conflicts, arrival typos, unit confusion), validates coordinates, flags and raises
+placeholder capacities, picks the nearest mandis to a hub, builds synthetic farmers and a fleet with explicit counts, and writes
+`data/regional/<preset>.js` (paste into `SCENARIOS` in `frontend/app.js`) and `<preset>.json` (every count and assumption).
+The module docstring lists each rule and constant. Farmers, fleet and counts are synthetic; mandi data is real. To add another
+region, add an entry to `PRESETS` (state, window, hub mandi, seed). Tests: `real_data/tests/test_regional_presets.py`.

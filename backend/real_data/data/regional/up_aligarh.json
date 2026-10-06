@@ -1,0 +1,559 @@
+{
+ "preset_id": "up_aligarh",
+ "config": {
+  "state": "Uttar Pradesh",
+  "frm": "2025-11-01",
+  "to": "2026-01-31",
+  "seed": 12,
+  "label": "Uttar Pradesh mandis around Aligarh, Nov 2025 - Jan 2026: potato, onion, tomato, cauliflower, spinach",
+  "hub": "Aligarh Apmc"
+ },
+ "cleaning": {
+  "raw_rows_total": 322112,
+  "rows_in_state_window_supported_crops": 28512,
+  "dropped_price_unit_not_rs_per_quintal_or_kg": 0,
+  "dropped_modal_price_missing_or_nonpositive": 0,
+  "dropped_min_price_above_max_price": 0,
+  "dropped_modal_price_outside_min_max": 0,
+  "arrival_unit_unusable_rows (price kept, arrival ignored: Nos/Bundle...)": 0,
+  "dropped_price_outlier_vs_series_median": 13,
+  "arrival_spike_examples": [
+   "Anoop Shahar Apmc potato 2025-11-02: 54 t",
+   "Gurusarai Apmc tomato 2025-11-02: 42 t",
+   "Doharighat Apmc cauliflower 2025-11-01: 3 t",
+   "Doharighat Apmc tomato 2025-11-01: 3 t",
+   "Jagnair Apmc potato 2025-11-03: 90 t"
+  ],
+  "dropped_arrival_spike_over_20x_series_median": 38,
+  "rows_after_cleaning": 28461
+ },
+ "usable_markets_in_state_window": 162,
+ "markets_dropped_no_or_invalid_coordinates": 0,
+ "markets_dropped_suspect_coordinates": [],
+ "shared_coordinate_warnings": [
+  "Bijnor, Uttar Pradesh: 2 markets share one point (29.499, 78.209): Bijnaur Apmc, Kiratpur Apmc"
+ ],
+ "series_dropped_implausible": [
+  "Jalalabad Apmc potato: median arrival 4,798 t/day above the 3,000 t ceiling"
+ ],
+ "series_dropped_tiny_capacity": [
+  "Jagnair Apmc tomato: 0.50 t/day",
+  "Khairagarh Apmc onion: 0.80 t/day",
+  "Khairagarh Apmc tomato: 0.50 t/day",
+  "Charra Apmc tomato: 0.40 t/day",
+  "Hasanpur Apmc cauliflower: 0.55 t/day",
+  "Khekda Apmc cauliflower: 0.40 t/day",
+  "Khekda Apmc onion: 0.20 t/day",
+  "Khekda Apmc potato: 0.40 t/day",
+  "Khekda Apmc tomato: 0.20 t/day",
+  "Naanpara Apmc cauliflower: 0.70 t/day",
+  "Chitwadagaon Apmc cauliflower: 0.60 t/day",
+  "Chitwadagaon Apmc onion: 0.80 t/day",
+  "Chitwadagaon Apmc tomato: 0.60 t/day",
+  "Anoop Shahar Apmc cauliflower: 0.60 t/day",
+  "Anoop Shahar Apmc onion: 0.30 t/day",
+  "Anoop Shahar Apmc tomato: 0.40 t/day",
+  "Sikarpur Apmc tomato: 0.80 t/day",
+  "Awagarh Apmc cauliflower: 0.80 t/day",
+  "Awagarh Apmc onion: 0.80 t/day",
+  "Awagarh Apmc tomato: 0.60 t/day",
+  "Gonda Apmc spinach: 0.50 t/day",
+  "Shahganj Apmc spinach: 0.80 t/day",
+  "Doharighat Apmc cauliflower: 0.10 t/day",
+  "Doharighat Apmc onion: 0.80 t/day",
+  "Doharighat Apmc potato: 0.80 t/day",
+  "Doharighat Apmc tomato: 0.10 t/day",
+  "Bachranwa Apmc tomato: 0.90 t/day",
+  "Lalganj Apmc cauliflower: 0.90 t/day",
+  "Gangoh Apmc cauliflower: 0.30 t/day",
+  "Gangoh Apmc tomato: 0.20 t/day",
+  "Kairana Apmc tomato: 0.60 t/day",
+  "Thanabhavan Apmc tomato: 0.20 t/day",
+  "Payagpur Apmc onion: 0.60 t/day",
+  "Payagpur Apmc potato: 0.60 t/day",
+  "Payagpur Apmc tomato: 0.50 t/day",
+  "Dudhi Apmc onion: 0.60 t/day"
+ ],
+ "capacity_imputation": {
+  "placeholder_series": 7,
+  "capacity_raised_to_peer_q1": 5,
+  "peer_q1_kg": {
+   "onion": 2775,
+   "potato": 15000,
+   "tomato": 2000,
+   "cauliflower": 2000,
+   "spinach": 1875
+  }
+ },
+ "hub": "Aligarh Apmc",
+ "farmer_cluster_centre": [
+  27.9453661,
+  78.11378
+ ],
+ "mix_crops": [
+  "cauliflower",
+  "onion",
+  "potato",
+  "spinach",
+  "tomato"
+ ],
+ "mix_volume_kg": {
+  "cauliflower": 115000.0,
+  "onion": 170275.0,
+  "potato": 2042500.0,
+  "spinach": 58500.0,
+  "tomato": 106000.0
+ },
+ "farmers_wanted_by_crop_after_absorption_cap": {
+  "cauliflower": 7,
+  "onion": 9,
+  "potato": 31,
+  "spinach": 5,
+  "tomato": 7
+ },
+ "assumptions": {
+  "min_days": 15,
+  "min_useful_absorption_kg": 1000.0,
+  "n_target": 60,
+  "crop_absorption_share": 0.3,
+  "min_farmers_per_crop": 3,
+  "mean_lot_kg": 375.0,
+  "plausible_price_kg": [
+   2.0,
+   150.0
+  ],
+  "plausible_price_kg_by_crop": {
+   "mango": [
+    5.0,
+    400.0
+   ]
+  },
+  "plausible_max_arrival_kg": {
+   "spinach": 150000,
+   "cauliflower": 500000,
+   "mango": 1000000,
+   "tomato": 2500000,
+   "onion": 6000000,
+   "potato": 3000000
+  },
+  "cluster_radius_km": 18.0,
+  "village_crop_lean": 0.6,
+  "fleet_ratio": 1.5,
+  "seed": 12
+ },
+ "n_farmers": 59,
+ "fleet": {
+  "truck_5t": 2,
+  "truck_2t": 4,
+  "van": 4,
+  "reefer_5t": 1,
+  "reefer_2t": 2,
+  "reefer_van": 2
+ },
+ "produce_kg_by_refrigeration": {
+  "True": 7123.7,
+  "False": 16418.000000000004
+ },
+ "markets": [
+  {
+   "name": "Aligarh Apmc",
+   "district": "Aligarh",
+   "state": "Uttar Pradesh",
+   "lat": 27.873176,
+   "lng": 78.103558,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 19.0,
+    "onion": 11.7,
+    "potato": 8.55,
+    "spinach": 9.75,
+    "tomato": 28.0
+   },
+   "capacity_kg": {
+    "cauliflower": 65000.0,
+    "onion": 90000.0,
+    "potato": 350000.0,
+    "spinach": 55000.0,
+    "tomato": 50000.0
+   },
+   "n_days": {
+    "cauliflower": 53,
+    "onion": 28,
+    "potato": 60,
+    "spinach": 48,
+    "tomato": 40
+   },
+   "last_date": {
+    "cauliflower": "2026-01-07",
+    "onion": "2025-12-07",
+    "potato": "2026-01-07",
+    "spinach": "2026-01-07",
+    "tomato": "2026-01-07"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.19,
+    "onion": 0.32,
+    "potato": 0.3,
+    "spinach": 0.33,
+    "tomato": 0.4
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "spinach": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "spinach": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 65000.0,
+    "onion": 90000.0,
+    "potato": 350000.0,
+    "spinach": 55000.0,
+    "tomato": 50000.0
+   }
+  },
+  {
+   "name": "Atrauli Apmc",
+   "district": "Aligarh",
+   "state": "Uttar Pradesh",
+   "lat": 28.036553,
+   "lng": 78.277236,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 17.0,
+    "potato": 8.5
+   },
+   "capacity_kg": {
+    "cauliflower": 1300.0,
+    "potato": 10000.0
+   },
+   "n_days": {
+    "cauliflower": 66,
+    "potato": 66
+   },
+   "last_date": {
+    "cauliflower": "2026-01-31",
+    "potato": "2026-01-31"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.21,
+    "potato": 0.15
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 1300.0,
+    "potato": 10000.0
+   }
+  },
+  {
+   "name": "Khair Apmc",
+   "district": "Aligarh",
+   "state": "Uttar Pradesh",
+   "lat": 27.9453661,
+   "lng": 77.8333134,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 12.0,
+    "onion": 14.0,
+    "potato": 7.0,
+    "tomato": 34.0
+   },
+   "capacity_kg": {
+    "cauliflower": 2000.0,
+    "onion": 2000.0,
+    "potato": 24500.0,
+    "tomato": 2000.0
+   },
+   "n_days": {
+    "cauliflower": 47,
+    "onion": 55,
+    "potato": 52,
+    "tomato": 41
+   },
+   "last_date": {
+    "cauliflower": "2026-01-31",
+    "onion": "2026-01-31",
+    "potato": "2026-01-31",
+    "tomato": "2026-01-31"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.45,
+    "onion": 0.4,
+    "potato": 0.23,
+    "tomato": 0.68
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 2000.0,
+    "onion": 2000.0,
+    "potato": 24500.0,
+    "tomato": 2000.0
+   }
+  },
+  {
+   "name": "Charra Apmc",
+   "district": "Aligarh",
+   "state": "Uttar Pradesh",
+   "lat": 27.9324054,
+   "lng": 78.3953426,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 16.5,
+    "potato": 12.5
+   },
+   "capacity_kg": {
+    "onion": 2775.0,
+    "potato": 2000.0
+   },
+   "n_days": {
+    "onion": 86,
+    "potato": 86
+   },
+   "last_date": {
+    "onion": "2026-01-31",
+    "potato": "2026-01-31"
+   },
+   "capacity_top_share": {
+    "onion": 0.98,
+    "potato": 0.47
+   },
+   "capacity_is_placeholder": {
+    "onion": true,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "imputed_peer_q1",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 1000.0,
+    "potato": 2000.0
+   }
+  },
+  {
+   "name": "Haathras Apmc",
+   "district": "Hathras",
+   "state": "Uttar Pradesh",
+   "lat": 27.6108664,
+   "lng": 78.0558021,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 20.05,
+    "onion": 12.5,
+    "potato": 8.5,
+    "tomato": 27.6
+   },
+   "capacity_kg": {
+    "cauliflower": 38000.0,
+    "onion": 48500.0,
+    "potato": 1500000.0,
+    "tomato": 45000.0
+   },
+   "n_days": {
+    "cauliflower": 44,
+    "onion": 56,
+    "potato": 59,
+    "tomato": 59
+   },
+   "last_date": {
+    "cauliflower": "2026-01-09",
+    "onion": "2026-01-07",
+    "potato": "2026-01-09",
+    "tomato": "2026-01-09"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.11,
+    "onion": 0.18,
+    "potato": 0.15,
+    "tomato": 0.1
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 38000.0,
+    "onion": 48500.0,
+    "potato": 1500000.0,
+    "tomato": 45000.0
+   }
+  },
+  {
+   "name": "Sikarpur Apmc",
+   "district": "Bulandshahr",
+   "state": "Uttar Pradesh",
+   "lat": 28.280598,
+   "lng": 78.003618,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 14.0,
+    "onion": 11.0,
+    "potato": 9.0
+   },
+   "capacity_kg": {
+    "cauliflower": 2200.0,
+    "onion": 2000.0,
+    "potato": 81000.0
+   },
+   "n_days": {
+    "cauliflower": 69,
+    "onion": 69,
+    "potato": 69
+   },
+   "last_date": {
+    "cauliflower": "2026-01-31",
+    "onion": "2026-01-31",
+    "potato": "2026-01-31"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.3,
+    "onion": 0.33,
+    "potato": 0.07
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 2200.0,
+    "onion": 2000.0,
+    "potato": 81000.0
+   }
+  },
+  {
+   "name": "Khurja Apmc",
+   "district": "Bulandshahr",
+   "state": "Uttar Pradesh",
+   "lat": 28.229088,
+   "lng": 77.870808,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 15.0,
+    "onion": 12.8,
+    "potato": 11.5,
+    "spinach": 10.5,
+    "tomato": 29.0
+   },
+   "capacity_kg": {
+    "cauliflower": 6500.0,
+    "onion": 25000.0,
+    "potato": 50000.0,
+    "spinach": 3500.0,
+    "tomato": 9000.0
+   },
+   "n_days": {
+    "cauliflower": 53,
+    "onion": 49,
+    "potato": 58,
+    "spinach": 52,
+    "tomato": 56
+   },
+   "last_date": {
+    "cauliflower": "2026-01-10",
+    "onion": "2026-01-06",
+    "potato": "2026-01-10",
+    "spinach": "2026-01-06",
+    "tomato": "2026-01-09"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.23,
+    "onion": 0.35,
+    "potato": 0.21,
+    "spinach": 0.35,
+    "tomato": 0.16
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "spinach": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "spinach": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 6500.0,
+    "onion": 25000.0,
+    "potato": 50000.0,
+    "spinach": 3500.0,
+    "tomato": 9000.0
+   }
+  },
+  {
+   "name": "Sikandraraau Apmc",
+   "district": "Hathras",
+   "state": "Uttar Pradesh",
+   "lat": 27.68126,
+   "lng": 78.401865,
+   "geocode_source": "dataset",
+   "price": {
+    "potato": 5.5
+   },
+   "capacity_kg": {
+    "potato": 25000.0
+   },
+   "n_days": {
+    "potato": 22
+   },
+   "last_date": {
+    "potato": "2026-01-31"
+   },
+   "capacity_top_share": {
+    "potato": 0.27
+   },
+   "capacity_is_placeholder": {
+    "potato": false
+   },
+   "capacity_source": {
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "potato": 25000.0
+   }
+  }
+ ]
+}

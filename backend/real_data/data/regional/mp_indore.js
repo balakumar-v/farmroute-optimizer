@@ -1,0 +1,82 @@
+  mp_indore: {
+    category: "real",
+    label: "Madhya Pradesh mandis around Indore, Feb-Apr 2026: onion, potato, tomato, cauliflower",
+    blurb: "REAL: 11 Madhya Pradesh mandis (Dewas(F&V), Ujjain, Indore, Badnawar, Shajapur(F&V), Shajapur, Kalapipal, Ashta, Sarangpur, Ratlam, Dhamnod(F&V)) with prices and daily arrivals from Agmarknet via India Data Portal, 2026-02-01 to 2026-04-30 (median of days; mandi coordinates are the portal's own). Cleaned before use: 47 rows dropped (prices outside min/max or 3x off the series median, arrival typos above 20x the median, non-positive prices); 0 mandi-crop series with implausible units (e.g. bundle prices labelled per quintal) dropped; mandis without coordinates (27) or with suspect ones (0) left out, and 23 mandi-crop series absorbing under 1 t/day removed (too small to be a market for a pickup round). Capacity is the median reported daily arrival, a proxy and not a limit: 0 of 21 mandi-crop series here repeat one value on 70%+ of days, and 0 of those were raised to the state's lower-quartile arrival for that crop, which is an assumption. SYNTHETIC: 57 farmers (onion 30, potato 27) in villages within 18 km of (22.97, 75.87) and a 13-vehicle fleet; no public farmer or fleet data exists. Counts are assumptions: about 60 pickups per collection round (shared across crops by local volume, never more than 30% of a crop's daily absorption by these mandis), lots 150-600 kg, fleet capacity 30 t = 1.5x the day's 20.6 t of produce. The farm-gate price used in the comparison is an assumption too.",
+    farmers: [
+      { lat: 22.96584, lng: 75.8261, crop: "potato", qty_kg: 598.4, ready_hr: 0.0, deadline_hr: 7.89 },
+      { lat: 23.07017, lng: 75.94005, crop: "onion", qty_kg: 283.5, ready_hr: 0.16, deadline_hr: 13.6 },
+      { lat: 23.12989, lng: 75.80966, crop: "onion", qty_kg: 592.8, ready_hr: 0.18, deadline_hr: 13.27 },
+      { lat: 22.82947, lng: 75.78893, crop: "potato", qty_kg: 424.4, ready_hr: 0.2, deadline_hr: 9.89 },
+      { lat: 23.12987, lng: 75.82742, crop: "potato", qty_kg: 197.9, ready_hr: 0.2, deadline_hr: 11.83 },
+      { lat: 22.91153, lng: 75.91998, crop: "onion", qty_kg: 567.8, ready_hr: 0.22, deadline_hr: 7.91 },
+      { lat: 22.97122, lng: 75.84488, crop: "potato", qty_kg: 163.7, ready_hr: 0.22, deadline_hr: 8.68 },
+      { lat: 23.08276, lng: 75.95147, crop: "potato", qty_kg: 432.1, ready_hr: 0.27, deadline_hr: 10.12 },
+      { lat: 22.84904, lng: 75.86436, crop: "onion", qty_kg: 520.1, ready_hr: 0.31, deadline_hr: 12.87 },
+      { lat: 22.95528, lng: 75.84332, crop: "potato", qty_kg: 309.5, ready_hr: 0.4, deadline_hr: 10.68 },
+      { lat: 22.85055, lng: 75.77905, crop: "potato", qty_kg: 599.6, ready_hr: 0.53, deadline_hr: 8.2 },
+      { lat: 22.8507, lng: 75.91243, crop: "onion", qty_kg: 399.9, ready_hr: 0.53, deadline_hr: 9.07 },
+      { lat: 22.89094, lng: 75.81121, crop: "potato", qty_kg: 476.4, ready_hr: 0.59, deadline_hr: 7.76 },
+      { lat: 22.93692, lng: 75.95888, crop: "onion", qty_kg: 244.5, ready_hr: 0.6, deadline_hr: 12.45 },
+      { lat: 22.8506, lng: 75.88374, crop: "onion", qty_kg: 235.0, ready_hr: 0.64, deadline_hr: 8.66 },
+      { lat: 22.97828, lng: 75.84288, crop: "potato", qty_kg: 253.5, ready_hr: 0.8, deadline_hr: 13.78 },
+      { lat: 23.11541, lng: 75.79748, crop: "potato", qty_kg: 484.9, ready_hr: 0.9, deadline_hr: 11.9 },
+      { lat: 23.01596, lng: 75.99778, crop: "onion", qty_kg: 154.6, ready_hr: 0.94, deadline_hr: 12.86 },
+      { lat: 23.12214, lng: 75.81168, crop: "onion", qty_kg: 300.0, ready_hr: 0.96, deadline_hr: 8.04 },
+      { lat: 22.86869, lng: 75.80024, crop: "potato", qty_kg: 196.8, ready_hr: 0.98, deadline_hr: 11.07 },
+      { lat: 23.0572, lng: 75.9359, crop: "potato", qty_kg: 324.6, ready_hr: 1.02, deadline_hr: 7.3 },
+      { lat: 22.95082, lng: 75.76476, crop: "onion", qty_kg: 285.2, ready_hr: 1.09, deadline_hr: 13.55 },
+      { lat: 22.9593, lng: 76.04204, crop: "potato", qty_kg: 571.3, ready_hr: 1.13, deadline_hr: 10.0 },
+      { lat: 22.94867, lng: 75.84071, crop: "onion", qty_kg: 205.9, ready_hr: 1.23, deadline_hr: 12.34 },
+      { lat: 22.98268, lng: 75.98212, crop: "onion", qty_kg: 393.5, ready_hr: 1.28, deadline_hr: 13.97 },
+      { lat: 22.87114, lng: 75.77813, crop: "potato", qty_kg: 554.5, ready_hr: 1.44, deadline_hr: 10.15 },
+      { lat: 22.92915, lng: 75.97311, crop: "potato", qty_kg: 399.1, ready_hr: 1.55, deadline_hr: 14.83 },
+      { lat: 22.94957, lng: 76.0369, crop: "potato", qty_kg: 417.5, ready_hr: 1.55, deadline_hr: 8.45 },
+      { lat: 22.85436, lng: 75.8784, crop: "onion", qty_kg: 364.2, ready_hr: 1.61, deadline_hr: 12.45 },
+      { lat: 22.89758, lng: 75.89793, crop: "onion", qty_kg: 239.8, ready_hr: 1.68, deadline_hr: 7.92 },
+      { lat: 23.03501, lng: 75.98947, crop: "onion", qty_kg: 376.0, ready_hr: 1.68, deadline_hr: 15.25 },
+      { lat: 23.13145, lng: 75.82311, crop: "potato", qty_kg: 591.2, ready_hr: 1.71, deadline_hr: 14.7 },
+      { lat: 23.00562, lng: 75.98969, crop: "onion", qty_kg: 521.4, ready_hr: 1.77, deadline_hr: 11.01 },
+      { lat: 23.02077, lng: 75.97974, crop: "onion", qty_kg: 305.6, ready_hr: 1.78, deadline_hr: 15.27 },
+      { lat: 23.04764, lng: 75.95183, crop: "potato", qty_kg: 387.7, ready_hr: 1.98, deadline_hr: 10.35 },
+      { lat: 22.95982, lng: 76.06675, crop: "onion", qty_kg: 463.5, ready_hr: 2.17, deadline_hr: 10.57 },
+      { lat: 22.86497, lng: 75.89675, crop: "onion", qty_kg: 162.6, ready_hr: 2.23, deadline_hr: 13.63 },
+      { lat: 22.92455, lng: 75.76891, crop: "onion", qty_kg: 467.6, ready_hr: 2.27, deadline_hr: 10.39 },
+      { lat: 22.93729, lng: 75.9716, crop: "onion", qty_kg: 533.3, ready_hr: 2.28, deadline_hr: 8.9 },
+      { lat: 23.06176, lng: 75.93466, crop: "potato", qty_kg: 362.8, ready_hr: 2.41, deadline_hr: 14.45 },
+      { lat: 22.85945, lng: 75.81927, crop: "potato", qty_kg: 300.9, ready_hr: 2.54, deadline_hr: 12.71 },
+      { lat: 22.88827, lng: 75.80432, crop: "potato", qty_kg: 343.2, ready_hr: 2.57, deadline_hr: 14.76 },
+      { lat: 22.94853, lng: 76.06141, crop: "onion", qty_kg: 264.5, ready_hr: 2.61, deadline_hr: 12.71 },
+      { lat: 22.83013, lng: 75.87541, crop: "onion", qty_kg: 366.5, ready_hr: 2.96, deadline_hr: 16.56 },
+      { lat: 22.94864, lng: 75.94344, crop: "potato", qty_kg: 522.5, ready_hr: 3.04, deadline_hr: 10.6 },
+      { lat: 23.01131, lng: 76.00391, crop: "onion", qty_kg: 289.9, ready_hr: 3.07, deadline_hr: 10.8 },
+      { lat: 23.12818, lng: 75.80913, crop: "potato", qty_kg: 466.4, ready_hr: 3.29, deadline_hr: 13.92 },
+      { lat: 22.85659, lng: 75.87165, crop: "onion", qty_kg: 186.3, ready_hr: 3.32, deadline_hr: 15.28 },
+      { lat: 22.91256, lng: 75.97771, crop: "potato", qty_kg: 177.9, ready_hr: 3.46, deadline_hr: 14.9 },
+      { lat: 22.85912, lng: 75.81186, crop: "potato", qty_kg: 281.1, ready_hr: 3.67, deadline_hr: 15.76 },
+      { lat: 23.04, lng: 76.00104, crop: "onion", qty_kg: 158.3, ready_hr: 3.69, deadline_hr: 15.5 },
+      { lat: 23.10961, lng: 75.80234, crop: "onion", qty_kg: 174.5, ready_hr: 3.72, deadline_hr: 13.02 },
+      { lat: 22.83865, lng: 75.89654, crop: "onion", qty_kg: 268.6, ready_hr: 3.76, deadline_hr: 12.17 },
+      { lat: 22.91621, lng: 75.75294, crop: "onion", qty_kg: 490.8, ready_hr: 3.77, deadline_hr: 13.83 },
+      { lat: 22.93205, lng: 76.03977, crop: "potato", qty_kg: 414.6, ready_hr: 3.93, deadline_hr: 11.48 },
+      { lat: 22.97458, lng: 75.84704, crop: "onion", qty_kg: 204.8, ready_hr: 3.94, deadline_hr: 16.46 },
+      { lat: 22.92488, lng: 75.92847, crop: "potato", qty_kg: 303.0, ready_hr: 4.0, deadline_hr: 13.07 },
+    ],
+    vehicles: [
+      { type_name: "truck_5t", count: 3 },
+      { type_name: "truck_2t", count: 5 },
+      { type_name: "van", count: 5 },
+    ],
+    markets: [
+      { lat: 22.974, lng: 76.0666, price: { cauliflower: 13.7, onion: 7.25, potato: 8.0, tomato: 8.25 }, capacity_kg: { cauliflower: 1200, onion: 3200, potato: 2800, tomato: 1500 } }, // Dewas(F&V) (Dewas), 20 km from farmer centre
+      { lat: 23.1954, lng: 75.7804, price: { onion: 11.85, potato: 6.0 }, capacity_kg: { onion: 35640, potato: 148670 } }, // Ujjain (Ujjain), 26 km from farmer centre
+      { lat: 22.7085, lng: 75.8708, price: { onion: 11.17, potato: 8.36 }, capacity_kg: { onion: 325310, potato: 153340 } }, // Indore (Indore), 30 km from farmer centre
+      { lat: 23.01675, lng: 75.23599, price: { onion: 5.0 }, capacity_kg: { onion: 37565 } }, // Badnawar (Dhar), 65 km from farmer centre
+      { lat: 23.3942, lng: 76.31741, price: { onion: 6.0, potato: 5.25 }, capacity_kg: { onion: 538050, potato: 437550 } }, // Shajapur(F&V) (Shajapur), 65 km from farmer centre
+      { lat: 23.431, lng: 76.298, price: { onion: 8.73, potato: 5.98 }, capacity_kg: { onion: 89770, potato: 152260 } }, // Shajapur (Shajapur), 67 km from farmer centre
+      { lat: 23.2031, lng: 76.5011, price: { onion: 9.33 }, capacity_kg: { onion: 8420 } }, // Kalapipal (Shajapur), 69 km from farmer centre
+      { lat: 23.0, lng: 76.72, price: { onion: 11.0 }, capacity_kg: { onion: 2530 } }, // Ashta (Sehore), 87 km from farmer centre
+      { lat: 23.57, lng: 76.47, price: { onion: 4.22 }, capacity_kg: { onion: 18600 } }, // Sarangpur (Rajgarh), 90 km from farmer centre
+      { lat: 23.3093, lng: 75.03985, price: { onion: 11.02 }, capacity_kg: { onion: 34980 } }, // Ratlam (Ratlam), 93 km from farmer centre
+      { lat: 22.218, lng: 75.471, price: { cauliflower: 11.0, onion: 12.0, potato: 8.0, tomato: 7.0 }, capacity_kg: { cauliflower: 1500, onion: 2400, potato: 3000, tomato: 4100 } }, // Dhamnod(F&V) (Dhar), 94 km from farmer centre
+    ],
+  },

@@ -1,0 +1,513 @@
+{
+ "preset_id": "maharashtra_junnar",
+ "config": {
+  "state": "Maharashtra",
+  "frm": "2026-02-01",
+  "to": "2026-04-30",
+  "seed": 13,
+  "label": "Maharashtra mandis around Junnar (Pune), Feb-Apr 2026: onion, tomato, potato, cauliflower, spinach",
+  "hub": "Junnar(Otur) Apmc"
+ },
+ "cleaning": {
+  "raw_rows_total": 229669,
+  "rows_in_state_window_supported_crops": 12841,
+  "dropped_price_unit_not_rs_per_quintal_or_kg": 0,
+  "dropped_modal_price_missing_or_nonpositive": 0,
+  "dropped_min_price_above_max_price": 0,
+  "dropped_modal_price_outside_min_max": 0,
+  "arrival_unit_unusable_rows (price kept, arrival ignored: Nos/Bundle...)": 0,
+  "dropped_price_outlier_vs_series_median": 7,
+  "arrival_spike_examples": [
+   "Khed(Chakan) Apmc onion 2026-04-18: 900 t",
+   "Chattrapati Sambhajinagar Apmc mango 2026-04-18: 154 t",
+   "Chattrapati Sambhajinagar Apmc mango 2026-04-19: 221 t",
+   "Khed(Chakan) Apmc onion 2026-04-22: 550 t",
+   "Ahilyanagar Apmc mango 2026-04-26: 13 t"
+  ],
+  "dropped_arrival_spike_over_20x_series_median": 27,
+  "rows_after_cleaning": 12807
+ },
+ "usable_markets_in_state_window": 84,
+ "markets_dropped_no_or_invalid_coordinates": 5,
+ "markets_dropped_suspect_coordinates": [],
+ "shared_coordinate_warnings": [
+  "Mumbai, Maharashtra: 3 markets share one point (19.069, 73.009): Mumbai Apmc, Mumbai- Fruit Market Apmc, Mumbai-Onion & Potato Market Apmc"
+ ],
+ "series_dropped_implausible": [
+  "Ahilyanagar Apmc spinach: price Rs 0.07/kg outside 2-150",
+  "Rahata Apmc spinach: price Rs 0.05/kg outside 2-150",
+  "Shrirampur Apmc spinach: price Rs 0.05/kg outside 2-150",
+  "Chattrapati Sambhajinagar Apmc spinach: median arrival 12,500 t/day above the 150 t ceiling",
+  "Khed(Chakan) Apmc spinach: median arrival 3,180 t/day above the 150 t ceiling",
+  "Pune Apmc spinach: price Rs 0.06/kg outside 2-150",
+  "Pune(Khadiki) Apmc spinach: price Rs 0.04/kg outside 2-150",
+  "Pune(Manjri) Apmc spinach: price Rs 0.05/kg outside 2-150",
+  "Pune(Moshi) Apmc spinach: price Rs 0.09/kg outside 2-150",
+  "Pune(Pimpri) Apmc spinach: price Rs 0.08/kg outside 2-150",
+  "Akluj Apmc spinach: price Rs 0.05/kg outside 2-150",
+  "Solapur Apmc cauliflower: median arrival 6,280 t/day above the 500 t ceiling",
+  "Solapur Apmc spinach: median arrival 1,752 t/day above the 150 t ceiling"
+ ],
+ "series_dropped_tiny_capacity": [
+  "Chandrapur(Ganjwad) Apmc spinach: 0.60 t/day",
+  "Bhusaval Apmc spinach: 0.60 t/day",
+  "Jalgaon Apmc spinach: 0.20 t/day",
+  "Hingna Apmc onion: 0.75 t/day",
+  "Kamthi Apmc mango: 0.30 t/day",
+  "Kamthi Apmc spinach: 0.90 t/day",
+  "Ramtek Apmc cauliflower: 0.85 t/day",
+  "Ramtek Apmc spinach: 0.20 t/day",
+  "Manchar Apmc tomato: 0.30 t/day",
+  "Pune(Khadiki) Apmc potato: 0.90 t/day",
+  "Pune(Pimpri) Apmc cauliflower: 0.80 t/day",
+  "Patan Apmc tomato: 0.70 t/day"
+ ],
+ "capacity_imputation": {
+  "placeholder_series": 3,
+  "capacity_raised_to_peer_q1": 3,
+  "peer_q1_kg": {
+   "cauliflower": 1700,
+   "onion": 35475,
+   "potato": 6900,
+   "tomato": 2900,
+   "mango": 2700,
+   "spinach": 600
+  }
+ },
+ "hub": "Junnar(Otur) Apmc",
+ "farmer_cluster_centre": [
+  19.054809204999998,
+  73.97536550000001
+ ],
+ "mix_crops": [
+  "cauliflower",
+  "onion",
+  "potato",
+  "tomato"
+ ],
+ "mix_volume_kg": {
+  "cauliflower": 223950.0,
+  "onion": 3814250.0,
+  "potato": 231200.0,
+  "tomato": 347650.0
+ },
+ "farmers_wanted_by_crop_after_absorption_cap": {
+  "cauliflower": 8,
+  "onion": 34,
+  "potato": 8,
+  "tomato": 10
+ },
+ "assumptions": {
+  "min_days": 15,
+  "min_useful_absorption_kg": 1000.0,
+  "n_target": 60,
+  "crop_absorption_share": 0.3,
+  "min_farmers_per_crop": 3,
+  "mean_lot_kg": 375.0,
+  "plausible_price_kg": [
+   2.0,
+   150.0
+  ],
+  "plausible_price_kg_by_crop": {
+   "mango": [
+    5.0,
+    400.0
+   ]
+  },
+  "plausible_max_arrival_kg": {
+   "spinach": 150000,
+   "cauliflower": 500000,
+   "mango": 1000000,
+   "tomato": 2500000,
+   "onion": 6000000,
+   "potato": 3000000
+  },
+  "cluster_radius_km": 18.0,
+  "village_crop_lean": 0.6,
+  "fleet_ratio": 1.5,
+  "seed": 13
+ },
+ "n_farmers": 60,
+ "fleet": {
+  "truck_5t": 2,
+  "truck_2t": 4,
+  "van": 4,
+  "reefer_5t": 1,
+  "reefer_2t": 2,
+  "reefer_van": 1
+ },
+ "produce_kg_by_refrigeration": {
+  "True": 6280.6,
+  "False": 15642.400000000001
+ },
+ "markets": [
+  {
+   "name": "Junnar(Narayangaon) Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 19.10743,
+   "lng": 73.972752,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 7.0,
+    "onion": 8.0,
+    "potato": 8.0,
+    "tomato": 10.0
+   },
+   "capacity_kg": {
+    "cauliflower": 34500.0,
+    "onion": 4800.0,
+    "potato": 10300.0,
+    "tomato": 254500.0
+   },
+   "n_days": {
+    "cauliflower": 53,
+    "onion": 54,
+    "potato": 54,
+    "tomato": 61
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "onion": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.06,
+    "onion": 0.11,
+    "potato": 0.06,
+    "tomato": 0.03
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 34500.0,
+    "onion": 4800.0,
+    "potato": 10300.0,
+    "tomato": 254500.0
+   }
+  },
+  {
+   "name": "Manchar Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 19.00218841,
+   "lng": 73.94635113,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 9.5,
+    "onion": 12.6,
+    "potato": 9.55
+   },
+   "capacity_kg": {
+    "cauliflower": 91300.0,
+    "onion": 1354600.0,
+    "potato": 14950.0
+   },
+   "n_days": {
+    "cauliflower": 41,
+    "onion": 27,
+    "potato": 38
+   },
+   "last_date": {
+    "cauliflower": "2026-04-29",
+    "onion": "2026-04-28",
+    "potato": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.05,
+    "onion": 0.04,
+    "potato": 0.05
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 91300.0,
+    "onion": 1354600.0,
+    "potato": 14950.0
+   }
+  },
+  {
+   "name": "Junnar(Alephata) Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 19.182062,
+   "lng": 74.131025,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 11.25
+   },
+   "capacity_kg": {
+    "onion": 429150.0
+   },
+   "n_days": {
+    "onion": 26
+   },
+   "last_date": {
+    "onion": "2026-04-28"
+   },
+   "capacity_top_share": {
+    "onion": 0.04
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 429150.0
+   }
+  },
+  {
+   "name": "Junnar(Otur) Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 19.262097,
+   "lng": 73.977979,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 10.0,
+    "onion": 10.5,
+    "potato": 10.0
+   },
+   "capacity_kg": {
+    "cauliflower": 38300.0,
+    "onion": 955400.0,
+    "potato": 20350.0
+   },
+   "n_days": {
+    "cauliflower": 66,
+    "onion": 25,
+    "potato": 26
+   },
+   "last_date": {
+    "cauliflower": "2026-04-29",
+    "onion": "2026-04-30",
+    "potato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.03,
+    "onion": 0.04,
+    "potato": 0.04
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 38300.0,
+    "onion": 955400.0,
+    "potato": 20350.0
+   }
+  },
+  {
+   "name": "Khed Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 18.8405746,
+   "lng": 73.9072164,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 9.0
+   },
+   "capacity_kg": {
+    "cauliflower": 7400.0
+   },
+   "n_days": {
+    "cauliflower": 61
+   },
+   "last_date": {
+    "cauliflower": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.08
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 7400.0
+   }
+  },
+  {
+   "name": "Khed(Chakan) Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 18.765388,
+   "lng": 73.866511,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 10.0,
+    "onion": 12.0,
+    "potato": 10.0,
+    "tomato": 12.0
+   },
+   "capacity_kg": {
+    "cauliflower": 19250.0,
+    "onion": 25000.0,
+    "potato": 100000.0,
+    "tomato": 29400.0
+   },
+   "n_days": {
+    "cauliflower": 66,
+    "onion": 49,
+    "potato": 65,
+    "tomato": 66
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "onion": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.12,
+    "onion": 0.39,
+    "potato": 0.35,
+    "tomato": 0.06
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 19250.0,
+    "onion": 25000.0,
+    "potato": 100000.0,
+    "tomato": 29400.0
+   }
+  },
+  {
+   "name": "Pune(Moshi) Apmc",
+   "district": "Pune",
+   "state": "Maharashtra",
+   "lat": 18.663073,
+   "lng": 73.847378,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 9.5,
+    "mango": 100.0,
+    "onion": 8.0,
+    "potato": 9.5,
+    "tomato": 9.0
+   },
+   "capacity_kg": {
+    "cauliflower": 33200.0,
+    "mango": 2000.0,
+    "onion": 68000.0,
+    "potato": 85600.0,
+    "tomato": 63750.0
+   },
+   "n_days": {
+    "cauliflower": 70,
+    "mango": 51,
+    "onion": 71,
+    "potato": 69,
+    "tomato": 70
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "mango": "2026-04-30",
+    "onion": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.04,
+    "mango": 0.08,
+    "onion": 0.03,
+    "potato": 0.03,
+    "tomato": 0.04
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "mango": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "mango": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 33200.0,
+    "mango": 2000.0,
+    "onion": 68000.0,
+    "potato": 85600.0,
+    "tomato": 63750.0
+   }
+  },
+  {
+   "name": "Parner Apmc",
+   "district": "Ahilyanagar",
+   "state": "Maharashtra",
+   "lat": 18.99974287,
+   "lng": 74.44058799,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 9.5
+   },
+   "capacity_kg": {
+    "onion": 977300.0
+   },
+   "n_days": {
+    "onion": 35
+   },
+   "last_date": {
+    "onion": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "onion": 0.03
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 977300.0
+   }
+  }
+ ]
+}

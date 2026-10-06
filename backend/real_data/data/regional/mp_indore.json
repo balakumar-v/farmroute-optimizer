@@ -1,0 +1,570 @@
+{
+ "preset_id": "mp_indore",
+ "config": {
+  "state": "Madhya Pradesh",
+  "frm": "2026-02-01",
+  "to": "2026-04-30",
+  "seed": 14,
+  "label": "Madhya Pradesh mandis around Indore, Feb-Apr 2026: onion, potato, tomato, cauliflower",
+  "hub": "Indore Apmc"
+ },
+ "cleaning": {
+  "raw_rows_total": 308805,
+  "rows_in_state_window_supported_crops": 9587,
+  "dropped_price_unit_not_rs_per_quintal_or_kg": 0,
+  "dropped_modal_price_missing_or_nonpositive": 0,
+  "dropped_min_price_above_max_price": 0,
+  "dropped_modal_price_outside_min_max": 0,
+  "arrival_unit_unusable_rows (price kept, arrival ignored: Nos/Bundle...)": 0,
+  "dropped_price_outlier_vs_series_median": 6,
+  "arrival_spike_examples": [
+   "Badnawar(F&V) Apmc onion 2026-02-02: 71 t",
+   "Badnawar(F&V) Apmc onion 2026-02-05: 5 t",
+   "Seoni(F&V) Apmc spinach 2026-02-05: 108 t",
+   "Indore(F&V) Apmc tomato 2026-02-06: 1,440 t",
+   "Rehli(F&V) Apmc potato 2026-02-08: 15 t"
+  ],
+  "dropped_arrival_spike_over_20x_series_median": 41,
+  "rows_after_cleaning": 9540
+ },
+ "usable_markets_in_state_window": 38,
+ "markets_dropped_no_or_invalid_coordinates": 27,
+ "markets_dropped_suspect_coordinates": [],
+ "shared_coordinate_warnings": [
+  "Ratlam, Madhya Pradesh: 2 markets share one point (23.457, 74.933): Sailana Apmc, Sailana(F&V) Apmc"
+ ],
+ "series_dropped_implausible": [],
+ "series_dropped_tiny_capacity": [
+  "Sendhwa(F&V) Apmc cauliflower: 0.30 t/day",
+  "Sendhwa(F&V) Apmc spinach: 0.30 t/day",
+  "Sendhwa(F&V) Apmc tomato: 0.70 t/day",
+  "Harda(F&V) Apmc spinach: 0.20 t/day",
+  "Sirali(F&V) Apmc cauliflower: 0.10 t/day",
+  "Sirali(F&V) Apmc tomato: 0.15 t/day",
+  "Sanwer(F&V) Apmc cauliflower: 0.95 t/day",
+  "Sanwer(F&V) Apmc onion: 0.30 t/day",
+  "Sanwer(F&V) Apmc potato: 0.40 t/day",
+  "Sanwer(F&V) Apmc spinach: 0.18 t/day",
+  "Sanwer(F&V) Apmc tomato: 0.22 t/day",
+  "Petlawad(F&V) Apmc cauliflower: 0.38 t/day",
+  "Petlawad(F&V) Apmc onion: 0.57 t/day",
+  "Petlawad(F&V) Apmc potato: 0.53 t/day",
+  "Petlawad(F&V) Apmc spinach: 0.66 t/day",
+  "Katni(F&V) Apmc spinach: 0.85 t/day",
+  "Badwah(F&V) Apmc cauliflower: 0.20 t/day",
+  "Badwah(F&V) Apmc onion: 0.80 t/day",
+  "Badwah(F&V) Apmc spinach: 0.20 t/day",
+  "Badwah(F&V) Apmc tomato: 0.70 t/day",
+  "Khandwa(F&V) Apmc spinach: 0.50 t/day",
+  "Magroni(F&V) Apmc cauliflower: 0.36 t/day",
+  "Magroni(F&V) Apmc tomato: 0.70 t/day"
+ ],
+ "capacity_imputation": {
+  "placeholder_series": 2,
+  "capacity_raised_to_peer_q1": 2,
+  "peer_q1_kg": {
+   "cauliflower": 360,
+   "onion": 3050,
+   "spinach": 200,
+   "tomato": 700,
+   "potato": 3000
+  }
+ },
+ "hub": "Indore Apmc",
+ "farmer_cluster_centre": [
+  22.974,
+  75.8708
+ ],
+ "mix_crops": [
+  "cauliflower",
+  "onion",
+  "potato",
+  "tomato"
+ ],
+ "mix_volume_kg": {
+  "cauliflower": 2700.0,
+  "onion": 1096465.0,
+  "potato": 897620.0,
+  "tomato": 5600.0
+ },
+ "farmers_wanted_by_crop_after_absorption_cap": {
+  "cauliflower": 1,
+  "onion": 30,
+  "potato": 27,
+  "tomato": 2
+ },
+ "assumptions": {
+  "min_days": 15,
+  "min_useful_absorption_kg": 1000.0,
+  "n_target": 60,
+  "crop_absorption_share": 0.3,
+  "min_farmers_per_crop": 3,
+  "mean_lot_kg": 375.0,
+  "plausible_price_kg": [
+   2.0,
+   150.0
+  ],
+  "plausible_price_kg_by_crop": {
+   "mango": [
+    5.0,
+    400.0
+   ]
+  },
+  "plausible_max_arrival_kg": {
+   "spinach": 150000,
+   "cauliflower": 500000,
+   "mango": 1000000,
+   "tomato": 2500000,
+   "onion": 6000000,
+   "potato": 3000000
+  },
+  "cluster_radius_km": 18.0,
+  "village_crop_lean": 0.6,
+  "fleet_ratio": 1.5,
+  "seed": 14
+ },
+ "n_farmers": 57,
+ "fleet": {
+  "truck_5t": 3,
+  "truck_2t": 5,
+  "van": 5
+ },
+ "produce_kg_by_refrigeration": {
+  "True": 0.0,
+  "False": 20576.5
+ },
+ "markets": [
+  {
+   "name": "Dewas(F&V) Apmc",
+   "district": "Dewas",
+   "state": "Madhya Pradesh",
+   "lat": 22.974,
+   "lng": 76.0666,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 13.7,
+    "onion": 7.25,
+    "potato": 8.0,
+    "tomato": 8.25
+   },
+   "capacity_kg": {
+    "cauliflower": 1200.0,
+    "onion": 3200.0,
+    "potato": 2800.0,
+    "tomato": 1500.0
+   },
+   "n_days": {
+    "cauliflower": 71,
+    "onion": 68,
+    "potato": 71,
+    "tomato": 69
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "onion": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.27,
+    "onion": 0.28,
+    "potato": 0.18,
+    "tomato": 0.19
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 1200.0,
+    "onion": 3200.0,
+    "potato": 2800.0,
+    "tomato": 1500.0
+   }
+  },
+  {
+   "name": "Ujjain Apmc",
+   "district": "Ujjain",
+   "state": "Madhya Pradesh",
+   "lat": 23.1954,
+   "lng": 75.7804,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 11.85,
+    "potato": 6.0
+   },
+   "capacity_kg": {
+    "onion": 35640.0,
+    "potato": 148670.0
+   },
+   "n_days": {
+    "onion": 61,
+    "potato": 60
+   },
+   "last_date": {
+    "onion": "2026-04-30",
+    "potato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.02,
+    "potato": 0.02
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 35640.0,
+    "potato": 148670.0
+   }
+  },
+  {
+   "name": "Indore Apmc",
+   "district": "Indore",
+   "state": "Madhya Pradesh",
+   "lat": 22.7085,
+   "lng": 75.8708,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 11.17,
+    "potato": 8.36
+   },
+   "capacity_kg": {
+    "onion": 325310.0,
+    "potato": 153340.0
+   },
+   "n_days": {
+    "onion": 69,
+    "potato": 69
+   },
+   "last_date": {
+    "onion": "2026-04-30",
+    "potato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.01,
+    "potato": 0.01
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 325310.0,
+    "potato": 153340.0
+   }
+  },
+  {
+   "name": "Badnawar Apmc",
+   "district": "Dhar",
+   "state": "Madhya Pradesh",
+   "lat": 23.016745,
+   "lng": 75.235987,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 5.0
+   },
+   "capacity_kg": {
+    "onion": 37565.0
+   },
+   "n_days": {
+    "onion": 26
+   },
+   "last_date": {
+    "onion": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.04
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 37565.0
+   }
+  },
+  {
+   "name": "Shajapur(F&V) Apmc",
+   "district": "Shajapur",
+   "state": "Madhya Pradesh",
+   "lat": 23.394201,
+   "lng": 76.317413,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 6.0,
+    "potato": 5.25
+   },
+   "capacity_kg": {
+    "onion": 538050.0,
+    "potato": 437550.0
+   },
+   "n_days": {
+    "onion": 34,
+    "potato": 34
+   },
+   "last_date": {
+    "onion": "2026-04-29",
+    "potato": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "onion": 0.03,
+    "potato": 0.06
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 538050.0,
+    "potato": 437550.0
+   }
+  },
+  {
+   "name": "Shajapur Apmc",
+   "district": "Shajapur",
+   "state": "Madhya Pradesh",
+   "lat": 23.431,
+   "lng": 76.298,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 8.73,
+    "potato": 5.98
+   },
+   "capacity_kg": {
+    "onion": 89770.0,
+    "potato": 152260.0
+   },
+   "n_days": {
+    "onion": 64,
+    "potato": 61
+   },
+   "last_date": {
+    "onion": "2026-04-30",
+    "potato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.02,
+    "potato": 0.02
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 89770.0,
+    "potato": 152260.0
+   }
+  },
+  {
+   "name": "Kalapipal Apmc",
+   "district": "Shajapur",
+   "state": "Madhya Pradesh",
+   "lat": 23.2031,
+   "lng": 76.5011,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 9.33
+   },
+   "capacity_kg": {
+    "onion": 8420.0
+   },
+   "n_days": {
+    "onion": 40
+   },
+   "last_date": {
+    "onion": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.03
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 8420.0
+   }
+  },
+  {
+   "name": "Ashta Apmc",
+   "district": "Sehore",
+   "state": "Madhya Pradesh",
+   "lat": 23.0,
+   "lng": 76.72,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 11.0
+   },
+   "capacity_kg": {
+    "onion": 2530.0
+   },
+   "n_days": {
+    "onion": 21
+   },
+   "last_date": {
+    "onion": "2026-04-28"
+   },
+   "capacity_top_share": {
+    "onion": 0.05
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 2530.0
+   }
+  },
+  {
+   "name": "Sarangpur Apmc",
+   "district": "Rajgarh",
+   "state": "Madhya Pradesh",
+   "lat": 23.57,
+   "lng": 76.47,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 4.22
+   },
+   "capacity_kg": {
+    "onion": 18600.0
+   },
+   "n_days": {
+    "onion": 59
+   },
+   "last_date": {
+    "onion": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.05
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 18600.0
+   }
+  },
+  {
+   "name": "Ratlam Apmc",
+   "district": "Ratlam",
+   "state": "Madhya Pradesh",
+   "lat": 23.309305,
+   "lng": 75.039853,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 11.02
+   },
+   "capacity_kg": {
+    "onion": 34980.0
+   },
+   "n_days": {
+    "onion": 44
+   },
+   "last_date": {
+    "onion": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "onion": 0.05
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 34980.0
+   }
+  },
+  {
+   "name": "Dhamnod(F&V) Apmc",
+   "district": "Dhar",
+   "state": "Madhya Pradesh",
+   "lat": 22.218,
+   "lng": 75.471,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 11.0,
+    "onion": 12.0,
+    "potato": 8.0,
+    "tomato": 7.0
+   },
+   "capacity_kg": {
+    "cauliflower": 1500.0,
+    "onion": 2400.0,
+    "potato": 3000.0,
+    "tomato": 4100.0
+   },
+   "n_days": {
+    "cauliflower": 38,
+    "onion": 38,
+    "potato": 41,
+    "tomato": 40
+   },
+   "last_date": {
+    "cauliflower": "2026-03-29",
+    "onion": "2026-03-29",
+    "potato": "2026-03-29",
+    "tomato": "2026-03-29"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.13,
+    "onion": 0.13,
+    "potato": 0.12,
+    "tomato": 0.1
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 1500.0,
+    "onion": 2400.0,
+    "potato": 3000.0,
+    "tomato": 4100.0
+   }
+  }
+ ]
+}

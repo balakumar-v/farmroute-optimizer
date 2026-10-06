@@ -1,0 +1,487 @@
+{
+ "preset_id": "karnataka_bengaluru",
+ "config": {
+  "state": "Karnataka",
+  "frm": "2026-02-01",
+  "to": "2026-04-30",
+  "seed": 11,
+  "label": "Karnataka mandis around Bengaluru, Feb-Apr 2026: tomato, onion, potato, cauliflower, mango",
+  "hub": "Bengaluru Apmc"
+ },
+ "cleaning": {
+  "raw_rows_total": 104694,
+  "rows_in_state_window_supported_crops": 5178,
+  "dropped_price_unit_not_rs_per_quintal_or_kg": 0,
+  "dropped_modal_price_missing_or_nonpositive": 0,
+  "dropped_min_price_above_max_price": 0,
+  "dropped_modal_price_outside_min_max": 3,
+  "arrival_unit_unusable_rows (price kept, arrival ignored: Nos/Bundle...)": 0,
+  "dropped_price_outlier_vs_series_median": 68,
+  "arrival_spike_examples": [
+   "Bangarpet Apmc potato 2026-02-13: 275 t",
+   "Belgaum Apmc onion 2026-02-25: 1,775 t",
+   "Bangarpet Apmc onion 2026-03-12: 31 t",
+   "Bangarpet Apmc tomato 2026-04-08: 68 t",
+   "Bangarpet Apmc onion 2026-04-09: 19 t"
+  ],
+  "dropped_arrival_spike_over_20x_series_median": 8,
+  "rows_after_cleaning": 5099
+ },
+ "usable_markets_in_state_window": 36,
+ "markets_dropped_no_or_invalid_coordinates": 0,
+ "markets_dropped_suspect_coordinates": [],
+ "shared_coordinate_warnings": [],
+ "series_dropped_implausible": [],
+ "series_dropped_tiny_capacity": [
+  "Doddaballapur Apmc cauliflower: 0.20 t/day",
+  "Gauribidanur Apmc cauliflower: 0.90 t/day",
+  "Gauribidanur Apmc onion: 0.40 t/day",
+  "Gauribidanur Apmc potato: 0.40 t/day",
+  "Ranebennur Apmc cauliflower: 0.60 t/day",
+  "Ranebennur Apmc tomato: 0.40 t/day",
+  "Bangarpet Apmc cauliflower: 0.50 t/day",
+  "Bangarpet Apmc onion: 0.80 t/day",
+  "Bangarpet Apmc potato: 0.80 t/day"
+ ],
+ "capacity_imputation": {
+  "placeholder_series": 3,
+  "capacity_raised_to_peer_q1": 2,
+  "peer_q1_kg": {
+   "onion": 3300,
+   "potato": 2250,
+   "cauliflower": 900,
+   "tomato": 2700
+  }
+ },
+ "hub": "Bengaluru Apmc",
+ "farmer_cluster_centre": [
+  12.964964,
+  77.538863
+ ],
+ "mix_crops": [
+  "cauliflower",
+  "mango",
+  "onion",
+  "potato",
+  "tomato"
+ ],
+ "mix_volume_kg": {
+  "cauliflower": 20450.0,
+  "mango": 100250.0,
+  "onion": 658000.0,
+  "potato": 519800.0,
+  "tomato": 609450.0
+ },
+ "farmers_wanted_by_crop_after_absorption_cap": {
+  "cauliflower": 3,
+  "mango": 7,
+  "onion": 18,
+  "potato": 16,
+  "tomato": 17
+ },
+ "assumptions": {
+  "min_days": 15,
+  "min_useful_absorption_kg": 1000.0,
+  "n_target": 60,
+  "crop_absorption_share": 0.3,
+  "min_farmers_per_crop": 3,
+  "mean_lot_kg": 375.0,
+  "plausible_price_kg": [
+   2.0,
+   150.0
+  ],
+  "plausible_price_kg_by_crop": {
+   "mango": [
+    5.0,
+    400.0
+   ]
+  },
+  "plausible_max_arrival_kg": {
+   "spinach": 150000,
+   "cauliflower": 500000,
+   "mango": 1000000,
+   "tomato": 2500000,
+   "onion": 6000000,
+   "potato": 3000000
+  },
+  "cluster_radius_km": 18.0,
+  "village_crop_lean": 0.6,
+  "fleet_ratio": 1.5,
+  "seed": 11
+ },
+ "n_farmers": 61,
+ "fleet": {
+  "truck_5t": 2,
+  "truck_2t": 4,
+  "van": 3,
+  "reefer_5t": 2,
+  "reefer_2t": 3,
+  "reefer_van": 2
+ },
+ "produce_kg_by_refrigeration": {
+  "True": 10039.7,
+  "False": 13836.800000000003
+ },
+ "markets": [
+  {
+   "name": "Binny Mill (F&V), Bengaluru Apmc",
+   "district": "Bengaluru Urban",
+   "state": "Karnataka",
+   "lat": 12.964964,
+   "lng": 77.562211,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 20.0,
+    "mango": 33.33,
+    "tomato": 16.0
+   },
+   "capacity_kg": {
+    "cauliflower": 8250.0,
+    "mango": 55000.0,
+    "tomato": 42750.0
+   },
+   "n_days": {
+    "cauliflower": 64,
+    "mango": 17,
+    "tomato": 64
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "mango": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.05,
+    "mango": 0.06,
+    "tomato": 0.05
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "mango": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "mango": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 8250.0,
+    "mango": 55000.0,
+    "tomato": 42750.0
+   }
+  },
+  {
+   "name": "Bengaluru Apmc",
+   "district": "Bengaluru Urban",
+   "state": "Karnataka",
+   "lat": 13.021367,
+   "lng": 77.544327,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 10.5,
+    "potato": 12.5
+   },
+   "capacity_kg": {
+    "onion": 652000.0,
+    "potato": 498900.0
+   },
+   "n_days": {
+    "onion": 71,
+    "potato": 71
+   },
+   "last_date": {
+    "onion": "2026-04-30",
+    "potato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.01,
+    "potato": 0.01
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 652000.0,
+    "potato": 498900.0
+   }
+  },
+  {
+   "name": "Doddaballapur Apmc",
+   "district": "Bengaluru Rural",
+   "state": "Karnataka",
+   "lat": 13.3112368,
+   "lng": 77.538863,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 17.0,
+    "potato": 17.0,
+    "tomato": 13.0
+   },
+   "capacity_kg": {
+    "onion": 2000.0,
+    "potato": 1400.0,
+    "tomato": 1500.0
+   },
+   "n_days": {
+    "onion": 49,
+    "potato": 49,
+    "tomato": 49
+   },
+   "last_date": {
+    "onion": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "onion": 0.33,
+    "potato": 0.33,
+    "tomato": 0.22
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 2000.0,
+    "potato": 1400.0,
+    "tomato": 1500.0
+   }
+  },
+  {
+   "name": "Ramanagara Apmc",
+   "district": "Bengaluru South",
+   "state": "Karnataka",
+   "lat": 12.7162,
+   "lng": 77.2743,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 20.0,
+    "mango": 48.67,
+    "tomato": 12.25
+   },
+   "capacity_kg": {
+    "cauliflower": 1600.0,
+    "mango": 7500.0,
+    "tomato": 9400.0
+   },
+   "n_days": {
+    "cauliflower": 86,
+    "mango": 32,
+    "tomato": 82
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "mango": "2026-04-29",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.29,
+    "mango": 0.12,
+    "tomato": 0.11
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "mango": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "mango": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 1600.0,
+    "mango": 7500.0,
+    "tomato": 9400.0
+   }
+  },
+  {
+   "name": "Kanakapura Apmc",
+   "district": "Bengaluru South",
+   "state": "Karnataka",
+   "lat": 12.553032,
+   "lng": 77.407254,
+   "geocode_source": "dataset",
+   "price": {
+    "tomato": 12.0
+   },
+   "capacity_kg": {
+    "tomato": 1100.0
+   },
+   "n_days": {
+    "tomato": 55
+   },
+   "last_date": {
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "tomato": 0.24
+   },
+   "capacity_is_placeholder": {
+    "tomato": false
+   },
+   "capacity_source": {
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "tomato": 1100.0
+   }
+  },
+  {
+   "name": "Channapatna Apmc",
+   "district": "Bengaluru South",
+   "state": "Karnataka",
+   "lat": 12.6581,
+   "lng": 77.212,
+   "geocode_source": "dataset",
+   "price": {
+    "mango": 54.17,
+    "tomato": 12.5
+   },
+   "capacity_kg": {
+    "mango": 37750.0,
+    "tomato": 4800.0
+   },
+   "n_days": {
+    "mango": 22,
+    "tomato": 67
+   },
+   "last_date": {
+    "mango": "2026-04-28",
+    "tomato": "2026-04-30"
+   },
+   "capacity_top_share": {
+    "mango": 0.09,
+    "tomato": 0.04
+   },
+   "capacity_is_placeholder": {
+    "mango": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "mango": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "mango": 37750.0,
+    "tomato": 4800.0
+   }
+  },
+  {
+   "name": "Chickkaballapura Apmc",
+   "district": "Chikkaballapura",
+   "state": "Karnataka",
+   "lat": 13.43912,
+   "lng": 77.71937,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 9.0,
+    "onion": 16.5,
+    "potato": 10.0,
+    "tomato": 11.82
+   },
+   "capacity_kg": {
+    "cauliflower": 1200.0,
+    "onion": 4000.0,
+    "potato": 16500.0,
+    "tomato": 21800.0
+   },
+   "n_days": {
+    "cauliflower": 66,
+    "onion": 68,
+    "potato": 68,
+    "tomato": 69
+   },
+   "last_date": {
+    "cauliflower": "2026-04-29",
+    "onion": "2026-04-29",
+    "potato": "2026-04-29",
+    "tomato": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.29,
+    "onion": 0.21,
+    "potato": 0.13,
+    "tomato": 0.06
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 1200.0,
+    "onion": 4000.0,
+    "potato": 16500.0,
+    "tomato": 21800.0
+   }
+  },
+  {
+   "name": "Kolar Apmc",
+   "district": "Kolar",
+   "state": "Karnataka",
+   "lat": 13.124257,
+   "lng": 78.111222,
+   "geocode_source": "dataset",
+   "price": {
+    "cauliflower": 11.0,
+    "potato": 11.0,
+    "tomato": 6.6
+   },
+   "capacity_kg": {
+    "cauliflower": 9400.0,
+    "potato": 3000.0,
+    "tomato": 528100.0
+   },
+   "n_days": {
+    "cauliflower": 70,
+    "potato": 35,
+    "tomato": 81
+   },
+   "last_date": {
+    "cauliflower": "2026-04-30",
+    "potato": "2026-04-30",
+    "tomato": "2026-04-29"
+   },
+   "capacity_top_share": {
+    "cauliflower": 0.09,
+    "potato": 0.29,
+    "tomato": 0.04
+   },
+   "capacity_is_placeholder": {
+    "cauliflower": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "cauliflower": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "cauliflower": 9400.0,
+    "potato": 3000.0,
+    "tomato": 528100.0
+   }
+  }
+ ]
+}
