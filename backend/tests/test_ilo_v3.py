@@ -59,7 +59,7 @@ def test_no_dispatched_trip_earns_less_than_its_farmgate_value_and_gain_sharing_
             continue
         members = [by[i] for i in r["farmer_ids"]]
         assert r["net_return"] >= prices.value_of(members) - 1e-6
-        share = r["per_farmer_value_gain_sharing"]
+        share = r["per_farmer_net"]
         assert sum(share.values()) == pytest.approx(r["net_return"])
         assert all(share[f.id] >= prices.value(f) - 1e-6 for f in members)
 
@@ -163,3 +163,45 @@ def test_deliberately_unhauled_pools_are_flagged_as_farmgate_sales_not_failures(
             assert r["sold_at_farmgate"] is True
         if r["vehicle_id"] is None and r["unserved_no_vehicle_kg"] > 0:
             assert not r.get("sold_at_farmgate")
+
+
+# ---------------------------------------------------------------------------
+# Fleet-aware set partitioning (columns = trip x vehicle class x start slot)
+# ---------------------------------------------------------------------------
+def test_fleet_aware_sp_never_overbooks_a_vehicle_class():
+    farmers, fleet, markets = generate_scenario_v2(n_farmers=60, n_markets=3, seed=2)
+    prices = B._as_prices(markets, B.FARMGATE_DISCOUNT, None)
+    cands, _ = V.generate_candidates(farmers, fleet, markets, prices, 0.0)
+    cols = V.expand_fleet_columns(cands, fleet, markets, prices, 0.0)
+    chosen, status, meta = V.solve_fleet_set_partition(cols, markets, fleet)
+    assert status in ("optimal", "time_limit_best_found")
+    seen = set()
+    for c in chosen:                                                    # disjoint farmers
+        assert not (c["ids"] & seen)
+        seen |= c["ids"]
+    classes = V._vehicle_classes(fleet)
+    busy = {}
+    for c in chosen:                                                    # per class, per time cell <= vehicles
+        for j in range(c["cells"][0], c["cells"][1] + 1):
+            busy[(c["cls"], j)] = busy.get((c["cls"], j), 0) + 1
+    for (key, _j), k in busy.items():
+        assert k <= len(classes[key])
+    hints = V.assign_vehicles_to_columns(chosen, fleet)                 # a concrete vehicle for every trip
+    assert len(hints) == len(chosen)
+    per_vehicle = {}
+    for c in chosen:
+        h = hints[c["ids"]]
+        per_vehicle.setdefault(h["vehicle_id"], []).append((c["cells"][0], c["cells"][1]))
+    for spans in per_vehicle.values():                                  # no vehicle double-booked
+        spans.sort()
+        for (a0, a1), (b0, _b1) in zip(spans, spans[1:]):
+            assert b0 > a1
+
+
+def test_fleet_aware_plan_is_at_least_as_good_as_the_fleet_blind_plan_it_competes_with():
+    farmers, fleet, markets = generate_scenario_v2(n_farmers=60, n_markets=3, seed=3)
+    res, meta = V.run_ilo_v3(farmers, copy.deepcopy(fleet), markets, return_meta=True)
+    pv = meta["plan_values"]
+    assert "B:set_partition" in pv and "B0:set_partition_fleet_blind" in pv
+    assert meta["final_value"] >= pv["B0:set_partition_fleet_blind"] - 1e-6   # safeguard keeps the better plan
+    assert meta["fleet_aware"]["hints_placed"] == meta["fleet_aware"]["trips_chosen"]

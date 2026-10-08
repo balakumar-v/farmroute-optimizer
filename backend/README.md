@@ -88,6 +88,11 @@ each baseline; no shared mutable state between calls), stores the run, and
 returns all three results — not just the winner. `400` if farmers, vehicles,
 or markets are empty.
 
+Optional query parameter `road_circuity` (float in [1, 3]): road km / straight-line km used for every distance in this
+run (time follows). Omitted: the `FARMROUTE_ROAD_CIRCUITY` environment variable, else 1.0 (legacy straight line).
+Fit the value with `calibrate_circuity.py`. ILO v3 pools now also carry `breakeven` (doorstep Rs/kg below which the
+trip still pays) and `dispatch_hr`; `per_farmer_net` is the value-gain split.
+
 Response shape (fields are the real `pool_result` / `summarize()` fields
 from `CONTRACT.md`, not invented ones):
 
@@ -235,6 +240,11 @@ by hand.
 | `visualization_adapter.py` | Reshapes a stored plan run into the Map & simulation tab's frontend-facing schema. Pure consumer of the algorithm output — no optimization logic |
 | `verify_setup.py` | Exercises every endpoint via `TestClient`; run after `pip install -r requirements.txt` |
 | `verify_visualization.py` | Exercises `GET /plan/{id}/visualization` and `GET /sensors/readings` against a realistic multi-vehicle scenario, including multi-trip vehicle-reuse and served/unserved-farmer edge cases |
+| `ilo_v3.py` | ILO v3 planner: candidates, fleet-aware set partition, repair and value-gain sharing, break-even, discount stress, optional Monte Carlo |
+| `price_impact.py` | `PriceImpact` volume-dependent price model and `estimate_price_flexibility()` (off by default) |
+| `stress.py` | `monte_carlo_stress()` and `withhold_fragile()` for a finished plan |
+| `calibrate_circuity.py` | Fits the road-circuity factor from a CSV of real road distances |
+| `experiments_v3_1/` | Scripts behind the v3.1 numbers (see its README) |
 | `benchmark_v2.py` | Standalone scale/economics benchmark, not used by the API. Needs `pandas` (`pip install pandas`), which isn't in `requirements.txt` since the app itself doesn't need it. Run with `python3 benchmark_v2.py` from this folder. |
 
 `database.py` adds a `result_ilo_trace` column to `plan_runs` (used by
@@ -248,7 +258,7 @@ still load fine, just without that one extra breakdown.
 ## Known simplifications (inherited, not re-litigated here)
 
 Everything under "Known simplifications" in `CONTRACT.md` (haversine
-distance, constant vehicle speed, flat turnaround buffer, no real depot
+distance times an optional circuity factor, constant vehicle speed, flat turnaround buffer, no real depot
 placement, greedy-heuristic fleet assignment) lives in the algorithm layer,
 not this backend — this backend just stores and serves whatever the
 algorithm returns.

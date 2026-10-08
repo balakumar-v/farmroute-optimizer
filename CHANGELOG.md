@@ -1,5 +1,51 @@
 # Changelog
 
+## ILO v3.1: fleet-aware planning, road distance, price impact, break-even and stress tests (Oct 2026)
+Five additions to ILO v3, from a review of its weaknesses (`ALGORITHM_AND_RESULTS_V2.md`, section 22). Everything new is
+opt-in or additive: with default arguments the planner uses the same distances and prices as v3, and the core
+trip and dispatch rules are unchanged. What does change by default is listed first.
+- **Changed by default.** ILO v3 now reports value-gain sharing as `per_farmer_net` (own farm-gate value plus a kg-share of
+  the trip surplus; never below the doorstep price). The pro-rata split and the `per_farmer_value_gain_sharing` key and
+  `farmers_worse_off_under_prorata_split` stat are gone from ILO v3 results; baselines and ILO v2 still use pro-rata.
+  The set-partitioning step is fleet-aware (see below) and the old fleet-blind plan competes as a fallback, so final
+  value never drops. Every dispatched trip carries `breakeven`, and `meta["discount_stress"]` is added.
+  Dispatched pools gain a `dispatch_hr` field.
+- **Fleet-aware set partitioning** (`ilo_v3.py`). Columns are (trip, vehicle class, start slot); each (class, 15-minute cell)
+  has at most as many busy trips as vehicles. Vehicle choice moves into the MILP; `assign_fleet` honours pinned
+  vehicle/start hints (`pool_hints`). LP duals give the value of one extra vehicle per class
+  (`meta["fleet_aware"]["shadow_value_per_extra_vehicle"]`). `fleet_aware=False` restores the old behaviour.
+- **Road-distance model** (`logistics_lib_v2.py`). `haversine()` now returns `ROAD_CIRCUITY` x straight-line km (default 1.0 = legacy).
+  Set with `set_road_circuity(k)`, the `road_circuity(k)` context manager, `FARMROUTE_ROAD_CIRCUITY`, or
+  `POST /plan/compute?road_circuity=1.3`. Radius thresholds are road-km. `calibrate_circuity.py` fits k from real road
+  distances. The default is NOT changed, so existing benchmarks are comparable; set a calibrated value for real use.
+- **Price impact** (`price_impact.py`, off by default). Concave volume-dependent mandi revenue in the MILP (tranche variables, no
+  binaries), in the market-allocation LP, and in baseline revenue. `run_ilo_v3(price_impact=..., true_price_impact=...)`
+  separates what the planner believes from how plans are scored. `estimate_price_flexibility()` re-estimates eta from
+  Agmarknet CSVs. Default eta values are lower bounds from within-mandi regressions.
+- **Break-even and discount stress** (`ilo_v3.py`). Per trip: break-even doorstep Rs/kg per crop, cushion %, break-even discount.
+  Per plan: gain if the true farm-gate discount were 5/10/20/30/35% instead of the assumed one, with and without a
+  live-quote dispatch rule.
+- **Monte Carlo stress test** (`stress.py`, off by default: `run_ilo_v3(mc_draws=100)`). Replays the finished plan through the simulator under travel,
+  readiness and price shocks. Reports mean, P5, P(loss), per-trip `p_beat`. `mc_min_prob` can withhold fragile trips, but
+  in tests this lowered the mean and the P5, so it stays off.
+- New files: `price_impact.py`, `stress.py`, `calibrate_circuity.py`, `experiments_v3_1/` (the scripts behind the numbers),
+  tests `test_road_circuity.py`, `test_price_impact.py`, `test_breakeven.py`, `test_monte_carlo.py` and two fleet tests in
+  `test_ilo_v3.py` (20 new tests, plus 6 for the spoilage and soft-capacity items below).
+- **Spoilage sensitivity** (`logistics_lib_v2.spoilage_params()`, `SPOIL_UNREFRIG_MULT`, `SPOIL_CAP`, defaults unchanged;
+  `experiments_v3_1/spoilage_sensitivity.py`; results section 23). ILO's ranking is stable across spoilage variants, but doubling
+  the hourly rate cuts the gain by 25% and changes about half the hauled farmers. `monte_carlo_stress(spoilage_rate_sd=...)` adds
+  a per-crop rate shock (default 0). 2 more tests (22 new in total).
+- **Trip-structure measurement** (no planner change; `experiments_v3_1/trip_structure_*.py`, results section 24). Multi-mandi trips and the
+  top-3 mandi cut: not worth building. Mixed-crop consolidation: about 0 to 5% end-to-end, noisy. Mandi capacity binds in 3 of 5
+  presets and tripling it adds 15% to 39%; a soft capacity via price impact is the proposed next step.
+- **Soft mandi capacity** (`PriceImpact(capacity_multiple=M)` / `PriceImpact.soft(M)`, off by default; results section 25). Also fixes a flaw: with price impact, each
+  trip was offered at one mandi only; `run_ilo_v3(markets_per_trip=...)` now offers up to 3 (default 3 with price impact, else 1, so
+  default behaviour is unchanged). Result: planning with soft capacity is not reliably better (6 of 10 cells up to +48%, 4 down to
+  -9.7%) because the SP and the simulator disagree by 10% to 14%; use it for scoring, not planning. The capacity assumption alone moves reported gain by
+  +7% to +26% in 8 of 10 cells. 4 more tests (26 new in total).
+- Not done, by decision or because it needs data: OSRM road matrix (deferred to the end), mixed-crop and multi-mandi trips,
+  calibrated spoilage rates, a price-history backtest, real farm-gate quotes.
+
 ## ILO v3, behavioural baselines and regional presets (Oct 2026)
 - ILO v3 (`backend/ilo_v3.py`) is now the recommended plan. It hauls only what beats the farm-gate price, merges farmers heading to the same mandi into full trucks, picks trips with an exact 0/1 solver, and returns the best of its own plans and every baseline under identical accounting. ILO v2 is still computed as a legacy reference.
 - The two comparison baselines are now behavioural farmer baselines (spot-hired truck to the nearest mandi if within 40 km and 10% above the trader's offer, otherwise sell at the farm gate). The old versions, the rational variants and a farm-gate-only reference are returned under `realistic_baselines` and are not shown in the UI.

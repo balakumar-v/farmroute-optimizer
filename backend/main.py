@@ -19,7 +19,7 @@ import copy
 import dataclasses
 import datetime
 import json
-from typing import List
+from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -179,7 +179,20 @@ def list_markets():
 # =========================================================================
 
 @app.post("/plan/compute")
-def compute_plan():
+def compute_plan(road_circuity: Optional[float] = None):
+    """road_circuity: road km / straight-line km used for every distance (default: FARMROUTE_ROAD_CIRCUITY env var,
+    else 1.0 = legacy straight-line). Fit it with calibrate_circuity.py."""
+    from logistics_lib_v2 import road_circuity as _rc, get_road_circuity
+    try:
+        k = get_road_circuity() if road_circuity is None else float(road_circuity)
+        ctx = _rc(k)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    with ctx:
+        return _compute_plan_impl()
+
+
+def _compute_plan_impl():
     with get_conn() as conn:
         farmer_rows = conn.execute("SELECT * FROM farmers ORDER BY id").fetchall()
         vehicle_rows = conn.execute("SELECT * FROM vehicles ORDER BY id").fetchall()

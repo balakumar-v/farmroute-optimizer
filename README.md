@@ -83,7 +83,31 @@ ILO (Integrated Logistics Optimization) v3 lives in `backend/ilo_v3.py` and is t
 2. Pool consolidation. For each (mandi, crop) pair, a Clarke-Wright savings pass [a classic route-merging heuristic] merges farmers heading to the same mandi into full trucks.
 3. Set partitioning. Candidate trips (single farmers, ILO's own pools, neighbour groups, merged routes) go into an exact 0/1 program [solved with SciPy's HiGHS] that picks disjoint trips maximising total gain, with mandi capacity as a constraint. The planner then runs market allocation (an LP [linear program]) and economic dispatch on those pools.
 4. Safeguard. ILO returns the best of its own plans and every baseline under the same accounting, and records which one it chose (`ilo_meta.chosen`).
-5. Farmer-level no-loss. Surplus from each trip is shared so every farmer gets at least their own farm-gate value.
+5. Farmer-level no-loss. Surplus from each trip is shared so every farmer gets at least their own farm-gate value. This value-gain split is what `per_farmer_net` reports for ILO v3.
+
+Step 3 is fleet-aware since v3.1: each candidate trip becomes columns (trip, vehicle class, start slot) and the program also limits how many vehicles of each class are busy in any 15-minute cell, so it chooses vehicles as well as trips. The old fleet-blind plan still competes in step 4, so the final value cannot drop.
+
+#### v3.1 options (all off or neutral by default)
+
+| Option | What it does | Default |
+|---|---|---|
+| `fleet_aware`, `keep_blind_plan` | fleet-aware set partition; keep the old plan as a fallback | on, on |
+| `road_circuity` (API query) / `set_road_circuity(k)` / `FARMROUTE_ROAD_CIRCUITY` | planner distance = k x straight-line km (and time with it) | 1.0 (legacy straight line) |
+| `price_impact`, `true_price_impact`, `markets_per_trip` | volume-dependent mandi prices (`price_impact.PriceImpact`; `capacity_multiple=3` makes the capacity soft); belief drives the MILP, truth drives simulation and scoring; with a belief, each trip is offered at up to 3 mandis | off, off, 3 when a belief is set |
+| `stress_discounts` | re-value the plan at other true farm-gate discounts; adds `meta["discount_stress"]` | 5/10/20/30/35% |
+| `mc_draws`, `mc_min_prob`, `mc_kwargs` | Monte Carlo replay of the finished plan (`stress.py`); optionally withhold fragile trips; shock sizes incl. `spoilage_rate_sd` | off, off, default shocks |
+
+Every dispatched trip also carries `breakeven`: the doorstep Rs/kg per crop below which hauling still pays, its cushion in percent, and the smallest true discount at which it pays. The intended rule is to dispatch only if the trader's live quote is below that price.
+
+What these showed (synthetic scenarios, few seeds; `ALGORITHM_AND_RESULTS_V2.md` section 22 has the tables and caveats):
+- Planning with straight-line distances when roads are 1.4x longer cost about 17% of the gain and left 15 of 65 trips below the farm-gate price. Planning with the right factor cut that to 2 of 58. Underestimating the factor by 0.2 costs about 2%; overestimating by 0.2 costs about 14%.
+- Fleet-aware planning adds 0 to 2.5% of final value; the gain is small because the synthetic fleet is small relative to the farmers. It also prices vehicles: one extra reefer was worth about Rs 4.7k in one scenario.
+- Price impact: with elasticities estimated from your Agmarknet files (lower bounds), scoring with price response cuts reported gain by about 17%. Planning with it adds nothing measurable at those elasticities (-2%, inside model error) and about +7% when the true response is 3.5x stronger. Wrong beliefs hurt: assuming 2x the truth gave +0.1%.
+- Farm-gate discount: assuming 20% to 30% and using the live-quote rule had a worst-case regret of 8% to 11% across true discounts of 5% to 35%. Without the rule, assuming 30% lost money when the true discount was 5%.
+- Trip structure: multi-mandi trips and the top-3 mandi cut are not worth building; mixed-crop trips add about 0 to 5% and are noisy. Mandi capacity is the lever: it binds in 3 of 5 presets, and tripling it adds 15% to 39% (section 24). Capacity is a weak input, so report capacity sensitivity with any gain.
+- Soft capacity (section 25): scoring with a soft mandi capacity (volume up to 3x a normal day at falling prices) instead of a hard cap raises reported gain by 7% to 26% in 8 of 10 cases. Planning with it is not reliably better than ignoring price impact (6 of 10 cases better, 4 worse by up to 10%), so use it for scoring and sensitivity, not planning.
+- Spoilage: ILO beat every baseline under every spoilage variant tried (lead 4% to 9%), but doubling the hourly spoilage rate cut the gain by 25% and changed about half of the hauled farmers; the refrigeration multiplier mattered less (3 -> 6: -12%). The per-crop hourly rates are the parameter worth measuring.
+- Monte Carlo (100 draws, travel +-20%, readiness delays up to about 1 h, prices +-8%): the plan kept about 88% of its nominal gain on average and about 49% in the worst 5% of draws; it never lost money overall. Withholding trips with `p_beat` below 0.7 to 0.9 lowered both the mean and the 5th percentile, so it is off.
 
 The guarantee is narrow: returned value is at least the best baseline, measured with the prices and accounting the planner was given. It says nothing about real farmers, and it is only as good as the farm-gate price input.
 
@@ -108,6 +132,10 @@ backend/
   ilo_v3.py                  ILO v3, the recommended planner
   algorithms_v2.py           ILO v2 building blocks and legacy baselines
   baselines_v3.py            behavioural and rational baselines, farm-gate pricing
+  price_impact.py            volume-dependent mandi price model and eta estimator (off by default)
+  stress.py                  Monte Carlo replay of a finished plan; withhold_fragile()
+  calibrate_circuity.py      fit the road-circuity factor from real road distances
+  experiments_v3_1/          scripts behind the section 22 numbers (own README)
   logistics_lib_v2.py        data model: 6 crops, 7 vehicle types, costs, spoilage
   visualization_adapter.py   reshapes a stored plan for the map (no recomputation)
   integrated_milp.py         exact MILP ground truth for small instances
@@ -123,7 +151,7 @@ frontend/
   config.js                  map tile settings
   vis/                       map, simulation engine, narrator, panels, theater
   vendor/                    MapLibre GL, deck.gl, self-hosted fonts
-ALGORITHM_AND_RESULTS_V2.md  design history, benchmarks, assumptions (sections 19 to 21 cover v3 and the presets)
+ALGORITHM_AND_RESULTS_V2.md  design history, benchmarks, assumptions (sections 19 to 21 cover v3 and the presets, 22 to 25 cover v3.1)
 MILP_GROUND_TRUTH.md         exact-benchmark method and results
 PRODUCT.md, DESIGN.md        who the UI is for, and its design system
 CHANGELOG.md
@@ -144,7 +172,7 @@ Full request and response shapes are in `backend/README.md`.
 | `POST /sensors/reading`, `GET /sensors/readings` | Store ESP32 temperature and humidity readings |
 | `POST /reset` | Clear all data |
 
-`/plan/compute` returns `integrated_logistics_optimization`, `individual_transport` and `proximity_pooling`, each with `pools` and a `summary` that includes `net_return_incl_farmgate`, plus `realistic_baselines` as above. Crops: `tomato`, `onion`, `potato`, `cauliflower`, `mango`, `spinach`. Vehicle types: `mini_pickup`, `van`, `reefer_van`, `truck_2t`, `reefer_2t`, `truck_5t`, `reefer_5t`. There is no authentication; this is a local demo.
+`POST /plan/compute?road_circuity=1.3` plans and scores with road distance = 1.3 x straight line (400 outside 1 to 3; omitted = `FARMROUTE_ROAD_CIRCUITY` or 1.0). `/plan/compute` returns `integrated_logistics_optimization`, `individual_transport` and `proximity_pooling`, each with `pools` and a `summary` that includes `net_return_incl_farmgate`, plus `realistic_baselines` as above. Crops: `tomato`, `onion`, `potato`, `cauliflower`, `mango`, `spinach`. Vehicle types: `mini_pickup`, `van`, `reefer_van`, `truck_2t`, `reefer_2t`, `truck_5t`, `reefer_5t`. There is no authentication; this is a local demo.
 
 ## What is real and what is not
 
@@ -166,7 +194,7 @@ The map always renders a limewash background with a lat/lng grid, so it works of
 cd backend
 python3 verify_setup.py
 pip install pytest -r real_data/requirements-realdata.txt
-python3 -m pytest tests real_data/tests          # 103 tests, about a minute
+python3 -m pytest tests real_data/tests          # 103 tests before v3.1, plus 26 new ones; about a minute for the original 103
 
 python3 benchmark_ilo_v3.py grid      # win/tie/loss map across scenarios
 python3 benchmark_ilo_v3.py robust    # planner assumes 20% discount, truth differs
@@ -174,6 +202,8 @@ python3 benchmark_ilo_v3.py bihar     # the Bihar preset
 ```
 
 Without `real_data/requirements-realdata.txt`, the real-data tests fail on a missing `agmarknet` module; the API does not need it.
+
+Testing note for v3.1: pytest was not available where these changes were made, so the new and existing ILO v3 tests (16 + the new road-circuity, price-impact, break-even and Monte Carlo tests) were run with a small stand-in runner, and the `real_data/tests`, the `monkeypatch`-based test in `test_economic_dispatch.py` and the parametrised baseline tests in `test_realistic_baselines.py` were not fully exercised. Run the full suite before relying on it.
 
 ## Real-data pipeline
 
@@ -190,7 +220,13 @@ This writes a `.js` block to paste into `SCENARIOS` in `frontend/app.js` and a `
 ## Known issues and limitations
 
 - `verify_visualization.py` currently fails. Its check that served plus unserved farmers cover everyone predates farm-gate farmers, who are now a third group (`farmgateFarmerIds`). It also needs an empty database. The pytest suite, including `test_visualization_baselines.py`, passes.
-- All farmers and the fleet are synthetic, and ILO's lead depends on the assumed farm-gate discount and on a few high-priced mandis (Sheohar in Bihar). No price response to extra volume is modelled.
+- All farmers and the fleet are synthetic, and ILO's lead depends on the assumed farm-gate discount and on a few high-priced mandis (Sheohar in Bihar). Price response to extra volume is modelled only if `price_impact` is switched on (default off); its elasticities are lower bounds, and fixed-price numbers overstate gains by roughly 17% at those values.
+- Distances are straight-line km times a circuity factor whose default is 1.0, at a constant 32 km/h. Set a calibrated factor for real use; one global factor cannot capture bad roads. An OSRM road matrix is planned for last.
+- In the fleet model a vehicle is busy for the pickup leg plus turnaround; the delivery leg does not occupy it (inherited from the simulator).
+- Spoilage is still a linear, uncalibrated model with a binary refrigeration switch; its hourly rates move results a lot (section 23) and should be measured. Trips are single-mandi and single-crop for consolidation. The plan covers one day with no carry-over.
+- Mandi capacity is a hard cap by default, built from median daily arrivals (some Bihar values are reporting defaults); it binds in 3 of 5 presets and the cap assumption moves reported gain by 7% to 26% (sections 24 and 25). A soft cap exists (`PriceImpact.soft`), but planning with it is not yet reliable.
+- The Monte Carlo shock sizes and the farm-gate discount scenarios are judgement calls, not calibrated.
+- v3.1 results come from 2 to 6 synthetic seeds per setting. Treat the percentages as indications.
 - In the regional presets the farmer cluster is centred on a mandi hub, so hauling pays far more often than in Bihar. Do not read the lead sizes across presets as a statement about the regions.
 - Six Bihar mandi-crop capacities are reporting defaults, not measurements. Madhya Pradesh lost 27 mandis to missing coordinates, which thins its mandi set.
 - MILP ground truth only scales to about 5 to 7 farmers.

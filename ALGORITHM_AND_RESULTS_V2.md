@@ -1020,3 +1020,204 @@ across presets as a statement about the regions. Farmers are synthetic and the f
 capacities, the 30% absorption cap and the 60-pickup round are modelling choices. Madhya Pradesh lost 27 mandis to missing
 coordinates, which thins its mandi set. No farmer-level data exists for any state.
 Reproduce: `python real_data/build_regional_presets.py --preset <id> --csv <state csv>`; `--list` shows the four configs.
+
+---
+
+## 22. ILO v3.1: weaknesses found and the fixes (Oct 2026)
+
+Everything here comes from the synthetic generator (`generate_scenario_v2`) with 2 to 6 seeds per setting, run with the scripts in `backend/experiments_v3_1/`. The numbers test mechanisms and rank problems; they say nothing about a real region. "Gain" means value over the farm-gate-only reference unless stated.
+
+### 22.1 Weaknesses of ILO v3, ranked by measured severity
+
+| # | Weakness | Measured | Fix in v3.1 |
+|---|---|---|---|
+| 1 | Straight-line distance, constant 32 km/h | Plans re-costed at road circuity 1.3 / 1.6: gain -31% / -59%; 7 of 45 / 17 of 43 trips fall below the farm-gate price (n=80, 6 scenarios) | circuity factor (22.3); OSRM matrix deferred |
+| 2 | Set partition ignored the fleet; fleet assigned greedily afterwards | n=1000: 29 trips chosen, 27 dispatched, 18 t unserved, plan B no better than plan A. Gain over farm-gate: +17% (n=60), +2.6% (150), +1.6% (300), +1.2% (600), +0.7% (1000). Local search, multistart and random orders are switched off above 120 / 300 / 60 pools | fleet-aware set partition (22.2) |
+| 3 | Fixed mandi prices | Same plans re-costed with the old stylized price steps: gain -22% | price impact (22.4) |
+| 4 | Farm-gate price is an assumption; the guarantee is relative to it | Wrong discount changes which trips pay (22.5) | break-even output, discount stress (22.5) |
+| 5 | Trips are single-mandi; consolidation is per crop; each farmer sees only their top 3 mandis | Measured in section 24: top-3 cut harmless, multi-mandi trips not justified, mixed-crop worth about 0 to 5%. The finding is that mandi capacity binds | not built; soft capacity proposed |
+| 6 | One deterministic day | not measured directly | Monte Carlo replay (22.6) |
+| 7 | Spoilage: linear, uncalibrated, binary refrigeration | Hourly rate x2: gain -25% and half the hauled farmers change; unrefrigerated multiplier 3 -> 6: gain -12%; ILO still beats every baseline (section 23) | rates are the parameter to calibrate; MC spoilage shock (23) |
+| 8 | Pro-rata sharing left farmers worse off (3 at n=150, 22 at n=1000) | as stated | value-gain sharing is the only split ILO v3 reports |
+
+### 22.2 Fleet-aware set partitioning
+
+Columns are (trip, vehicle class, start slot), at most 6 slots per pair on a 15-minute grid. A constraint per (class, cell) bounds the number of busy trips by the vehicles of that class free in that cell. Occupancy follows `assign_fleet`: start, then the pickup-leg duration plus the 1 h turnaround, rounded outward, so accepted plans are conflict-free. The solution is turned into concrete vehicles by interval colouring and pinned through `pool_hints` (honoured by `assign_fleet`; unhonourable hints fall back to greedy). The old fleet-blind plan stays as a competitor in the safeguard.
+
+| n | fleet vehicles | gain over farm-gate, old -> new | final value vs old |
+|---|---|---|---|
+| 60 | 4 | 14.56% -> 15.76% | +0.0 to +2.5% |
+| 150 | 4 | 4.78% -> 4.88% | +0.0 to +0.3% |
+| 150 | 2 | 2.29% -> 2.47% | +0.0 to +0.4% |
+| 300 | 9 | 1.45% -> 1.46% | +0.0 to +0.01% |
+| 600 | 16 | 1.46% -> 1.62% | +0.0 to +0.3% |
+| 1000 | 26 to 28 | 0.79% -> 1.08% | +0.1 to +0.5% |
+
+On some seeds the fleet-aware plan alone is slightly below the blind one (for example 301.9k vs 303.7k at n=60): the cell rounding is a little stricter than the simulator. The safeguard keeps the better plan, so final value never drops. A diagnostic run honoured 7 of 8 pinned vehicles; the eighth was a Rs 329 trip the simulator re-routed out of profit. The LP duals on the fleet rows give a first-order value of one extra vehicle per class (about Rs 4.7k for a reefer in one n=60 scenario, near zero for the others). The gains are small because the synthetic fleet is about one vehicle per 40 farmers, so almost all value is farm-gate. Runtime at n=1000 is about 35 s (the 0/1 program hits its 30 s limit). Limit: occupancy counts only the pickup leg plus turnaround, as the simulator does.
+
+### 22.3 Road distance
+
+`haversine()` returns `ROAD_CIRCUITY` x straight-line km; time follows because it is distance over speed. Default 1.0 keeps old benchmarks comparable. Clustering and neighbour radii are road-km. `calibrate_circuity.py` takes the median of road/straight ratios over 100 to 200 real pairs and warns when p90 - p10 exceeds 0.5 (then use a real matrix).
+
+Truth set to 1.4; planner told k; plans re-costed at 1.4 (6 scenarios, n=80):
+
+| planner k | trips | below farm-gate | gain vs farm-gate (true roads) |
+|---|---|---|---|
+| 1.0 (old) | 65 | 15 | 155k |
+| 1.2 | 60 | 8 | 183k |
+| 1.4 (exact) | 58 | 2 | 187k |
+| 1.6 | 45 | 1 | 161k |
+
+Underestimating by 0.2 costs about 2%; overestimating by 0.2 about 14%, so when calibration is uncertain pick the low side. Truth here is simulated: the test shows the mechanism, not that 1.4 is right for any region. Constant speed and a single global factor remain.
+
+### 22.4 Price impact
+
+Model: price(q) = p0 (1 + q/V)^(-eta), V = the mandi-crop's median daily arrival (`capacity_kg`), revenue = q x price(q), five linear tranches. In the MILP, tranche variables carry the revenue (no binaries); the allocation LP uses the same tranches as demand nodes; baselines get realised revenue reduced first-come-first-served and do not anticipate it.
+
+Estimated eta (`price_flexibility_regression.py`: log modal price on log arrivals, market and crop-day fixed effects, five states): tomato about 0.09, cauliflower 0.05 to 0.1, spinach about 0.08, onion and potato about 0, mango unstable. These are lower bounds (measurement error pulls toward zero; the data cannot show the effect of one extra truck). The old stylized steps (1.0 / 0.9 / 0.78 over a day's capacity) correspond to eta about 0.35, roughly 3.5x. Defaults in `DEFAULT_ETA`: tomato 0.09, cauliflower 0.07, spinach 0.08, mango 0.04, onion 0.02, potato 0.015.
+
+SP-predicted gain matched simulated gain within about 3% (scale 1: 65.8k vs 64.5k; scale 3.5: 46.6k vs 44.4k). Scored on the same 3 seeds (n=80):
+
+| | gain |
+|---|---|
+| fixed-price accounting | 207k |
+| same planner scored with eta x1 | 173k (-17%) |
+| same planner scored with eta x3.5 | 111k (-46%) |
+
+Planner belief vs truth (gain under the TRUE elasticity; ignorant = plans with fixed prices):
+
+| true eta | ignorant | belief exact | belief 0.5x | belief 2x |
+|---|---|---|---|---|
+| x1 | 172.9k | 169.4k (-2%) | 169.0k | 171.5k |
+| x3.5 | 111.3k | 119.0k (+6.9%) | 115.3k (+3.5%) | 111.5k (+0.1%) |
+
+Reading: reporting with price response matters for honesty (fixed prices overstate gain by about 17% even at the conservative eta). Planning with it pays only when the response is strong, and a belief 2x too large is as bad as ignoring it. Keep planning belief off until eta is validated; use `true_price_impact` for scoring. Not modelled: baselines that anticipate impact; the effect of one extra truck on the day's price.
+
+### 22.5 Break-even doorstep price and the farm-gate discount
+
+Per dispatched trip: `breakeven.price_scale` (net return / assumed farm-gate value), `cushion_pct`, `per_kg_by_crop` (doorstep Rs/kg at which hauling is neutral), and `breakeven_discount`. The operational rule is to dispatch only if the live doorstep quote is below `per_kg_by_crop`. `meta["discount_stress"]` re-values the finished plan (no re-planning, all doorstep prices scaled together) for true discounts of 5/10/20/30/35%, with and without that rule.
+
+Planner assumes d, truth differs (6 seeds, n=80, summed gain):
+
+| planner assumes | truth 5% | truth 20% | truth 35% | mean over truths, run all | mean, live-quote rule |
+|---|---|---|---|---|---|
+| 10% (38 trips) | 105k, 7 trips lose | 257k | 409k | 257k | 258k |
+| 20% (67 trips) | 71k, 27 lose | 309k | 547k | 309k | 318k |
+| 30% (90 trips) | -8.6k, 52 lose | 292k (14 lose) | 593k | 292k | 322k |
+
+With the live-quote rule, regret against the best plan at each true discount was at most 11% (assume 30%, truth 5%), 8% (assume 20%, truth 35%) and about 30% (assume 10%, high truths). Plan at 20% to 30% with the rule; at about 20% if no live quotes exist. Limits: uniform scaling of doorstep prices; the true price only matters for trips already chosen; a backtest on price history is not built; about 10 real doorstep quotes per crop would beat any of this.
+
+### 22.6 Monte Carlo stress test
+
+`stress.py` replays the finished plan (same pools, vehicles and planned start hours, so zero noise reproduces the plan) through the real simulator under shocks: one day-wide travel-time factor (lognormal, sigma 0.2), each farmer ready late by |N(0, 1 h)|, mandi-crop and doorstep prices x lognormal (sigma 0.08 each). A trip that loses its vehicle or misses a deadline in a draw becomes a doorstep sale. Shock sizes are judgement calls.
+
+4 seeds, n=80, 100 selection draws then 100 fresh evaluation draws, summed over seeds:
+
+| trips kept | nominal gain | mean gain | P5 gain | P(gain<0) | trips lost per draw (avg per seed) |
+|---|---|---|---|---|---|
+| all 48 | 260k | 229k | 127k | 0 | 0.89 |
+| p_beat >= 0.7 (37) | 220k | 212k | 118k | 0 | 0.05 |
+| p_beat >= 0.8 (36) | 217k | 211k | 120k | 0 | 0.05 |
+| p_beat >= 0.9 (31) | 208k | 200k | 111k | 0 | 0.05 |
+
+The plan keeps about 88% of its nominal gain on average and about 49% in the worst 5% of draws, and never lost money overall. Withholding fragile trips lowers mean, P5 and expected shortfall alike: those trips are sometimes lost but profitable on average. `mc_min_prob` therefore stays off; use the break-even rule for downside protection. A 100-draw run takes about 10 to 12 s at n=80.
+
+### 22.7 What is still open
+
+OSRM road matrix (deferred to the end of the project); soft-capacity planning that beats ignoring price impact reliably (section 25: the SP and the simulator still disagree by 10% to 14% there); calibrated per-crop spoilage rates (section 23 says rates matter more than the model's shape); a price-history backtest; real doorstep quotes; the delivery leg not occupying vehicles; baselines that anticipate price impact.
+
+---
+
+## 23. Spoilage sensitivity (Oct 2026)
+
+Question: how much do ILO's results depend on the spoilage model, whose parameters are assumptions (per-crop linear hourly rate, tripled for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%)? `spoilage_params(rate_scale, unrefrig_mult, cap)` in `logistics_lib_v2.py` now changes them temporarily (constants `SPOIL_UNREFRIG_MULT`, `SPOIL_CAP`; defaults unchanged). For each variant the whole pipeline (ILO v3 and every baseline) is planned and scored under that variant (`experiments_v3_1/spoilage_sensitivity.py`; 4 seeds, n=80, summed).
+
+| variant | gain over farm-gate | vs nominal | ILO lead over best baseline | ILO's own plan returned | trips | farmers hauled that also appear in the nominal plan (Jaccard) | regret of running the nominal plan |
+|---|---|---|---|---|---|---|---|
+| nominal | 260k | - | +8.5% | 4/4 | 48 | 1.00 | 0 |
+| hourly rate x0.5 | 303k | +16% | +9.4% | 4/4 | 50 | 0.74 | +0.4% |
+| hourly rate x2 | 194k | -25% | +6.3% | 4/4 | 44 | 0.49 | +10.1% |
+| hourly rate x4 | 125k | -52% | +4.1% | 4/4 | 31 | 0.45 | +74.9% |
+| unrefrigerated multiplier 1.5 | 287k | +10% | +8.6% | 4/4 | 45 | 0.77 | +0.5% |
+| unrefrigerated multiplier 6 | 230k | -12% | +8.2% | 4/4 | 49 | 0.64 | +9.4% |
+| rate x2 and multiplier 6 | 175k | -33% | +6.8% | 4/4 | 40 | 0.49 | +44.2% |
+
+Regret = gain lost by executing the nominal plan's schedule (its pools, vehicles and start hours) under the variant instead of the variant's own plan, with no withholding, so trips that stop paying count as losses. A live-quote or break-even check (section 22.5) would avoid part of that.
+
+Reading:
+- The ranking is stable: ILO's own plan was returned in all 28 runs and led the best baseline by 4% to 9% everywhere. Spoilage uncertainty does not threaten the conclusion that planning beats the farmer heuristics.
+- The level and the content of the plan are not stable. Doubling the hourly rate removes a quarter of the gain and changes about half of the hauled farmers; a 4x rate removes half of it. The refrigeration multiplier matters less (6 vs 3: -12%).
+- So the next investment is measuring the per-crop hourly rates (for example from the ESP32 temperature logs plus received weight at the mandi), not a more elaborate functional form. Until then, `monte_carlo_stress(..., spoilage_rate_sd=0.5)` (or `run_ilo_v3(mc_draws=100, mc_kwargs={"spoilage_rate_sd": 0.5})`) shows how much a rate error moves a plan's gain.
+- Not tested: the 60% cap (trips here are mostly 2 to 7 h, where refrigerated crops stay well below it), non-linear or temperature-driven loss, price penalties for lower grade, and waiting time at the farm. Those may matter for long or hot trips.
+- Limits: synthetic scenarios, 4 seeds, one fleet size. The variants scale every crop together; crop-specific errors would change which farmers are hauled differently.
+
+---
+
+## 24. Is a richer trip structure worth building? (Oct 2026)
+
+Measured before building anything (`experiments_v3_1/trip_structure_probe.py`, `trip_structure_end_to_end.py`, `trip_structure_presets.py`; no planner code changed). Four questions on ILO v3's candidate set:
+- **capacity x3**: regenerate candidates and re-solve with every mandi-crop capacity tripled. An upper bound on what splitting loads across mandis could add, and a direct read on how much the capacity cap costs.
+- **top-K = all**: remove the cut that shows each farmer only their 3 best mandis (matters only with more than 3 mandis).
+- **mixed-crop**: add Clarke-Wright trips mixing crops of one refrigeration class (today a route carries one crop).
+- **binding**: share of chosen (mandi, crop) pairs filled to at least 90% of capacity, and of chosen trips sitting on them.
+
+"SP" figures are the fleet-blind set-partition objective (total gain over the farm gate); "end-to-end" is the full fleet-aware `run_ilo_v3`.
+
+### Synthetic scenarios (3 seeds each; SP objective)
+
+| farmers | mandis | base gain | capacity x3 | top-K all | mixed-crop | pairs >= 90% full | trips on full pairs | chosen trips already multi-crop |
+|---|---|---|---|---|---|---|---|---|
+| 80 | 3 | 79.6k | +27.3% | +0.0% | +1.7% | 43% | 60% | 10% |
+| 80 | 8 | 94.9k | +15.8% | +1.3% | +4.9% | 26% | 46% | 14% |
+| 150 | 3 | 53.5k | +51.4% | +0.0% | +11.7% | 43% | 72% | 25% |
+| 150 | 8 | 122.3k | +34.5% | -2.2% | +11.4% | 41% | 55% | 9% |
+| 300 | 3 | 32.5k | +113.6% | +0.0% | +12.1% | 41% | 70% | 25% |
+| 300 | 8 | 140.6k | +53.9% | +0.9% | +12.5% | 51% | 72% | 21% |
+
+End-to-end, n=150, 3 seeds, gain over farm-gate (sum): 3 mandis base 114.2k, mixed-crop +1.1%, capacity x3 +17.3%; 8 mandis base 214.6k, mixed-crop +4.9%, capacity x3 +8.9%. Per seed, mixed-crop ranged from about -12% to +13% against the baseline: a bigger candidate set can lower the final value because the set-partition objective and the simulator disagree by a few percent.
+
+### The five real-data presets (one scenario each)
+
+| preset | farmers / mandis / vehicles | SP base | capacity x3 | top-K all | mixed-crop | pairs >= 90% full | e2e base gain | e2e mixed-crop | e2e capacity x3 |
+|---|---|---|---|---|---|---|---|---|---|
+| bihar_dec2025_feb2026 | 34 / 8 / 8 | 44.4k | +52.2% | +0.0% | +6.9% | 33% | 46.0k | -1.7% | +38.7% |
+| karnataka_bengaluru | 61 / 8 / 16 | 79.0k | +14.6% | +0.0% | +0.0% | 29% | 78.1k | +0.0% | +18.6% |
+| up_aligarh | 59 / 8 / 15 | 72.7k | +18.8% | +0.1% | +0.5% | 14% | 74.5k | +1.7% | +15.3% |
+| maharashtra_junnar | 60 / 8 / 14 | 44.9k | +0.0% | +0.0% | +0.0% | 0% | 46.0k | +0.0% | +0.0% |
+| mp_indore | 57 / 11 / 13 | 41.6k | +0.0% | +0.0% | +0.0% | 0% | 38.0k | -0.2% | +4.6% |
+
+### Reading
+- **Multi-mandi trips are not justified.** What binds is each mandi's capacity, not the trip structure. A single truck split across two mandis only helps when its load exceeds one mandi's remaining room, which is a small slice of the capacity-x3 figure (that figure lets the same mandi absorb three times as much at the same price).
+- **The top-3 mandi cut is harmless** (0.0% in 11 of 15 synthetic cells and all presets; the few non-zero cells are within noise, since a larger eligible set changes Clarke-Wright merges).
+- **Mixed-crop consolidation is not worth it now.** The SP objective rises 2% to 12% on synthetic scenarios, but end-to-end it is +1% to +5% on average with seeds on both sides of zero, and between -1.7% and +1.7% on the presets.
+- **Mandi capacity is the lever.** In 3 of 5 presets (Bihar, Bengaluru, Aligarh) 14% to 33% of the chosen mandi-crop pairs are filled to 90% or more, and tripling capacity adds 15% to 39% end-to-end. In synthetic scenarios 26% to 51% of pairs are full and tripling adds 9% to 17% end-to-end (16% to 114% before the fleet limit). Junnar and Indore never bind.
+- Capacity is itself a weak input: it is the median daily arrival at the mandi (scaled), and six Bihar mandi-crop values are reporting defaults, not measurements. A hard cap also says a mandi takes nothing beyond it at any price. A soft cap (price falls with volume beyond a normal day, see section 22.4) is more realistic and would move plans exactly where the cap binds. Until then, report capacity sensitivity alongside gains.
+- Limits: the presets are one scenario each; the probes use the fleet-blind objective except where marked end-to-end; capacity x3 is a bound, not a forecast.
+
+---
+
+## 25. Soft mandi capacity (Oct 2026)
+
+Section 24 found that mandi capacity binds in 3 of 5 presets. A hard cap says a mandi takes nothing beyond a normal day's arrivals at any price. `PriceImpact(capacity_multiple=M)` (or `PriceImpact.soft(M)`) makes it soft: tranches continue to M times a normal day's arrivals at the falling price (1 + q/V)^-eta (V = `capacity_kg`). M=None or 1.0 is the old hard cap and the default. `price_impact.capacity_multiple` also scales the SP's capacity rows, candidate revenue and the baselines' remaining-capacity ledger, so planner, simulator and baselines all see the same world. `run_ilo_v3` reports `meta["params"]["capacity_multiple_belief"]`.
+
+**A flaw found on the way.** With price impact on, each trip was offered at only its single best-price mandi, so the SP could not spread volume to the second-best mandi when the best was crowded. With a soft cap the SP's optimum was even below what the hard-cap plan scores in the soft model (Aligarh: 65.0k vs 69.8k). `run_ilo_v3(markets_per_trip=...)` now offers each trip at up to 3 mandis whenever `price_impact` is set (1 otherwise, so default behaviour and keys are unchanged); after that the soft SP beats the hard plan in the soft model (78.5k vs 70.5k on Aligarh).
+
+`experiments_v3_1/soft_capacity.py`: truth = soft capacity (M=3) at eta x1 and x3.5; planners: fixed prices + hard cap (today), price impact + hard cap, price impact + soft cap; all scored with `true_price_impact` = the soft world. Gain over farm-gate:
+
+| scenario | eta | fixed+hard | impact+hard | impact+soft | soft vs fixed+hard |
+|---|---|---|---|---|---|
+| Bihar | x1 | 54.3k | 53.3k | 57.2k | +5.4% |
+| Bihar | x3.5 | 48.1k | 42.2k | 45.9k | -4.6% |
+| Bengaluru | x1 | 87.3k | 87.3k | 88.3k | +1.1% |
+| Bengaluru | x3.5 | 73.0k | 73.0k | 73.4k | +0.6% |
+| Aligarh | x1 | 78.0k | 81.0k | 75.8k | -2.9% |
+| Aligarh | x3.5 | 62.1k | 64.9k | 56.1k | -9.7% |
+| synthetic 150x3, seed 1 | x1 | 20.2k | 20.6k | 25.8k | +27.5% |
+| synthetic 150x3, seed 1 | x3.5 | 9.0k | 8.2k | 13.4k | +47.9% |
+| synthetic 150x3, seed 2 | x1 | 34.5k | 32.8k | 40.3k | +16.8% |
+| synthetic 150x3, seed 2 | x3.5 | 20.4k | 19.6k | 18.9k | -7.4% |
+
+Reading:
+- **Planning with soft capacity is not reliably better.** It wins in 6 of 10 cells (up to +48%) and loses in 4 (down to -9.7%). The SP and the simulator still disagree by 10% to 14% under soft capacity: on Aligarh at eta x3.5 the soft plan is predicted at 64.7k and simulates at 55.6k, while the hard-cap plans simulate 7% to 10% above their own predictions (they truncate volume past the cap that the soft world sells). The cause of the soft-plan gap is not isolated (candidates: the simulator re-routing and re-allocating markets, and withholding marginal trips). Until it is, keep soft capacity out of the planning belief (`price_impact` default None) and use it for scoring (`true_price_impact`).
+- **The capacity assumption itself changes the reported gain.** For the same planner (fixed prices, hard cap), scoring in the soft world instead of a hard-cap world gives (eta x1 / x3.5): Bihar 44.1k -> 54.3k / 39.6k -> 48.1k, Bengaluru 74.3k -> 87.3k / 65.1k -> 73.0k, Aligarh 68.7k -> 78.0k / 58.1k -> 62.1k, synthetic seed 1 16.1k -> 20.2k / 9.7k -> 9.0k, seed 2 34.5k -> 34.5k / 19.3k -> 20.4k. That is +7% to +26% in 8 of 10 cells, and 0% and -7% in two synthetic cells (the final plan is chosen by simulated value, so the comparison is not strictly monotone). A hard cap is the conservative end; report both.
+- Limits: 3 presets and 2 synthetic seeds; M=3 is an assumption (how far a mandi can really stretch is unmeasured); eta uses the defaults of section 22.4, which are lower bounds.

@@ -96,7 +96,53 @@ class Market:
     capacity_kg: dict    # crop -> kg absorbed this cycle
 
 
-def haversine(lat1, lng1, lat2, lng2):
+# ----------------------------------------------------------------------
+# Road-distance model. Every planner distance goes through haversine(), which now returns
+#   ROAD_CIRCUITY x great-circle km
+# (road km ~ circuity x straight-line km; time follows because time = km / AVG_SPEED_KMPH).
+# Default 1.0 = the legacy straight-line model, so existing benchmarks are unchanged. Set it from a
+# calibration (see calibrate_circuity.py) with set_road_circuity(), the road_circuity() context manager, or the
+# FARMROUTE_ROAD_CIRCUITY environment variable. Radius thresholds in km (clustering eps, neighbour radius) are
+# road-km: callers convert them to straight-line km with get_road_circuity().
+# ----------------------------------------------------------------------
+import contextlib
+import os
+
+ROAD_CIRCUITY = float(os.environ.get("FARMROUTE_ROAD_CIRCUITY", "1.0"))
+
+
+def _check_circuity(k):
+    k = float(k)
+    if not (1.0 <= k <= 3.0):
+        raise ValueError(f"road circuity must be in [1, 3], got {k}")
+    return k
+
+
+ROAD_CIRCUITY = _check_circuity(ROAD_CIRCUITY)
+
+
+def get_road_circuity():
+    return ROAD_CIRCUITY
+
+
+def set_road_circuity(k):
+    global ROAD_CIRCUITY
+    ROAD_CIRCUITY = _check_circuity(k)
+
+
+@contextlib.contextmanager
+def road_circuity(k):
+    """Temporarily plan/evaluate with a different road circuity (restores the previous value on exit)."""
+    global ROAD_CIRCUITY
+    prev, ROAD_CIRCUITY = ROAD_CIRCUITY, _check_circuity(k)
+    try:
+        yield
+    finally:
+        ROAD_CIRCUITY = prev
+
+
+def crow_km(lat1, lng1, lat2, lng2):
+    """Great-circle (straight-line) km."""
     R = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -105,12 +151,43 @@ def haversine(lat1, lng1, lat2, lng2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
+def haversine(lat1, lng1, lat2, lng2):
+    """Planner distance in km: straight-line x ROAD_CIRCUITY (legacy name kept; 1.0 = pure haversine)."""
+    return ROAD_CIRCUITY * crow_km(lat1, lng1, lat2, lng2)
+
+
+# Spoilage model parameters. Uncalibrated assumptions (see ALGORITHM_AND_RESULTS_V2.md section 23): a per-crop linear
+# loss rate per hour, tripled for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%.
+SPOIL_UNREFRIG_MULT = 3.0
+SPOIL_CAP = 0.6
+
+
+@contextlib.contextmanager
+def spoilage_params(rate_scale=1.0, unrefrig_mult=None, cap=None):
+    """Temporarily change the spoilage model: every crop's hourly rate x rate_scale, the unrefrigerated multiplier,
+    and the loss cap. Used for sensitivity tests; restores everything on exit."""
+    global SPOIL_UNREFRIG_MULT, SPOIL_CAP
+    saved = (SPOIL_UNREFRIG_MULT, SPOIL_CAP, {c: v["base_spoil_per_hr"] for c, v in CROPS.items()})
+    try:
+        for v in CROPS.values():
+            v["base_spoil_per_hr"] *= rate_scale
+        if unrefrig_mult is not None:
+            SPOIL_UNREFRIG_MULT = float(unrefrig_mult)
+        if cap is not None:
+            SPOIL_CAP = float(cap)
+        yield
+    finally:
+        SPOIL_UNREFRIG_MULT, SPOIL_CAP = saved[0], saved[1]
+        for c, r in saved[2].items():
+            CROPS[c]["base_spoil_per_hr"] = r
+
+
 def spoilage_fraction(crop, vehicle_refrigerated, transit_hours):
     info = CROPS[crop]
     rate = info["base_spoil_per_hr"]
     if info["needs_refrigeration"] and not vehicle_refrigerated:
-        rate *= 3.0
-    return min(rate * transit_hours, 0.6)
+        rate *= SPOIL_UNREFRIG_MULT
+    return min(rate * transit_hours, SPOIL_CAP)
 
 
 def spoilage_fraction_from_temp(crop, observed_temp_c, transit_hours):
@@ -127,7 +204,7 @@ def spoilage_fraction_from_temp(crop, observed_temp_c, transit_hours):
     threshold_c = 4.0 if info["needs_refrigeration"] else 20.0
     excess_c = max(0.0, observed_temp_c - threshold_c)
     rate *= (1.0 + 0.08 * excess_c)
-    return min(rate * transit_hours, 0.6)
+    return min(rate * transit_hours, SPOIL_CAP)
 
 
 def make_fleet(fleet_composition, seed=0):
@@ -400,7 +477,9 @@ def market_demand_nodes(markets, crop, elastic_pricing, tranches=3):
             continue  # this market doesn't quote `crop` at all -- not a demand node for it
         cap = m.capacity_kg[crop]
         price = m.price[crop]
-        if not elastic_pricing:
+        if hasattr(elastic_pricing, "tranche_nodes"):       # a price_impact.PriceImpact: data-driven tranches
+            nodes.extend(elastic_pricing.tranche_nodes(m, crop))
+        elif not elastic_pricing:
             nodes.append({"market": m, "capacity_kg": cap, "price": price})
         else:
             for share, mult in zip(tranche_shares, tranche_price_mult):

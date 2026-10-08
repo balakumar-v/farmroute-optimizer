@@ -33,7 +33,7 @@ from scipy.optimize import linprog, linear_sum_assignment
 from scipy.sparse import lil_matrix
 
 from logistics_lib_v2 import (
-    haversine, spoilage_fraction, spoilage_fraction_from_temp, CROPS,
+    haversine, get_road_circuity, spoilage_fraction, spoilage_fraction_from_temp, CROPS,
     AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, STOP_OVERHEAD_HR,
     TURNAROUND_HR, WORKDAY_END_HR, market_demand_nodes,
     FARMERS_PER_DEPOT, DEPOT_CELL_KM, _grid_partition, _depot_partition,
@@ -60,7 +60,7 @@ def _dbscan_clusters(farmer_list, eps_km=EPS_KM):
     if not _HAVE_SKLEARN:
         return [farmer_list]
     coords = np.radians([[f.lat, f.lng] for f in farmer_list])
-    labels = DBSCAN(eps=eps_km / EARTH_R_KM, min_samples=1,
+    labels = DBSCAN(eps=eps_km / get_road_circuity() / EARTH_R_KM, min_samples=1,   # eps is road-km
                      metric="haversine", algorithm="ball_tree").fit(coords).labels_
     groups = defaultdict(list)
     for f, lab in zip(farmer_list, labels):
@@ -473,8 +473,29 @@ def assign_fleet(pool_descs, fleet, order_key=None):
     completions = [None] * n
     # Default: chronological dispatch (ready_hr). `order_key` lets ILO try other claim orders on
     # scarce vehicles; the two baselines never pass it, so their behaviour is unchanged.
+    # ILO v3 fleet-aware set partitioning may pin a pool to a specific vehicle and start hour
+    # ("hint_vehicle_id" / "hint_start"). Hinted pools are placed first, in start order; a hint that
+    # cannot be honoured (capacity, deadline, vehicle busy) silently falls through to the greedy rule below.
+    # Pools without hints (all baselines, ILO v2) behave exactly as before.
+    by_vid = {v.id: v for v in fleet}
+    hinted = sorted((i for i in range(n) if pool_descs[i].get("hint_vehicle_id") is not None),
+                    key=lambda i: pool_descs[i]["hint_start"])
+    for i in hinted:
+        p = pool_descs[i]
+        v = by_vid.get(p["hint_vehicle_id"])
+        if v is None or v.capacity_kg < p["total_qty"] or p["ready_hr"] > WORKDAY_END_HR:
+            continue
+        dispatch_start = max(v.available_at_hr, p["ready_hr"], p["hint_start"])
+        completion = dispatch_start + p["route_duration"]
+        if dispatch_start > WORKDAY_END_HR or completion > p["deadline_hr"]:
+            continue
+        v.available_at_hr = completion + TURNAROUND_HR
+        assigned[i] = v
+        completions[i] = completion
     order = sorted(range(n), key=order_key or (lambda i: pool_descs[i]["ready_hr"]))
     for i in order:
+        if assigned[i] is not None:
+            continue
         p = pool_descs[i]
         if p["ready_hr"] > WORKDAY_END_HR:
             continue
@@ -891,7 +912,7 @@ def _t_after_pickup(comp, duration, order, flist, from_pickup):
 def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, return_trace=False,
                       withhold_uneconomic=True, farmgate_value_fn=None, dispatch_margin=0.0,
                       fix_route_duration=False, spoilage_from_pickup=False, charge_return_leg=False,
-                      raw_pools_override=None):
+                      raw_pools_override=None, pool_hints=None):
     """withhold_uneconomic=False reproduces the previous behaviour exactly (every pool that
     can get a vehicle is dispatched, even at a loss). True (default) adds economic dispatch:
     the plan is re-computed with loss-making trips withheld, so their vehicle-time and market
@@ -903,7 +924,9 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
         dispatched only if it beats DISPATCH_MIN_NET + farmgate value * (1 + dispatch_margin).
       fix_route_duration / spoilage_from_pickup / charge_return_leg: see _route_duration, _t_after_pickup
         and _finalize.
-      raw_pools_override: use these pools (lists of Farmer) instead of the geographic clustering."""
+      raw_pools_override: use these pools (lists of Farmer) instead of the geographic clustering.
+      pool_hints: {frozenset(farmer ids): {"vehicle_id", "start"}} -- pin those pools to a vehicle / start hour
+        (ILO v3 fleet-aware set partitioning). Unhonourable hints fall back to the greedy assignment."""
     capacity_slots = fleet_capacity_cycle(fleet)
     raw_pools = []
     if raw_pools_override is not None:
@@ -929,6 +952,9 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
         "ready_hr": min(f.ready_hr for f in pool),
         "deadline_hr": min(f.deadline_hr for f in pool),
         "route_duration": _route_duration(order, t_end, fix_route_duration),
+        **({"hint_vehicle_id": pool_hints[frozenset(f.id for f in pool)]["vehicle_id"],
+            "hint_start": pool_hints[frozenset(f.id for f in pool)]["start"]}
+           if pool_hints and frozenset(f.id for f in pool) in pool_hints else {}),
     } for pool, order, route_dist, t_end in routed]
     markets_by_id = {m.id: m for m in markets}
     pool_fg = [farmgate_value_fn(pool) for pool, _o, _d, _t in routed] if farmgate_value_fn else None
@@ -988,6 +1014,7 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
             elif i not in results:
                 results[i] = _finalize(pool, veh_of[i], order, route_dist, pool_alloc_lists[i],
                                        markets_by_id, charge_return_leg)
+                results[i]["dispatch_hr"] = comp_of[i] - pool_descs[i]["route_duration"]   # planned start hour
         total_net = sum(r["net_return"] for r in results.values())
         if pool_fg:     # undispatched pools' farmers sell at the farm gate: that value is part of the objective
             total_net += sum(pool_fg[i] for i, r in results.items() if r["vehicle_id"] is None)

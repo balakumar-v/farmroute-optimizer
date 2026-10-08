@@ -58,7 +58,7 @@ from algorithms_v2 import (
 )
 from logistics_lib_v2 import (
     AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, STOP_OVERHEAD_HR, VEHICLE_TYPES,
-    Vehicle, haversine, spoilage_fraction,
+    Vehicle, get_road_circuity, haversine, spoilage_fraction,
 )
 
 try:
@@ -269,7 +269,7 @@ def _evaluate_behavioural(group, markets, prices, b, return_leg, absolute_clock)
     return None, leftover
 
 
-def _execute(plan, remaining_cap, spot_id):
+def _execute(plan, remaining_cap, spot_id, impact=None, sold_state=None):
     """Sell against the shared, depleting market ledger; what does not fit is hauled back unsold."""
     order, m, spoil, vehicle = plan["order"], plan["market"], plan["spoil"], plan["vehicle"]
     vehicle.id = spot_id
@@ -282,10 +282,17 @@ def _execute(plan, remaining_cap, spot_id):
         sold = min(qty_c, max(remaining_cap[m.id].get(crop, 0.0), 0.0))
         remaining_cap[m.id][crop] = remaining_cap[m.id].get(crop, 0.0) - sold
         frac = sold / qty_c if qty_c else 0.0
+        crop_rev = 0.0
         for i in idxs:
             f = order[i]
-            revenue += f.qty_kg * frac * m.price[crop] * (1 - spoil[i])
+            crop_rev += f.qty_kg * frac * m.price[crop] * (1 - spoil[i])
             spoil_loss += f.qty_kg * frac * spoil[i]
+        if impact is not None and sold > 0:
+            # realised price moves with what this mandi-crop has already received today (first come, first served)
+            c0 = sold_state.get((m.id, crop), 0.0)
+            crop_rev *= (impact.revenue(m, crop, c0 + sold) - impact.revenue(m, crop, c0)) / (m.price[crop] * sold)
+            sold_state[(m.id, crop)] = c0 + sold
+        revenue += crop_rev
         unsold += qty_c - sold
     net = revenue - plan["cost"]
     total_qty = plan["qty"]
@@ -302,12 +309,12 @@ def _execute(plan, remaining_cap, spot_id):
     }
 
 
-def _run_groups(groups, markets, remaining_cap, prices, behaviour, match_ilo_accounting):
+def _run_groups(groups, markets, remaining_cap, prices, behaviour, match_ilo_accounting, price_impact=None):
     return_leg = not match_ilo_accounting
     absolute_clock = match_ilo_accounting
     # first-come-first-served on the shared market ledger, by group ready time
     groups = sorted(groups, key=lambda g: (min(f.ready_hr for f in g), min(f.id for f in g)))
-    results, next_spot = [], 0
+    results, next_spot, sold_state = [], 0, {}
     for g in groups:
         for sub in _split_if_no_common_market(g, markets):
             if behaviour is None:
@@ -318,7 +325,7 @@ def _run_groups(groups, markets, remaining_cap, prices, behaviour, match_ilo_acc
                 results.append(_farmgate_result(leftover))        # sells at the farm gate instead
             if plan is not None:
                 next_spot += 1
-                results.append(_execute(plan, remaining_cap, -next_spot))   # negative id = spot-hired
+                results.append(_execute(plan, remaining_cap, -next_spot, price_impact, sold_state))   # negative id = spot-hired
     return results
 
 
@@ -331,14 +338,14 @@ def run_farmgate_baseline_v2(farmers, markets):
 
 
 def run_self_haul_v2(farmers, fleet, markets, remaining_cap, discount=FARMGATE_DISCOUNT,
-                     match_ilo_accounting=False, behaviour=DEFAULT_BEHAVIOUR, prices=None):
+                     match_ilo_accounting=False, behaviour=DEFAULT_BEHAVIOUR, prices=None, price_impact=None):
     """Each farmer alone: spot-hired vehicle -> nearest mandi buying the crop (round trip).
     behaviour=Behaviour(...) (default): hauls on the farmer rules, no profit calculation.
     behaviour=None: rational upper bound (hauls only if it beats the farm gate).
     `fleet` is accepted for signature parity and deliberately unused: these farmers are not customers of
     the FPO's fleet."""
     return _run_groups([[f] for f in farmers], markets, remaining_cap, _as_prices(markets, discount, prices),
-                       behaviour, match_ilo_accounting)
+                       behaviour, match_ilo_accounting, price_impact)
 
 
 def _neighbour_groups(farmers, radius_km=NEIGHBOUR_RADIUS_KM, max_group=NEIGHBOUR_MAX_GROUP,
@@ -352,7 +359,7 @@ def _neighbour_groups(farmers, radius_km=NEIGHBOUR_RADIUS_KM, max_group=NEIGHBOU
         return []
     coords = np.radians([[f.lat, f.lng] for f in fl])
     if _HAVE_BALLTREE:
-        nbrs = BallTree(coords, metric="haversine").query_radius(coords, r=radius_km / EARTH_R_KM)
+        nbrs = BallTree(coords, metric="haversine").query_radius(coords, r=radius_km / get_road_circuity() / EARTH_R_KM)
     else:                                               # pragma: no cover
         nbrs = [[j for j in range(n) if haversine(fl[i].lat, fl[i].lng, fl[j].lat, fl[j].lng) <= radius_km]
                 for i in range(n)]
@@ -380,14 +387,14 @@ def _neighbour_groups(farmers, radius_km=NEIGHBOUR_RADIUS_KM, max_group=NEIGHBOU
 
 def run_neighbour_pooling_v2(farmers, fleet, markets, remaining_cap, discount=FARMGATE_DISCOUNT,
                              radius_km=NEIGHBOUR_RADIUS_KM, max_group=NEIGHBOUR_MAX_GROUP,
-                             match_ilo_accounting=False, behaviour=DEFAULT_BEHAVIOUR, prices=None):
+                             match_ilo_accounting=False, behaviour=DEFAULT_BEHAVIOUR, prices=None, price_impact=None):
     """Neighbours within radius_km (max_group of them) share one hired vehicle to the nearest mandi buying
     their crop(s). behaviour=Behaviour(...) (default): groups form on proximity alone, wait for the last
     member, route nearest-first and haul on the farmer rules. behaviour=None: rational upper bound
     (windows must overlap, exact economics, hauls only if it beats everyone's farm gate). `fleet` unused."""
     groups = _neighbour_groups(farmers, radius_km, max_group, check_windows=behaviour is None)
     return _run_groups(groups, markets, remaining_cap, _as_prices(markets, discount, prices), behaviour,
-                       match_ilo_accounting)
+                       match_ilo_accounting, price_impact)
 
 
 # ----------------------------------------------------------------------
