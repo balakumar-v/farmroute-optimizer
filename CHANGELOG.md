@@ -1,5 +1,8 @@
 # Changelog
 
+## Frontend rewrite: React + TypeScript + Vite (Oct 2026)
+Replaced the vanilla-JS frontend with a Vite/React/TS app (see `frontend/README.md`). Same look and class names; map engine kept as ES modules behind a typed wrapper. UX: run progress, backend-down banner, toasts, inline validation, stale-plan banner, sortable pools, keyboard shortcuts. Backend untouched. Vitest tests for the simulation engine.
+
 ## ILO v3.1: fleet-aware planning, road distance, price impact, break-even and stress tests (Oct 2026)
 Five additions to ILO v3, from a review of its weaknesses (`ALGORITHM_AND_RESULTS_V2.md`, section 22). Everything new is
 opt-in or additive: with default arguments the planner uses the same distances and prices as v3, and the core

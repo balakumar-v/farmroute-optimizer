@@ -31,7 +31,7 @@ Not every scenario is a win. On the synthetic Cold chain scenario ILO and Proxim
 
 ## Quick start
 
-Needs Python 3.10+ (developed on 3.12) and a browser. No build step, no Node.
+Needs Python 3.10+ (developed on 3.12) and Node 18+.
 
 ```bash
 # 1. backend (run from inside backend/)
@@ -41,10 +41,11 @@ uvicorn main:app --reload --port 8000
 
 # 2. frontend (second terminal)
 cd frontend
-python3 -m http.server 8080
+npm install
+npm run dev
 ```
 
-Open http://localhost:8080. Pick a scenario on the first screen and press Run. It loads the data, computes the plan, and opens the map. Opening `frontend/index.html` directly also works.
+Open http://localhost:5173. Pick a scenario on the first screen and press Run. It loads the data, computes the plan, and opens the map. 
 
 The backend URL defaults to `http://localhost:8000`; change it from the connection chip in the top-right of the page. Interactive API docs are at `http://localhost:8000/docs`. A large scenario can take a few seconds to compute (the project's benchmarks put ILO at 0.5 to 3.8 s on the regional presets).
 

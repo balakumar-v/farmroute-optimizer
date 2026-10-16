@@ -20,7 +20,7 @@ The algorithm (ILO, Integrated Logistics Optimization, now v3) pools farmers, re
 
 ## Operating Context
 
-FastAPI + SQLite backend, plain HTML/CSS/JS frontend, no build step, vendored MapLibre GL, deck.gl and Chart.js. Backend URL defaults to http://localhost:8000. Frontend is opened as static files. Planning clock is hours from start of day, not clock times. Currency is Indian rupees. The basemap needs internet; without it the map must still work on a plain background.
+FastAPI + SQLite backend, React + TypeScript + Vite frontend (MapLibre GL and deck.gl from npm). Backend URL defaults to http://localhost:8000. Planning clock is hours from start of day, not clock times. Currency is Indian rupees. The basemap needs internet; without it the map must still work on a plain background.
 
 ## Capabilities and Constraints
 
@@ -30,7 +30,7 @@ FastAPI + SQLite backend, plain HTML/CSS/JS frontend, no build step, vendored Ma
 - Honesty rules that the UI must preserve: routes are straight lines, never real roads; per-stop times are a reconstruction; per-market received-kg is shown only when exactly derivable; items are tagged exact / derived / aggregate-only; sensor panel shows real ESP32 data or nothing, never simulated data.
 - Net return and % produce sold must be read together; a high return with low coverage is misleading.
 - Decision (user): the comparison keeps its three rows, but Individual Transport and Proximity Pooling are now the BEHAVIOURAL farmer baselines (hire a spot truck to the nearest mandi if it is within reach and clearly beats the trader; no profit calculation; otherwise sell at the farm gate). The headline is "farmer value" = net return + farm-gate sales, with the farm-gate price labelled as an assumption. Farm-gate sellers get their own colour on the map (slate), never the red used for unserved farmers. The rational variants and the legacy baselines are returned by the API under `realistic_baselines` but not shown.
-- Every DOM id and vis/*.js hook used by app.js and vis/* must keep working; backend API unchanged.
+- Backend API unchanged. The map engine (`src/vis/*.js`) keeps its DOM-id contract, which `MapView.tsx` renders.
 
 ## Evidence on Hand
 
