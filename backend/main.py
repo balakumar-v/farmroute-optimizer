@@ -77,12 +77,12 @@ def create_farmer(farmer: FarmerIn):
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO farmers (lat, lng, crop, qty_kg, ready_hr, deadline_hr, needs_refrigeration) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (farmer.lat, farmer.lng, farmer.crop, farmer.qty_kg,
              farmer.ready_hr, farmer.deadline_hr, int(needs_refrig)),
         )
         conn.commit()
-        fid = cur.lastrowid
+        fid = cur.fetchone()["id"]
 
     return FarmerOut(
         id=fid, lat=farmer.lat, lng=farmer.lng, crop=farmer.crop,
@@ -118,10 +118,10 @@ def create_vehicles(vehicle: VehicleIn):
         for _ in range(vehicle.count):
             cur = conn.execute(
                 "INSERT INTO vehicles (type_name, capacity_kg, refrigerated, fixed_cost, per_km_cost) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
                 (vehicle.type_name, cap, int(refrig), fixed_cost, per_km_cost),
             )
-            created_ids.append(cur.lastrowid)
+            created_ids.append(cur.fetchone()["id"])
         conn.commit()
 
     return [
@@ -153,11 +153,11 @@ def list_vehicles():
 def create_market(market: MarketIn):
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO markets (lat, lng, price, capacity_kg) VALUES (?, ?, ?, ?)",
+            "INSERT INTO markets (lat, lng, price, capacity_kg) VALUES (%s, %s, %s, %s) RETURNING id",
             (market.lat, market.lng, json.dumps(market.price), json.dumps(market.capacity_kg)),
         )
         conn.commit()
-        mid = cur.lastrowid
+        mid = cur.fetchone()["id"]
 
     return MarketOut(id=mid, lat=market.lat, lng=market.lng,
                       price=market.price, capacity_kg=market.capacity_kg)
@@ -346,7 +346,7 @@ def _compute_plan_impl():
             "(created_at, input_snapshot, result_integrated_logistics_optimization, "
             " result_individual_transport, result_proximity_pooling, result_ilo_trace, "
             " result_realistic_baselines) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (
                 created_at,
                 json.dumps(input_snapshot),
@@ -358,7 +358,7 @@ def _compute_plan_impl():
             ),
         )
         conn.commit()
-        plan_id = cur.lastrowid
+        plan_id = cur.fetchone()["id"]
 
     return {"id": plan_id, "created_at": created_at, **result_payload,
             "realistic_baselines": realistic_baselines}
@@ -367,7 +367,7 @@ def _compute_plan_impl():
 @app.get("/plan/{plan_id}")
 def get_plan(plan_id: int):
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM plan_runs WHERE id = ?", (plan_id,)).fetchone()
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
 
     if row is None:
         raise HTTPException(404, f"No plan run with id {plan_id}")
@@ -395,7 +395,7 @@ def get_plan_visualization(plan_id: int):
     is recomputed by the optimizer; it's a pure reshape of what
     /plan/compute already produced and stored."""
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM plan_runs WHERE id = ?", (plan_id,)).fetchone()
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
 
     if row is None:
         raise HTTPException(404, f"No plan run with id {plan_id}")
@@ -424,11 +424,11 @@ def get_plan_visualization(plan_id: int):
 def post_sensor_reading(reading: SensorReadingIn):
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO sensor_readings (pool_id, temperature, humidity, timestamp) VALUES (?, ?, ?, ?)",
+            "INSERT INTO sensor_readings (pool_id, temperature, humidity, timestamp) VALUES (%s, %s, %s, %s) RETURNING id",
             (reading.pool_id, reading.temperature, reading.humidity, reading.timestamp),
         )
         conn.commit()
-        rid = cur.lastrowid
+        rid = cur.fetchone()["id"]
 
     return SensorReadingOut(id=rid, **reading.model_dump())
 
@@ -444,7 +444,7 @@ def list_sensor_readings(pool_id: str | None = None):
     with get_conn() as conn:
         if pool_id is not None:
             rows = conn.execute(
-                "SELECT * FROM sensor_readings WHERE pool_id = ? ORDER BY timestamp", (pool_id,)
+                "SELECT * FROM sensor_readings WHERE pool_id = %s ORDER BY timestamp", (pool_id,)
             ).fetchall()
         else:
             rows = conn.execute("SELECT * FROM sensor_readings ORDER BY timestamp").fetchall()
@@ -463,16 +463,13 @@ def list_sensor_readings(pool_id: str | None = None):
 def reset_data():
     """Clears every farmer, vehicle, market, plan run and sensor reading --
     for starting a fresh demo without shelling into the backend to delete
-    fpo.db by hand. Resets the autoincrement counters too, so a fresh load
+    the database by hand. Resets the id counters too, so a fresh load
     afterwards gets clean IDs starting from 1."""
     tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets")
     with get_conn() as conn:
         cleared = {}
         for table in tables:
-            cleared[table] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            conn.execute(f"DELETE FROM {table}")
-        conn.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN (?, ?, ?, ?, ?)", tables
-        )
+            cleared[table] = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()["n"]
+        conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY")
         conn.commit()
     return {"cleared": cleared}
