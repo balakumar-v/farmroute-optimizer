@@ -19,6 +19,7 @@ import copy
 import dataclasses
 import datetime
 import json
+import os
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException
@@ -51,9 +52,12 @@ app = FastAPI(title="FPO Decision Layer API", version="0.1.0")
 # view, so without this the frontend's fetch() calls fail silently with
 # a CORS error before they ever reach a route below. Local course demo,
 # no auth -- wide open is fine here.
+# ALLOWED_ORIGINS: comma-separated frontend origins (no trailing slash), e.g.
+# "https://my-app.onrender.com". Unset = "*" (any site), fine for local dev.
+_allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
