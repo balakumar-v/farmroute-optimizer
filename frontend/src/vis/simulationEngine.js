@@ -86,7 +86,18 @@ import { Vis } from "./namespace.js";
         if (dispatchEvt && stopEvents.length) {
           waypoints.push({ t: dispatchEvt.timestamp, lat: stopEvents[0].lat, lng: stopEvents[0].lng });
         }
-        for (const e of stopEvents) waypoints.push({ t: e.timestamp, lat: e.lat, lng: e.lng });
+        // Real-road geometry (route.roadLegs, one entry per consecutive stop pair) is attached to the
+        // waypoint the leg ARRIVES at. Only used when it lines up exactly with the stops; otherwise the
+        // vehicle keeps moving in a straight line, exactly as before.
+        const route = this.routesById.get(tripId);
+        const legs = route && Array.isArray(route.roadLegs) && route.roadLegs.length === stopEvents.length - 1 ? route.roadLegs : null;
+        stopEvents.forEach((e, s) => {
+          const wp = { t: e.timestamp, lat: e.lat, lng: e.lng };
+          if (legs && s >= 1 && legs[s - 1] && Array.isArray(legs[s - 1].coordinates) && legs[s - 1].coordinates.length >= 2) {
+            wp.path = legs[s - 1].coordinates; // [[lng, lat], ...] from the previous stop to this one
+          }
+          waypoints.push(wp);
+        });
         out.set(tripId, waypoints);
       }
       return out;
@@ -202,15 +213,57 @@ import { Vis } from "./namespace.js";
       return (Math.atan2(y, x) / toRad + 360) % 360;
     }
 
+    // Planar metres for a [lng, lat] path (good enough for a vehicle's position along a few-km road).
+    static _pathLengths(path) {
+      const cum = [0];
+      for (let i = 1; i < path.length; i++) {
+        const k = Math.cos(((path[i][1] + path[i - 1][1]) / 2) * Math.PI / 180);
+        const dx = (path[i][0] - path[i - 1][0]) * 111320 * k;
+        const dy = (path[i][1] - path[i - 1][1]) * 110540;
+        cum.push(cum[i - 1] + Math.hypot(dx, dy));
+      }
+      return cum;
+    }
+
+    static _segBearing(path, j) {
+      return SimulationEngine._bearing({ lng: path[j][0], lat: path[j][1] }, { lng: path[j + 1][0], lat: path[j + 1][1] });
+    }
+
+    // Bearing of the first (atStart) or last non-zero-length segment of a path.
+    static _pathBearing(path, atStart) {
+      const same = (j) => path[j][0] === path[j + 1][0] && path[j][1] === path[j + 1][1];
+      if (atStart) { for (let j = 0; j < path.length - 1; j++) if (!same(j)) return SimulationEngine._segBearing(path, j); }
+      else { for (let j = path.length - 2; j >= 0; j--) if (!same(j)) return SimulationEngine._segBearing(path, j); }
+      return 0;
+    }
+
+    // Position + heading a fraction (0..1) of the way along a waypoint's road path, by distance travelled.
+    static _alongPath(wp, frac) {
+      const path = wp.path;
+      if (!wp._cum) wp._cum = SimulationEngine._pathLengths(path);
+      const cum = wp._cum, total = cum[cum.length - 1];
+      if (!(total > 0)) return { lat: path[0][1], lng: path[0][0], heading: 0 };
+      const target = Math.min(1, Math.max(0, frac)) * total;
+      let lo = 0, hi = cum.length - 1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (cum[mid] <= target) lo = mid; else hi = mid; }
+      const segLen = cum[hi] - cum[lo];
+      const u = segLen > 0 ? (target - cum[lo]) / segLen : 0;
+      const a = path[lo], b = path[hi];
+      const heading = segLen > 0 ? SimulationEngine._segBearing(path, lo) : SimulationEngine._pathBearing(path, frac < 0.5);
+      return { lat: a[1] + (b[1] - a[1]) * u, lng: a[0] + (b[0] - a[0]) * u, heading };
+    }
+
     // Heading for waypoint index i: the direction of the first non-zero-length
     // segment at/after i (a parked vehicle faces where it is about to go),
     // else the last non-zero-length segment before it.
     _headingAt(wps, i) {
       const distinct = (p, q) => p.lat !== q.lat || p.lng !== q.lng;
       for (let k = i; k < wps.length - 1; k++) {
+        if (wps[k + 1].path) return SimulationEngine._pathBearing(wps[k + 1].path, true);
         if (distinct(wps[k], wps[k + 1])) return SimulationEngine._bearing(wps[k], wps[k + 1]);
       }
       for (let k = Math.min(i, wps.length - 1); k > 0; k--) {
+        if (wps[k].path) return SimulationEngine._pathBearing(wps[k].path, false);
         if (distinct(wps[k - 1], wps[k])) return SimulationEngine._bearing(wps[k - 1], wps[k]);
       }
       return 0;
@@ -229,6 +282,7 @@ import { Vis } from "./namespace.js";
         const a = wps[i], b = wps[i + 1];
         if (t >= a.t && t <= b.t) {
           const frac = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+          if (b.path) return SimulationEngine._alongPath(b, frac);
           return { lat: a.lat + (b.lat - a.lat) * frac, lng: a.lng + (b.lng - a.lng) * frac, heading: this._headingAt(wps, i) };
         }
       }

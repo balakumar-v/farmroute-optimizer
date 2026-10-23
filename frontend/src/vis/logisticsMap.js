@@ -600,7 +600,7 @@ import { Vis } from "./namespace.js";
       const props = {
         id,
         data: routes,
-        getPath: (r) => r.coordinates,
+        getPath: (r) => r.roadCoordinates || r.coordinates,
         getColor: (r) => [...Vis.colorForId(r.vehicleId), opacity],
         getWidth: widthPx,
         widthUnits: "pixels",

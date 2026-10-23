@@ -77,3 +77,88 @@ describe("SimulationEngine", () => {
     expect(n).toBe(1);
   });
 });
+
+// Road-following: farmer 7 (25.0,84.0) -> farmer 9 (25.1,84.1) travels east along y=25.0, then north along x=84.1,
+// instead of the straight diagonal. Leg 2 (farmer 9 -> market) has no road data, so it stays a straight line.
+const roadRoutes = [{
+  id: "t1", vehicleId: 1, totalQtyKg: 150,
+  roadLegs: [
+    { coordinates: [[84.0, 25.0], [84.1, 25.0], [84.1, 25.1]], distanceKm: 20 },
+    { coordinates: [[84.1, 25.1], [84.3, 25.3]], distanceKm: 30 },
+  ],
+}];
+// Corner sits at 0.1deg east * cos(25deg) = 0.0906 of 0.1906 total -> 47.5% of the way, i.e. t = 2 + 0.475.
+const CORNER_FRAC = (0.1 * Math.cos(25 * Math.PI / 180)) / (0.1 * Math.cos(25 * Math.PI / 180) + 0.1);
+
+describe("SimulationEngine with road geometry", () => {
+  const eng = () => new Vis.SimulationEngine(events, roadRoutes);
+  const at = (e: ReturnType<typeof eng>, t: number) => e.positionOfTrip("t1", t) as { lat: number; lng: number; heading: number };
+
+  it("follows the road corner instead of cutting across", () => {
+    const e = eng();
+    const p = at(e, 2 + CORNER_FRAC);
+    expect(p.lat).toBeCloseTo(25.0, 3);
+    expect(p.lng).toBeCloseTo(84.1, 3);
+    // the straight-line model would be at the diagonal midpoint (25.05, 84.05) here
+    const straight = at(new Vis.SimulationEngine(events, routes), 2.5);
+    expect(straight.lat).toBeCloseTo(25.05, 3);
+  });
+
+  it("heads east before the corner and north after it", () => {
+    const e = eng();
+    expect(at(e, 2.2).heading).toBeCloseTo(90, 0);
+    expect(at(e, 2.8).heading).toBeCloseTo(0, 0);
+  });
+
+  it("is exact at the stops and monotonic in distance along the road", () => {
+    const e = eng();
+    const s7 = at(e, 2), s9 = at(e, 3);
+    expect([s7.lat, s7.lng]).toEqual([25.0, 84.0]);
+    expect(s9.lat).toBeCloseTo(25.1, 6);
+    expect(s9.lng).toBeCloseTo(84.1, 6);
+    let prev = -1;
+    for (let t = 2; t <= 3; t += 0.05) {
+      const p = at(e, t);
+      const d = (p.lng - 84.0) * Math.cos(25 * Math.PI / 180) + (p.lat - 25.0); // progress proxy along the L
+      expect(d).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = d;
+    }
+  });
+
+  it("falls back to a straight line for a leg without road data", () => {
+    const e = eng();
+    const p = at(e, 4); // halfway between farmer 9 and the market
+    expect(p.lat).toBeCloseTo(25.2, 3);
+    expect(p.lng).toBeCloseTo(84.2, 3);
+  });
+
+  it("ignores roadLegs whose count does not match the stops (no road, no crash)", () => {
+    const bad = [{ id: "t1", vehicleId: 1, totalQtyKg: 150, roadLegs: [{ coordinates: [[84.0, 25.0], [84.1, 25.0]], distanceKm: 1 }] }];
+    const e = new Vis.SimulationEngine(events, bad);
+    const p = e.positionOfTrip("t1", 2.5) as { lat: number };
+    expect(p.lat).toBeCloseTo(25.05, 3);
+  });
+});
+
+
+describe("route details panel distance wording", () => {
+  const render = (route: Record<string, unknown>) => {
+    const container = { innerHTML: "" } as unknown as HTMLElement;
+    const solution = { routes: [{ id: "t1", vehicleId: 1, farmerIds: [7, 9], marketIds: [1], stops: [], distanceKm: 61.2, ...route }], vehicles: [{ id: 1 }], farmers: [], markets: [] };
+    (Vis as unknown as { renderDetailsPanel: (...a: unknown[]) => void }).renderDetailsPanel(container, { type: "route", id: "t1" }, solution, null);
+    return container.innerHTML;
+  };
+
+  it("says the plan used road distances and shows road km when on roads", () => {
+    const html = render({ geometry: "road", roadDistanceKm: 64.5, roadOffRoadKm: 2.1, roadProvider: "osrm", distanceBasis: "road_matrix" });
+    expect(html).toContain("Road distance");
+    expect(html).toContain("64.5 km");
+    expect(html).toContain("optimized on measured road distances");
+  });
+
+  it("stays honest for a straight-line plan with no road shape loaded", () => {
+    const html = render({ geometry: "straight_line", distanceBasis: "straight" });
+    expect(html).not.toContain("Road distance");
+    expect(html).toContain("optimized on straight-line distances");
+  });
+});

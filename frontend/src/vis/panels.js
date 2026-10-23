@@ -20,7 +20,7 @@ import { Vis } from "./namespace.js";
     2: "Farmers grouped into pooling clusters that will share one vehicle trip. Lines connect each farmer to its pool.",
     3: "Each pool matched to a specific vehicle from the fleet \u2014 color now shows which vehicle serves which farmers.",
     4: "Markets added to the map. The optimizer decides which market(s) each pool's produce is allocated to.",
-    5: "The planned pickup-then-delivery route for every dispatched vehicle (straight-line display, not real roads).",
+    5: "The planned pickup-then-delivery route for every dispatched vehicle, drawn on real OpenStreetMap roads where road data has loaded (straight lines otherwise).",
     6: "Vehicles move along their routes and pick up produce as they go \u2014 press Play under the map, and follow along in the Story panel.",
     7: "Final deliveries. The Plan tab has the summary numbers for what this run achieved.",
   };
@@ -127,9 +127,15 @@ import { Vis } from "./namespace.js";
         <dt>Net return</dt><dd>${inr(route.netReturn)}</dd>
         <dt>Spoilage</dt><dd>${kg(route.spoilageLossKg)}</dd>
         <dt>Unsold at market</dt><dd>${kg(route.unsoldKg)}</dd>
-        <dt>Distance <span class="data-tag estimated">derived</span></dt><dd>${fmt(route.distanceKm, 1)} km</dd>
+        ${route.geometry === "road" ? `<dt>Road distance <span class="data-tag live">OSM</span></dt><dd>${fmt(route.roadDistanceKm, 1)} km</dd>` : ""}
+        <dt>${route.geometry === "road" ? "Planner distance" : "Distance"} <span class="data-tag estimated">derived</span></dt><dd>${fmt(route.distanceKm, 1)} km</dd>
       </dl>
-      <p class="derived-note">Straight-line distance recomputed from stop coordinates (this project has no road-network data) \u2014 not a real road route.</p>`;
+      <p class="derived-note">${route.geometry === "road"
+        ? `Road distance follows real roads (OpenStreetMap, routed by ${esc(route.roadProvider || "a routing service")}), plus ${fmt(route.roadOffRoadKm, 1)} km of straight connectors from each stop to the nearest road. `
+        : "Road shape not loaded for this route. "}${
+        route.distanceBasis === "road_matrix" ? "The plan was optimized on measured road distances, so the planner distance is what the optimizer used."
+        : route.distanceBasis === "circuity" ? "The plan used an estimated road factor over straight-line distance, not each individual road."
+        : "The plan was optimized on straight-line distances."}</p>`;
 
     if (vehicle) {
       html += checkRow(route.totalQtyKg <= vehicle.capacityKg + 1e-6, "Load within vehicle capacity");

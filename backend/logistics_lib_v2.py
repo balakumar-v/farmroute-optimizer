@@ -121,8 +121,68 @@ def _check_circuity(k):
 ROAD_CIRCUITY = _check_circuity(ROAD_CIRCUITY)
 
 
+# ----------------------------------------------------------------------
+# Measured road distances. When a RoadMatrix is active (use_road_matrix()), haversine() returns the real road km
+# between two of its points instead of circuity x straight-line, so every cost, time, deadline and spoilage
+# figure the planner computes follows real roads. Pairs the matrix does not know fall back to circuity x
+# straight-line, using the matrix's own measured ratio (also what radius/clustering thresholds are scaled by).
+# Context-local (contextvars), so concurrent requests never see each other's matrix. Default = no matrix, which
+# leaves every existing behaviour and benchmark unchanged.
+# ----------------------------------------------------------------------
+import contextvars
+
+_ROAD_MATRIX = contextvars.ContextVar("road_matrix", default=None)
+
+
+class RoadMatrix:
+    """index: {(lat, lng): row} for every point (several exact points may share a row);
+    km: square matrix of road km between rows (None/NaN = unknown); ratio: median road/straight, used as fallback."""
+
+    def __init__(self, index, km, ratio):
+        self.index = dict(index)
+        self.rows = [[(float("nan") if v is None else float(v)) for v in r] for r in km]
+        self.ratio = _check_circuity(ratio)
+
+    def get(self, lat1, lng1, lat2, lng2):
+        i = self.index.get((lat1, lng1))
+        if i is None:
+            return None
+        j = self.index.get((lat2, lng2))
+        if j is None:
+            return None
+        v = self.rows[i][j]
+        return None if v != v else v
+
+    def override_vec(self, base, lat1, lng1, lat2, lng2):
+        """`base` (numpy, already circuity-scaled straight-line km) with every known pair replaced by its road km."""
+        import numpy as np
+        la1, ln1, la2, ln2 = np.broadcast_arrays(lat1, lng1, lat2, lng2)
+        out = np.array(np.broadcast_to(base, la1.shape), dtype=float)
+        flat = out.reshape(-1)
+        for k, (a, b, c, d) in enumerate(zip(la1.reshape(-1), ln1.reshape(-1), la2.reshape(-1), ln2.reshape(-1))):
+            v = self.get(a, b, c, d)
+            if v is not None:
+                flat[k] = v
+        return out
+
+
+@contextlib.contextmanager
+def use_road_matrix(matrix):
+    """Plan/evaluate with measured road distances (restores the previous state on exit)."""
+    token = _ROAD_MATRIX.set(matrix)
+    try:
+        yield
+    finally:
+        _ROAD_MATRIX.reset(token)
+
+
+def get_road_matrix():
+    return _ROAD_MATRIX.get()
+
+
 def get_road_circuity():
-    return ROAD_CIRCUITY
+    m = _ROAD_MATRIX.get()
+    return m.ratio if m is not None else ROAD_CIRCUITY
 
 
 def set_road_circuity(k):
@@ -152,8 +212,13 @@ def crow_km(lat1, lng1, lat2, lng2):
 
 
 def haversine(lat1, lng1, lat2, lng2):
-    """Planner distance in km: straight-line x ROAD_CIRCUITY (legacy name kept; 1.0 = pure haversine)."""
-    return ROAD_CIRCUITY * crow_km(lat1, lng1, lat2, lng2)
+    """Planner distance in km: measured road km when a RoadMatrix is active and knows the pair, else
+    straight-line x circuity (legacy name kept; 1.0 = pure haversine)."""
+    m = _ROAD_MATRIX.get()
+    if m is None:
+        return ROAD_CIRCUITY * crow_km(lat1, lng1, lat2, lng2)
+    d = m.get(lat1, lng1, lat2, lng2)
+    return d if d is not None else m.ratio * crow_km(lat1, lng1, lat2, lng2)
 
 
 # Spoilage model parameters. Uncalibrated assumptions (see ALGORITHM_AND_RESULTS_V2.md section 23): a per-crop linear

@@ -40,7 +40,8 @@ from schemas import (
     MarketIn, MarketOut,
     SensorReadingIn, SensorReadingOut,
 )
-from visualization_adapter import build_plan_visualization
+import roads
+from visualization_adapter import ALGO_KEYS, build_plan_visualization
 
 VEHICLE_TYPES_BY_NAME = {t[0]: t for t in VEHICLE_TYPES}
 
@@ -183,20 +184,24 @@ def list_markets():
 # =========================================================================
 
 @app.post("/plan/compute")
-def compute_plan(road_circuity: Optional[float] = None):
-    """road_circuity: road km / straight-line km used for every distance (default: FARMROUTE_ROAD_CIRCUITY env var,
-    else 1.0 = legacy straight-line). Fit it with calibrate_circuity.py."""
-    from logistics_lib_v2 import road_circuity as _rc, get_road_circuity
-    try:
-        k = get_road_circuity() if road_circuity is None else float(road_circuity)
-        ctx = _rc(k)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
-    with ctx:
-        return _compute_plan_impl()
+def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = True):
+    """Computes and stores a plan. How distance is measured (stored with the plan as `distance_model`):
+
+    - default: measured ROAD distances between every farmer/market pair (OpenStreetMap via OSRM, cached) so the
+      plan itself changes when roads do; if road data is unavailable it falls back to straight lines.
+    - road_distances=false: skip the road lookup (legacy straight-line / FARMROUTE_ROAD_CIRCUITY behaviour).
+    - road_circuity=k: use a fixed road-km / straight-km factor for every distance (fit one with calibrate_circuity.py).
+    """
+    from logistics_lib_v2 import _check_circuity
+    if road_circuity is not None:
+        try:
+            road_circuity = _check_circuity(road_circuity)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    return _compute_plan_impl(road_circuity, road_distances)
 
 
-def _compute_plan_impl():
+def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True):
     with get_conn() as conn:
         farmer_rows = conn.execute("SELECT * FROM farmers ORDER BY id").fetchall()
         vehicle_rows = conn.execute("SELECT * FROM vehicles ORDER BY id").fetchall()
@@ -208,32 +213,6 @@ def _compute_plan_impl():
         raise HTTPException(400, "No vehicles in the database yet -- add some via POST /vehicles first.")
     if not market_rows:
         raise HTTPException(400, "No markets in the database yet -- add some via POST /markets first.")
-
-    # Imported lazily here (not at module load) so a problem with
-    # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
-    # requirements.txt) only breaks this one endpoint, not the whole API.
-    try:
-        from algorithms_v2 import (
-            run_ilo_v2,
-            run_individual_transport_v2,
-            run_proximity_pooling_v2,
-            summarize,
-        )
-        from ilo_v3 import run_ilo_v3
-        from baselines_v3 import (
-            DEFAULT_BEHAVIOUR,
-            FARMGATE_DISCOUNT,
-            run_farmgate_baseline_v2,
-            run_neighbour_pooling_v2,
-            run_self_haul_v2,
-            summarize_with_farmgate,
-        )
-    except ImportError as exc:
-        raise HTTPException(
-            500,
-            "Could not import algorithms_v2.py. Make sure its dependencies "
-            f"(numpy, scipy -- see requirements.txt) are installed. (import error: {exc})",
-        )
 
     farmers = [
         LibFarmer(
@@ -261,6 +240,44 @@ def _compute_plan_impl():
         )
         for r in market_rows
     ]
+
+    # How distance is measured for THIS plan. Chosen once, stored with the plan, and replayed by the map.
+    if road_circuity is not None:
+        model, matrix = {"type": "circuity", "k": road_circuity, "source": "manual"}, None
+    else:
+        with get_conn() as conn:
+            model, matrix = roads.plan_distance_model(conn, farmers, markets, enabled=road_distances)
+    from logistics_lib_v2 import road_circuity as _rc, use_road_matrix
+    with (use_road_matrix(matrix) if matrix is not None else _rc(model["k"])):
+        return _run_plan(farmers, fleet_template, markets, model)
+
+
+def _run_plan(farmers, fleet_template, markets, model):
+    # Imported lazily here (not at module load) so a problem with
+    # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
+    # requirements.txt) only breaks this one endpoint, not the whole API.
+    try:
+        from algorithms_v2 import (
+            run_ilo_v2,
+            run_individual_transport_v2,
+            run_proximity_pooling_v2,
+            summarize,
+        )
+        from ilo_v3 import run_ilo_v3
+        from baselines_v3 import (
+            DEFAULT_BEHAVIOUR,
+            FARMGATE_DISCOUNT,
+            run_farmgate_baseline_v2,
+            run_neighbour_pooling_v2,
+            run_self_haul_v2,
+            summarize_with_farmgate,
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            500,
+            "Could not import algorithms_v2.py. Make sure its dependencies "
+            f"(numpy, scipy -- see requirements.txt) are installed. (import error: {exc})",
+        )
 
     # Exact call pattern from CONTRACT.md: run_ilo_v2 (formerly named
     # run_integrated_logistics_optimization_v2 -- renamed to run_our_system_v2
@@ -331,6 +348,7 @@ def _compute_plan_impl():
     }
 
     input_snapshot = {
+        "distance_model": model,
         "farmers": [f.__dict__ for f in farmers],
         "fleet": [
             {"id": v.id, "type_name": v.type_name, "capacity_kg": v.capacity_kg,
@@ -364,7 +382,7 @@ def _compute_plan_impl():
         conn.commit()
         plan_id = cur.fetchone()["id"]
 
-    return {"id": plan_id, "created_at": created_at, **result_payload,
+    return {"id": plan_id, "created_at": created_at, "distance_model": model, **result_payload,
             "realistic_baselines": realistic_baselines}
 
 
@@ -389,21 +407,9 @@ def get_plan(plan_id: int):
     }
 
 
-@app.get("/plan/{plan_id}/visualization")
-def get_plan_visualization(plan_id: int):
-    """Adapter endpoint (see visualization_adapter.py): the same stored plan
-    run as GET /plan/{plan_id}, reshaped into one payload the map/simulation
-    frontend can consume directly -- farmers/vehicles/markets/routes/
-    simulation events/summary per algorithm, so the frontend never has to
-    know about pools, fleets, or LP allocation edges itself. Nothing here
-    is recomputed by the optimizer; it's a pure reshape of what
-    /plan/compute already produced and stored."""
-    with get_conn() as conn:
-        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
-
-    if row is None:
-        raise HTTPException(404, f"No plan run with id {plan_id}")
-
+def _straight_viz_payload(row, conn) -> dict:
+    """Plan row -> the adapter's visualization payload (straight-line geometry, no road shapes yet).
+    Distances and timings are computed under the distance model the plan was optimized with."""
     input_snapshot = json.loads(row["input_snapshot"])
     results_by_algo = {
         "integrated_logistics_optimization": json.loads(row["result_integrated_logistics_optimization"]),
@@ -415,9 +421,52 @@ def get_plan_visualization(plan_id: int):
     # exact per-market breakdown for ILO on those plans.
     raw_trace = row["result_ilo_trace"]
     ilo_trace = json.loads(raw_trace) if raw_trace else None
+    with roads.distance_context(conn, input_snapshot):
+        payload = build_plan_visualization(input_snapshot, results_by_algo, ilo_trace=ilo_trace)
+    model = input_snapshot.get("distance_model") or {"type": "straight", "k": 1.0}
+    payload["distanceModel"] = model
+    for sol in payload["solutions"].values():
+        for r in sol["routes"]:
+            r["distanceBasis"] = model["type"]
+    return payload
 
-    payload = build_plan_visualization(input_snapshot, results_by_algo, ilo_trace=ilo_trace)
+
+@app.get("/plan/{plan_id}/visualization")
+def get_plan_visualization(plan_id: int):
+    """Adapter endpoint (see visualization_adapter.py): the same stored plan
+    run as GET /plan/{plan_id}, reshaped into one payload the map/simulation
+    frontend can consume directly -- farmers/vehicles/markets/routes/
+    simulation events/summary per algorithm, so the frontend never has to
+    know about pools, fleets, or LP allocation edges itself. Nothing here
+    is recomputed by the optimizer; it's a pure reshape of what
+    /plan/compute already produced and stored.
+
+    Routes whose real-road geometry is already cached (see roads.py) carry
+    roadLegs / roadCoordinates and geometry="road"; the rest stay straight
+    lines, and payload["roads"]["pending"] says how many each algorithm still lacks."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"No plan run with id {plan_id}")
+        payload = _straight_viz_payload(row, conn)
+        roads.attach_cached(conn, payload)
     return {"id": row["id"], "created_at": row["created_at"], **payload}
+
+
+@app.post("/plan/{plan_id}/roads")
+def resolve_plan_roads(plan_id: int, algo: str = "integrated_logistics_optimization", budget_s: float = 15.0):
+    """Fetches real-road geometry for one algorithm's routes of a stored plan and caches it.
+    Does as many routes as fit in `budget_s` seconds (capped at 25); the frontend calls this
+    repeatedly until `pending` is 0. Display only: nothing here touches the optimizer or its numbers."""
+    if algo not in ALGO_KEYS:
+        raise HTTPException(400, f"Unknown algorithm '{algo}'. Use one of: {', '.join(ALGO_KEYS)}")
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, f"No plan run with id {plan_id}")
+        solution = _straight_viz_payload(row, conn)["solutions"][algo]
+        out = roads.resolve_pending(conn, solution, budget_s=max(1.0, min(budget_s, 25.0)))
+    return {"algo": algo, **out}
 
 
 # =========================================================================

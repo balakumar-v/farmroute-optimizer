@@ -49,7 +49,7 @@ from baselines_v3 import (
     DEFAULT_BEHAVIOUR, FARMGATE_DISCOUNT, FarmgatePrices, _as_prices, _neighbour_groups,
     run_farmgate_baseline_v2, run_neighbour_pooling_v2, run_self_haul_v2, summarize_with_farmgate,
 )
-from logistics_lib_v2 import (AVG_SPEED_KMPH, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity,
+from logistics_lib_v2 import (AVG_SPEED_KMPH, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity, get_road_matrix,
                               haversine, spoilage_fraction)
 
 DEFAULT_DISPATCH_MARGIN = 0.0     # tuned in benchmark_ilo_v3.py (--margin-sweep); see ALGORITHM doc
@@ -166,7 +166,9 @@ def _vec_haversine(lat1, lng1, lat2, lng2):
     dphi = p2 - p1
     dl = np.radians(lng2 - lng1)
     a = np.sin(dphi / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2
-    return get_road_circuity() * 2 * EARTH_R_KM * np.arcsin(np.sqrt(np.minimum(1.0, a)))   # road-km
+    base = get_road_circuity() * 2 * EARTH_R_KM * np.arcsin(np.sqrt(np.minimum(1.0, a)))   # road-km
+    m = get_road_matrix()
+    return base if m is None else m.override_vec(base, lat1, lng1, lat2, lng2)
 
 
 def _eligible_for_market(farmers, market, markets, per_km_ref, q_ref):

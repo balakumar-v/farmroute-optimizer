@@ -6,7 +6,7 @@ import type { SensorReading, ViewName } from "../lib/types";
 import { useApp } from "../state/store";
 import {
   Vis, type EngineSnapshot, type MapController, type Selection, type SimEngine, type Story, type Theater,
-  type VizPayload, type VizSolution,
+  type VizPayload, type VizSolution, type DistanceModel,
 } from "../vis";
 
 const ILO = "integrated_logistics_optimization";
@@ -24,6 +24,7 @@ interface Ui {
   loading: boolean;
   error: string;
   note: string;
+  roadsMsg: string;
   payload: VizPayload | null;
   loadedPlanId: number | null;
   algo: string;
@@ -36,7 +37,7 @@ interface Ui {
   engineKey: number;
 }
 const initialUi: Ui = {
-  ready: false, loading: false, error: "", note: "", payload: null, loadedPlanId: null, algo: ILO, compareOn: false,
+  ready: false, loading: false, error: "", note: "", roadsMsg: "", payload: null, loadedPlanId: null, algo: ILO, compareOn: false,
   stage: 1, selection: null, sidePane: "story", mode3d: false, chase: false, engineKey: 0,
 };
 
@@ -101,8 +102,16 @@ function IotPanel({ apiBase, planId, vehicleId }: { apiBase: string; planId: num
   );
 }
 
-function Legend({ solution }: { solution: VizSolution | undefined }) {
+function distanceLabel(model: DistanceModel | undefined): string | null {
+  if (!model) return null;
+  if (model.type === "road_matrix") return "Plan optimized on real road distances";
+  if (model.type === "circuity") return model.source === "road_sample" ? `Plan uses a road factor of ×${model.k} measured on real roads` : `Plan uses a ×${model.k} road factor`;
+  return "Plan optimized on straight-line distances";
+}
+
+function Legend({ solution, provider, model }: { solution: VizSolution | undefined; provider: string | null; model?: DistanceModel }) {
   if (!solution) return null;
+  const onRoads = (solution.routes as Array<{ geometry?: string }>).some((r) => r.geometry === "road");
   const used = solution.vehicles.filter((v) => v.used).slice(0, 8);
   const rgb = (c: number[]) => `rgb(${c.join(",")})`;
   return (
@@ -111,6 +120,8 @@ function Legend({ solution }: { solution: VizSolution | undefined }) {
       <div className="legend-row"><span className="swatch" style={{ background: rgb(Vis.STATUS_COLORS.unserved) }} />Unserved farmer</div>
       {!!solution.farmgateFarmerIds?.length && <div className="legend-row"><span className="swatch" style={{ background: rgb(Vis.STATUS_COLORS.farmgate) }} />Sold at farm gate</div>}
       <div className="legend-row"><span className="swatch" style={{ background: rgb(Vis.MARKET_COLOR) }} />Market</div>
+      {distanceLabel(model) && <div className="legend-row" style={{ fontSize: 11, opacity: 0.75 }} title={model?.note}>{distanceLabel(model)}</div>}
+      {onRoads && <div className="legend-row" style={{ fontSize: 11, opacity: 0.75 }}>Roads {"©"} OpenStreetMap contributors{provider ? ` · routing: ${provider === "ors" ? "openrouteservice" : "OSRM"}` : ""}</div>}
     </>
   );
 }
@@ -230,6 +241,7 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
     }, 0);
     return () => {
       cancelled = true;
+      roadsRun.current++;
       window.clearTimeout(timer);
       engineRef.current?.pause();
       const m = map;
@@ -247,19 +259,64 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
     return () => cancelAnimationFrame(id);
   }, [visible, ui.ready]);
 
+  // ---- real-road geometry: fetch + cache missing routes in small batches, then swap them in ----
+  // The backend does a few routes per call (routing services are rate-limited); results are cached
+  // server-side, so this only ever waits the first time a route is seen. A newer call cancels an older one.
+  const roadsRun = useRef(0);
+  const ensureRoads = useCallback(async (planId: number, algos: string[]) => {
+    const run = ++roadsRun.current;
+    const apiBase = state.apiBase;
+    const pendingOf = (p: VizPayload | null, a: string) => (p?.roads?.enabled ? (p.roads.pending[a] ?? 0) : 0);
+    const todo = algos.filter((a) => pendingOf(uiRef.current.payload, a) > 0);
+    if (!todo.length) { setUi({ roadsMsg: "" }); return; }
+    let changed = false;
+    for (const algo of todo) {
+      const total = pendingOf(uiRef.current.payload, algo);
+      let pending = total, stalls = 0;
+      while (pending > 0 && roadsRun.current === run) {
+        setUi({ roadsMsg: `Fetching real road routes… ${total - pending} of ${total}` });
+        try {
+          const r = await Vis.resolveRoads(apiBase, planId, algo);
+          pending = r.pending;
+          if (r.resolved > 0) { changed = true; stalls = 0; }
+          else if (++stalls >= 2) { if (r.error) setUi({ note: `Some routes are shown as straight lines: ${r.error}` }); break; }
+        } catch (err) {
+          setUi({ note: `Real road routes unavailable: ${err instanceof Error ? err.message : String(err)}` });
+          break;
+        }
+      }
+      if (roadsRun.current !== run) return;
+    }
+    setUi({ roadsMsg: "" });
+    if (!changed) return;
+    try {
+      const fresh = await Vis.fetchVisualization(apiBase, planId);
+      if (roadsRun.current !== run || uiRef.current.loadedPlanId !== planId) return;
+      const eng = engineRef.current;
+      const t = eng ? eng.t : 0;
+      const wasPlaying = !!eng?.playing;
+      setUi({ payload: fresh });
+      applySolution(fresh, uiRef.current.algo, uiRef.current.stage);
+      const e2 = engineRef.current;
+      if (e2) { e2.seek(t); if (wasPlaying && !reduced) e2.play(); }
+    } catch { /* keep the straight lines already on screen */ }
+  }, [applySolution, reduced, setUi, state.apiBase]);
+
   // ---- 2) load the visualization for the current plan ----
   const loadPlan = useCallback(async (planId: number) => {
-    setUi({ loading: true, error: "" });
+    roadsRun.current++;
+    setUi({ loading: true, error: "", roadsMsg: "", note: "" });
     try {
       const payload = await Vis.fetchVisualization(state.apiBase, planId);
       const algo = payload.solutions[uiRef.current.algo] ? uiRef.current.algo : ILO;
       setUi({ payload, algo, loadedPlanId: planId, loading: false, compareOn: false });
       applySolution(payload, algo, 1);
       setUi({ sidePane: "story" });
+      void ensureRoads(planId, [algo]);
     } catch (err) {
       setUi({ loading: false, error: err instanceof Error ? err.message : String(err) });
     }
-  }, [applySolution, setUi, state.apiBase]);
+  }, [applySolution, ensureRoads, setUi, state.apiBase]);
 
   useEffect(() => {
     if (!ui.ready || !visible) return;
@@ -300,7 +357,10 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
   const switchAlgo = (algo: string) => {
     setUi({ algo });
     const payload = uiRef.current.payload;
-    if (payload) applySolution(payload, algo, uiRef.current.stage);
+    if (payload) {
+      applySolution(payload, algo, uiRef.current.stage);
+      void ensureRoads(payload.id, [algo, ...(uiRef.current.compareOn ? [compareAlgoFor(algo)] : [])]);
+    }
   };
   const toggle3D = () => {
     const m = mapRef.current; if (!m) return;
@@ -357,7 +417,7 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
         <select id="mapAlgoSelect" className="algo-select" value={ui.algo} disabled={!hasPlan} onChange={(e) => switchAlgo(e.target.value)}>
           {ALGO_OPTIONS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
-        <button id="mapCompareToggle" className={"btn " + (ui.compareOn ? "btn-primary" : "btn-secondary")} aria-pressed={ui.compareOn} title="Compare mode" disabled={!hasPlan} onClick={() => setUi({ compareOn: !ui.compareOn })}><Icon name="split" /><span>Compare mode</span></button>
+        <button id="mapCompareToggle" className={"btn " + (ui.compareOn ? "btn-primary" : "btn-secondary")} aria-pressed={ui.compareOn} title="Compare mode" disabled={!hasPlan} onClick={() => { const on = !ui.compareOn; setUi({ compareOn: on }); if (on && ui.payload) void ensureRoads(ui.payload.id, [ui.algo, compareAlgoFor(ui.algo)]); }}><Icon name="split" /><span>Compare mode</span></button>
         <button id="map3dToggle" className={"btn " + (ui.mode3d ? "btn-primary" : "btn-secondary")} aria-pressed={ui.mode3d} title="3D view" disabled={!ui.ready} onClick={toggle3D}><Icon name="cube" /><span>3D</span></button>
         <button id="mapChaseToggle" className={"btn " + (ui.chase ? "btn-primary" : "btn-secondary")} aria-pressed={ui.chase} title="3D third-person camera behind a moving truck" disabled={!hasPlan} onClick={toggleChase}><Icon name="truck" /><span>Chase cam</span></button>
         <span className="grow" />
@@ -377,8 +437,9 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
                 {!state.plan && <button className="btn btn-primary" type="button" onClick={() => go("start")}>Go to scenarios<Icon name="arrow" /></button>}
               </div>
             </div>
-            <div id="mapLegend" className="map-legend" ref={legendRef}><Legend solution={sol} /></div>
+            <div id="mapLegend" className="map-legend" ref={legendRef}><Legend solution={sol} provider={ui.payload?.roads?.provider ?? null} model={ui.payload?.distanceModel} /></div>
             <p className="map-note" hidden={!ui.note}>{ui.note}</p>
+            <div className="map-busy" role="status" hidden={!ui.roadsMsg || ui.loading}><span className="spinner" aria-hidden="true" />{ui.roadsMsg}</div>
             <div className="map-busy" role="status" hidden={!(ui.loading || (!ui.ready && !ui.error))}><span className="spinner" aria-hidden="true" />{ui.ready ? "Loading plan…" : "Starting the map…"}</div>
           </div>
 

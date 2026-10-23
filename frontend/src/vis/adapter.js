@@ -43,6 +43,19 @@ import { Vis } from "./namespace.js";
     return res.json();
   };
 
+  /** POST /plan/{planId}/roads -- asks the backend to fetch + cache real-road geometry for one
+   * algorithm's routes (a few per call). Returns {pending, resolved, failed, error, provider, ...}. */
+  Vis.resolveRoads = async function (apiBase, planId, algo, budgetS) {
+    let res;
+    try {
+      res = await fetch(`${apiBase}/plan/${planId}/roads?algo=${encodeURIComponent(algo)}&budget_s=${budgetS || 12}`, { method: "POST" });
+    } catch (e) {
+      throw new Error(`Could not reach ${apiBase} (${e.message})`);
+    }
+    if (!res.ok) throw new Error(`road routing failed (${res.status})`);
+    return res.json();
+  };
+
   Vis.fetchSensorReadings = async function (apiBase, poolId) {
     if (!apiBase) return [];
     const qs = poolId ? `?pool_id=${encodeURIComponent(poolId)}` : "";

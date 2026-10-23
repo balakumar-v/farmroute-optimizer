@@ -68,6 +68,27 @@ CREATE TABLE IF NOT EXISTS sensor_readings (
     humidity DOUBLE PRECISION NOT NULL,
     timestamp DOUBLE PRECISION NOT NULL
 );
+
+-- Road-km matrix between every farmer/market of a scenario (see roads.py plan_distance_model).
+CREATE TABLE IF NOT EXISTS road_matrices (
+    key TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    points TEXT NOT NULL,      -- JSON [[lat, lng], ...] (rounded, sorted): row/column order of dist
+    dist TEXT NOT NULL,        -- JSON square matrix of road km (null = no route)
+    ratio DOUBLE PRECISION NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+-- Real-road geometry cache (see roads.py). Deliberately NOT cleared by /reset:
+-- it is keyed by stop coordinates, so it stays valid across plans and scenarios.
+CREATE TABLE IF NOT EXISTS road_routes (
+    key TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    profile TEXT NOT NULL,
+    legs TEXT NOT NULL,        -- JSON [{coordinates, distanceKm, offRoadKm}, ...]
+    created_at TEXT NOT NULL
+);
 """
 
 

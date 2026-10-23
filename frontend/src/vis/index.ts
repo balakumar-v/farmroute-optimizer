@@ -19,7 +19,10 @@ export interface VizSolution {
   routes: unknown[];
   [k: string]: unknown;
 }
-export interface VizPayload { id: number; solutions: Record<string, VizSolution>; [k: string]: unknown }
+export interface RoadsInfo { enabled: boolean; provider: string | null; profile: string | null; pending: Record<string, number> }
+export interface RoadsProgress { algo: string; enabled: boolean; provider: string | null; total: number; pending: number; resolved: number; failed: number; error: string | null }
+export interface DistanceModel { type: "road_matrix" | "circuity" | "straight"; k?: number; ratio?: number; source?: string; note?: string; provider?: string }
+export interface VizPayload { id: number; solutions: Record<string, VizSolution>; roads?: RoadsInfo; distanceModel?: DistanceModel; [k: string]: unknown }
 
 export interface EngineSnapshot {
   t: number;
@@ -78,6 +81,7 @@ export interface VisApi {
   colorForIdCss(id: number | string): string;
   fetchVisualization(apiBase: string, planId: number): Promise<VizPayload>;
   fetchSensorReadings(apiBase: string, poolId: string): Promise<SensorReading[]>;
+  resolveRoads(apiBase: string, planId: number, algo: string, budgetS?: number): Promise<RoadsProgress>;
   buildNarrative(solution: VizSolution): StoryStep[];
   StoryTimeline: new (container: HTMLElement, steps: StoryStep[], opts: { onStepClick: (s: StoryStep) => void }) => Story;
   renderDetailsPanel(container: HTMLElement, selection: Selection | null, solution: VizSolution | null | undefined, snapshot: EngineSnapshot | null): void;
