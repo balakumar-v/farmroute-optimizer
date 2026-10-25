@@ -33,6 +33,7 @@ accounting the planner was given. It is not a promise about real farmers, and it
 farm-gate price input: if the true doorstep price differs from the one supplied, either side can be off.
 """
 import copy
+import os
 import time
 from collections import defaultdict
 
@@ -49,7 +50,7 @@ from baselines_v3 import (
     DEFAULT_BEHAVIOUR, FARMGATE_DISCOUNT, FarmgatePrices, _as_prices, _neighbour_groups,
     run_farmgate_baseline_v2, run_neighbour_pooling_v2, run_self_haul_v2, summarize_with_farmgate,
 )
-from logistics_lib_v2 import (AVG_SPEED_KMPH, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity, get_road_matrix,
+from logistics_lib_v2 import (AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity, get_road_matrix,
                               haversine, spoilage_fraction)
 
 DEFAULT_DISPATCH_MARGIN = 0.0     # tuned in benchmark_ilo_v3.py (--margin-sweep); see ALGORITHM doc
@@ -61,6 +62,12 @@ DEFAULT_STRESS_DISCOUNTS = (0.05, 0.10, 0.20, 0.30, 0.35)   # farm-gate discount
 FLEET_DT_HR = 0.25                # time grid of the fleet-capacity rows (conservative: occupancy rounded outward)
 FLEET_MAX_START_SLOTS = 6         # start-hour options kept per (trip, vehicle class)
 _EPS = 1e-6
+
+
+def _env_f(name, default):
+    """Experiment switch (experiments_v4): float from the environment, read at call time; unset = default."""
+    v = os.environ.get(name)
+    return default if v in (None, "") else float(v)
 
 
 # ----------------------------------------------------------------------
@@ -130,6 +137,17 @@ def _eval_trip(order, markets, prices, vtypes, margin, forced_market=None, start
     crops = {f.crop for f in order}
     last, first = order[-1], order[0]
     fg = prices.value_of(order)
+    t_after = None
+    if os.environ.get("ILO_SIM_SPOIL"):
+        # value the trip the way the simulator will charge spoilage (see _t_after_pickup): hours since the
+        # qty-weighted pickup, measured from comp = start + pickup-leg duration computed at the earliest ready time
+        d0 = min(f.ready_hr for f in order)
+        comp = start + (_timeline_from(order, d0)[1] - d0 - DISPATCH_OVERHEAD_HR)
+        qs, ws = defaultdict(float), defaultdict(float)
+        for i, f in enumerate(order):
+            qs[f.crop] += f.qty_kg
+            ws[f.crop] += f.qty_kg * pickups[i]
+        t_after = {c: max(0.0, comp - ws[c] / qs[c]) for c in qs}
     best = None
     for m in ([forced_market] if forced_market is not None else markets):
         if not all(c in m.price and c in m.capacity_kg for c in crops):
@@ -144,7 +162,8 @@ def _eval_trip(order, markets, prices, vtypes, margin, forced_market=None, start
         frac = {c: min(1.0, cap_mult * m.capacity_kg[c] / q) if q else 0.0 for c, q in qty_c.items()}
         qeff = defaultdict(float)                      # kg that reach the buyer after spoilage, per crop
         for i, f in enumerate(order):
-            qeff[f.crop] += f.qty_kg * frac[f.crop] * (1 - spoilage_fraction(f.crop, veh.refrigerated, t_arr - pickups[i]))
+            hrs = (t_after[f.crop] + leg / AVG_SPEED_KMPH) if t_after is not None else (t_arr - pickups[i])
+            qeff[f.crop] += f.qty_kg * frac[f.crop] * (1 - spoilage_fraction(f.crop, veh.refrigerated, hrs))
         rev = sum(q * m.price[c] for c, q in qeff.items())
         net = rev - cost
         if best is None or net > best["net"]:
@@ -187,7 +206,7 @@ def _eligible_for_market(farmers, market, markets, per_km_ref, q_ref):
     return out
 
 
-def _cw_routes(F, market, qmax):
+def _cw_routes(F, market, qmax, lam=1.0):
     """Clarke-Wright savings with the mandi as depot. Yields the ordered stop list after EVERY merge (so the
     best-sized load, not just the final route, is a candidate). Closed loop mandi -> stops -> mandi."""
     n = len(F)
@@ -196,7 +215,7 @@ def _cw_routes(F, market, qmax):
     lat = np.array([f.lat for f in F])
     lng = np.array([f.lng for f in F])
     D = _vec_haversine(lat, lng, market.lat, market.lng)
-    if n <= CW_ALL_PAIRS_MAX:
+    if n <= _env_f("ILO_CW_ALL_PAIRS_MAX", CW_ALL_PAIRS_MAX):
         ii, jj = np.triu_indices(n, k=1)
     else:
         from sklearn.neighbors import BallTree
@@ -206,7 +225,7 @@ def _cw_routes(F, market, qmax):
         ii = np.array([p[0] for p in pairs])
         jj = np.array([p[1] for p in pairs])
     dij = _vec_haversine(lat[ii], lng[ii], lat[jj], lng[jj])
-    sav = D[ii] + D[jj] - dij
+    sav = D[ii] + D[jj] - lam * dij               # lam=1.0 = classic Clarke-Wright
     keep = sav > 0
     ii, jj, sav = ii[keep], jj[keep], sav[keep]
     seq = np.argsort(-sav, kind="stable")
@@ -251,15 +270,22 @@ def _ilo_pools(farmers, fleet):
     return out
 
 
+def _cw_lambdas():
+    raw = os.environ.get("ILO_CW_LAMBDAS", "")
+    return [float(x) for x in raw.split(",") if x.strip()] or [1.0]
+
+
 def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=True, cap_mult=1.0, markets_per_trip=1):
     """Dict ids(frozenset) -> best scored trip. Only trips that beat the farm gate (delta > 0) are kept."""
     vtypes = _fleet_types(fleet)
     cands = {}
     stats = defaultdict(int)
 
-    def offer(order, source, forced=None):
+    def offer(order, source, forced=None, _rev=True):
         if order is None:
             return
+        if _rev and len(order) > 1 and os.environ.get("ILO_BOTH_DIRS"):
+            offer(list(reversed(order)), source, forced, _rev=False)
         stats[source + "_tried"] += 1
         if markets_per_trip > 1 and forced is None:
             evals = _eval_trip_topk(order, markets, prices, vtypes, margin, markets_per_trip, cap_mult=cap_mult)
@@ -297,8 +323,12 @@ def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=Tru
                 if len(F) < 2:
                     continue
                 qmax = qmax_ref if F[0].needs_refrigeration else qmax_any
-                for order in _cw_routes(F, m, qmax):
-                    offer(order, "cw_route", forced=m)
+                for lam in _cw_lambdas():
+                    for order in _cw_routes(F, m, qmax, lam):
+                        offer(order, "cw_route", forced=m)
+        if os.environ.get("ILO_ENRICH", "0") not in ("0", ""):
+            import ilo_v3_ext
+            ilo_v3_ext.enrich(cands, farmers, markets, prices, margin, vtypes, offer, stats)
     return cands, dict(stats)
 
 
@@ -360,7 +390,7 @@ def solve_set_partition(cands, markets, price_impact=None):
     A_m, ub_m, obj_m, lb_v, ub_v, integ = _impact_extend(A.tocsr(), ub, obj, items, price_impact, markets)
     try:
         res = milp(obj_m, constraints=LinearConstraint(A_m, -np.inf, ub_m), integrality=integ,
-                   bounds=Bounds(lb_v, ub_v), options={"time_limit": SP_TIME_LIMIT_S, "mip_rel_gap": 1e-4})
+                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": 1e-4})
         if res.x is not None and res.status in (0, 1):
             return [items[k] for k in range(len(items)) if res.x[k] > 0.5], (
                 "optimal" if res.status == 0 else "time_limit_best_found")
@@ -430,7 +460,7 @@ def expand_fleet_columns(cands, fleet, markets, prices, margin, cap_mult=1.0, ke
     return cols
 
 
-def solve_fleet_set_partition(cols, markets, fleet, price_impact=None):
+def solve_fleet_set_partition(cols, markets, fleet, price_impact=None, lp_only=False):
     """Exact 0/1 program: disjoint trips, mandi capacity per crop, AND at most n_class vehicles busy in any
     time cell. Returns (chosen columns, status, meta) -- meta carries the LP shadow value of one extra vehicle
     per class (first-order, from the LP relaxation)."""
@@ -478,12 +508,18 @@ def solve_fleet_set_partition(cols, markets, fleet, price_impact=None):
             for (key, _j), r in fl_rows.items():
                 sv[_class_label(key)] += float(marg[r])
             meta["lp_bound"] = float(-lp.fun)
+            if os.environ.get("ILO_KEEP_DUALS"):
+                meta["_duals"] = {"farmer": {i: float(marg[frow[i]]) for i in fids},
+                                  "market": {k: float(marg[r]) for k, r in mk_rows.items()},
+                                  "fleet": {k: float(marg[r]) for k, r in fl_rows.items()}}
             meta["shadow_value_per_extra_vehicle"] = {k: round(v, 1) for k, v in sv.items()}
     except Exception:                                               # pragma: no cover
         pass
+    if lp_only:                                                     # column generation only needs the LP + duals
+        return [], "lp_only", meta
     try:
         res = milp(obj, constraints=LinearConstraint(A, -np.inf, ub), integrality=integ,
-                   bounds=Bounds(lb_v, ub_v), options={"time_limit": SP_TIME_LIMIT_S, "mip_rel_gap": 1e-4})
+                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": 1e-4})
         if res.x is not None and res.status in (0, 1):
             return [cols[k] for k in range(len(cols)) if res.x[k] > 0.5], (
                 "optimal" if res.status == 0 else "time_limit_best_found"), meta
@@ -663,6 +699,11 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
         if fleet_aware and fleet:
             cols = expand_fleet_columns(cands, fleet, markets, prices, dispatch_margin, cap_mult=belief_mult,
                                         keep_market=markets_per_trip > 1)
+            if os.environ.get("ILO_COLGEN", "0") not in ("0", ""):
+                import ilo_v3_ext
+                cols, cg_log = ilo_v3_ext.colgen(cols, cands, farmers, fleet, markets, prices, dispatch_margin,
+                                                 belief_mult, markets_per_trip > 1, os.environ["ILO_COLGEN"])
+                meta["colgen"] = cg_log
             fchosen, fl_status, fl_meta = solve_fleet_set_partition(cols, markets, fleet, price_impact)
             fl_meta["status"] = fl_status
             if fl_status in ("optimal", "time_limit_best_found"):
@@ -671,8 +712,10 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                 fpools = [c["order"] for c in fchosen] + [[f] for f in farmers if f.id not in fcov]
                 plans["B:set_partition"], traces["B:set_partition"] = run_our_system_v2(
                     farmers, copy.deepcopy(fleet), markets, raw_pools_override=fpools, pool_hints=hints,
-                    return_trace=True, **kw)
+                    return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")), **kw)
                 fl_meta["trips_chosen"] = len(fchosen)
+                fl_meta["sp_obj"] = float(sum(c["delta"] for c in fchosen))
+                fl_meta["chosen_cols"] = fchosen if os.environ.get("ILO_KEEP_CHOSEN") else None
                 fl_meta["hints_placed"] = len(hints)
                 fl_meta["classes_used"] = {_class_label(k): sum(1 for c in fchosen if c["cls"] == k)
                                            for k in {c["cls"] for c in fchosen}}

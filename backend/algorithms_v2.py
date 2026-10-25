@@ -912,7 +912,7 @@ def _t_after_pickup(comp, duration, order, flist, from_pickup):
 def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, return_trace=False,
                       withhold_uneconomic=True, farmgate_value_fn=None, dispatch_margin=0.0,
                       fix_route_duration=False, spoilage_from_pickup=False, charge_return_leg=False,
-                      raw_pools_override=None, pool_hints=None):
+                      raw_pools_override=None, pool_hints=None, keep_pool_order=False):
     """withhold_uneconomic=False reproduces the previous behaviour exactly (every pool that
     can get a vehicle is dispatched, even at a loss). True (default) adds economic dispatch:
     the plan is re-computed with loss-making trips withheld, so their vehicle-time and market
@@ -926,7 +926,9 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
         and _finalize.
       raw_pools_override: use these pools (lists of Farmer) instead of the geographic clustering.
       pool_hints: {frozenset(farmer ids): {"vehicle_id", "start"}} -- pin those pools to a vehicle / start hour
-        (ILO v3 fleet-aware set partitioning). Unhonourable hints fall back to the greedy assignment."""
+        (ILO v3 fleet-aware set partitioning). Unhonourable hints fall back to the greedy assignment.
+      keep_pool_order: execute raw_pools_override in the order given (the planner's own route) instead of
+        re-routing each pool with order_route(). Default False = unchanged. Experiment switch (experiments_v4)."""
     capacity_slots = fleet_capacity_cycle(fleet)
     raw_pools = []
     if raw_pools_override is not None:
@@ -943,7 +945,12 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
     # vehicle gets assigned -- speed is modeled as constant).
     routed = []
     for pool in raw_pools:
-        order, route_dist, t_end = order_route(pool, enforce_windows=True)
+        if keep_pool_order and raw_pools_override is not None:
+            order = list(pool)
+            route_dist = _route_distance(order)
+            t_end = _simulate_end_time(order, False)[1]
+        else:
+            order, route_dist, t_end = order_route(pool, enforce_windows=True)
         routed.append((pool, order, route_dist, t_end))
 
     pool_descs = [{
