@@ -326,6 +326,14 @@ def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=Tru
                 for lam in _cw_lambdas():
                     for order in _cw_routes(F, m, qmax, lam):
                         offer(order, "cw_route", forced=m)
+            if os.environ.get("ILO_MIXED"):                       # mixed-crop CW routes (experiment switch)
+                Fm = [f for f in farmers if f.crop in m.price and f.crop in m.capacity_kg]
+                Fm = _eligible_for_market(Fm, m, markets, per_km_ref, q_ref)
+                if len(Fm) >= 2:
+                    for lam in _cw_lambdas():
+                        for order in _cw_routes(Fm, m, qmax_ref, lam):
+                            if len({f.crop for f in order}) > 1:
+                                offer(order, "cw_mixed", forced=m)
         if os.environ.get("ILO_ENRICH", "0") not in ("0", ""):
             import ilo_v3_ext
             ilo_v3_ext.enrich(cands, farmers, markets, prices, margin, vtypes, offer, stats)
@@ -380,7 +388,7 @@ def solve_set_partition(cands, markets, price_impact=None):
     cap_of = {m.id: m.capacity_kg for m in markets}
     cap_mult = price_impact.capacity_multiple if price_impact is not None else 1.0
     for (mid, crop), r in mk_rows.items():
-        ub[r] = cap_of[mid][crop] * cap_mult
+        ub[r] = cap_of[mid][crop] * cap_mult * _env_f("ILO_CAP_SLACK", 1.0)
     for col, c in enumerate(items):
         for i in c["ids"]:
             A[frow[i], col] = 1.0
@@ -484,7 +492,7 @@ def solve_fleet_set_partition(cols, markets, fleet, price_impact=None, lp_only=F
     cap_of = {m.id: m.capacity_kg for m in markets}
     cap_mult = price_impact.capacity_multiple if price_impact is not None else 1.0
     for (mid, crop), r in mk_rows.items():
-        ub[r] = cap_of[mid][crop] * cap_mult
+        ub[r] = cap_of[mid][crop] * cap_mult * _env_f("ILO_CAP_SLACK", 1.0)
     for (key, j), r in fl_rows.items():
         t_cell = j * FLEET_DT_HR
         ub[r] = sum(1 for v in classes[key] if v.available_at_hr <= t_cell + 1e-9)

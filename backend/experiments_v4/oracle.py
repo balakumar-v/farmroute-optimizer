@@ -17,6 +17,7 @@ def oracle_generate(farmers, fleet, markets, prices, margin, consolidate=True, c
     for k in range(1, KMAX + 1):
         for sub in itertools.combinations(farmers, k):
             if sum(f.qty_kg for f in sub) > maxcap: continue
+            if os.environ.get("ORACLE_SINGLE_CROP") and len({f.crop for f in sub}) > 1: continue
             if k <= 4: orders = [list(p) for p in itertools.permutations(sub)]
             else:
                 nn = _two_opt(_nearest_neighbor_order(list(sub)))
@@ -47,5 +48,5 @@ if __name__ == "__main__":
         out[tag] = dict(gain=r["gain"], sp_obj=fa.get("sp_obj"), lp=fa.get("lp_bound"), cols=fa.get("columns"),
                         cands=r["meta"]["candidates"]["total_kept"], status=fa.get("status"), secs=time.time() - t0)
     out.update(n=n, seed=seed)
-    open(os.path.join(os.path.dirname(__file__), "oracle.jsonl"), "a").write(json.dumps(out) + "\n")
+    open(os.path.join(os.path.dirname(__file__), os.environ.get("ORACLE_OUT","oracle.jsonl")), "a").write(json.dumps(out) + "\n")
     print(json.dumps(out))

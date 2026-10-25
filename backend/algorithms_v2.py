@@ -24,6 +24,7 @@ fleet.
 """
 
 import itertools
+import os
 import math
 import random
 from collections import defaultdict
@@ -59,6 +60,14 @@ def _dbscan_clusters(farmer_list, eps_km=EPS_KM):
         return [farmer_list]
     if not _HAVE_SKLEARN:
         return [farmer_list]
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+        n_ = len(farmer_list)
+        D = np.array([[haversine(a_.lat, a_.lng, b_.lat, b_.lng) for b_ in farmer_list] for a_ in farmer_list])
+        labels = DBSCAN(eps=eps_km, min_samples=1, metric="precomputed").fit(D).labels_
+        groups = defaultdict(list)
+        for f, lab in zip(farmer_list, labels):
+            groups[lab].append(f)
+        return list(groups.values())
     coords = np.radians([[f.lat, f.lng] for f in farmer_list])
     labels = DBSCAN(eps=eps_km / get_road_circuity() / EARTH_R_KM, min_samples=1,   # eps is road-km
                      metric="haversine", algorithm="ball_tree").fit(coords).labels_

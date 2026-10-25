@@ -25,4 +25,13 @@ VARIANTS = {
     "BEST":            {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2},
     "BEST+TL120":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_SP_TIME_LIMIT": 120},
     "BEST+knn":        {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_CW_ALL_PAIRS_MAX": 30},
+    "BEST+MIX":        {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_MIXED": 1},
+    "C13+MIX":         {**C1, **C3, "ILO_MIXED": 1},
+    "knn8":            {"ILO_CW_ALL_PAIRS_MAX": 8},
+    "BEST+knn8":       {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_CW_ALL_PAIRS_MAX": 8},
+    "C13+CAP90":       {**C1, **C3, "ILO_CAP_SLACK": 0.90},
+    "C13+CAP80":       {**C1, **C3, "ILO_CAP_SLACK": 0.80},
+    "BEST+CAP90":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_CAP_SLACK": 0.90},
+    "ROAD":            {"ILO_ROAD_DBSCAN": 1},
+    "C13+ROAD":        {**C1, **C3, "ILO_ROAD_DBSCAN": 1},
 }

@@ -157,3 +157,115 @@ D150 s3 BEST@T2.5: gain 67229 secs 19.2
 D300 s0 V0_zip: gain 83747 secs 35.8
 D300 s0 TL120: gain 84371 secs 125.9
 D300 s0 BEST: gain 96295 secs 63.4
+D150 s3 BEST+MIX: gain 72681 secs 58.9
+D150 s4 BEST+MIX: gain 70841 secs 70.2
+D150 s5 BEST+MIX: gain 32826 secs 24.3
+D150 s0 V0_zip: gain 7984 secs 5.5
+D150 s0 knn_forced: gain 7984 secs 5.1
+D150 s0 BEST: gain 16702 secs 14.3
+D150 s0 BEST+knn: gain 16702 secs 12.9
+D150 s1 V0_zip: gain 34702 secs 10.6
+D150 s1 knn_forced: gain 34702 secs 10.8
+D150 s1 BEST: gain 49510 secs 20.4
+D150 s1 BEST+knn: gain 49510 secs 21.5
+D150 s2 V0_zip: gain 43303 secs 8.8
+D150 s2 knn_forced: gain 43303 secs 9.7
+D150 s2 BEST: gain 56032 secs 21.4
+D150 s2 BEST+knn: gain 51616 secs 21.0
+D150 s3 V0_zip: gain 53022 secs 7.1
+D150 s3 knn_forced: gain 53022 secs 7.6
+D150 s3 BEST: gain 64886 secs 27.8
+D150 s3 BEST+knn: gain 69530 secs 28.8
+D300 s1 V0_zip: gain 40789 secs 34.6
+D300 s1 BEST: gain 46521 secs 51.6
+D300 s1 knn_forced: gain 44347 secs 34.4
+D300 s2 V0_zip: gain 46075 secs 21.5
+D300 s2 BEST: gain 50667 secs 64.5
+D300 s2 knn_forced: gain 46075 secs 16.4
+D300 s0 C13: gain 86262 secs 37.3
+D300 s0 C13+CAP90: gain 87447 secs 35.4
+D300 s0 C13+CAP80: gain 83747 secs 37.6
+D300 s1 C13: gain 43961 secs 22.7
+D300 s1 C13+CAP90: gain 40164 secs 34.7
+D300 s1 C13+CAP80: gain 40379 secs 10.4
+D300 s2 C13: gain 46075 secs 14.1
+D300 s2 C13+CAP90: gain 46075 secs 30.3
+D300 s2 C13+CAP80: gain 46075 secs 16.2
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+D300 s0 ROAD: gain 75730 secs 37.0
+D300 s0 C13+ROAD: gain 84100 secs 36.9
+D300 s1 ROAD: gain 36866 secs 18.7
+D300 s1 C13+ROAD: gain 41845 secs 34.1
+D300 s2 ROAD: gain 45124 secs 22.7
+D300 s2 C13+ROAD: gain 45124 secs 8.4
+G60 s0 ROAD: gain 17468 secs 11.3
+G60 s1 ROAD: gain 45063 secs 11.3
+G60 s2 ROAD: gain 18838 secs 13.1
+G60 s3 ROAD: gain 51018 secs 14.5
+G60 s4 ROAD: gain 18849 secs 15.5
+G60 s5 ROAD: gain 7017 secs 12.7
+D150 s0 ROAD: gain 10958 secs 5.1
+D150 s1 ROAD: gain 26997 secs 7.8
+D150 s2 ROAD: gain 42901 secs 8.5
+D150 s3 ROAD: gain 53241 secs 8.0
+D150 s4 ROAD: gain 49196 secs 11.1
+D150 s5 ROAD: gain 24426 secs 5.7
