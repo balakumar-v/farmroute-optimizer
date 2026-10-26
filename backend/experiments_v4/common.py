@@ -97,3 +97,37 @@ def run(n, seed, env=None, family="G", **kw):
             if v is None: os.environ.pop(k, None)
             else: os.environ[k] = v
     return dict(n=n, seed=seed, family=family, value=val, fg=fg, gain=val - fg, secs=secs, chosen=meta["chosen"], meta=meta, ratio=ratio)
+
+
+_PCACHE = {}
+def run_preset(key, rseed, env=None, **kw):
+    """Real preset (coords, prices, fleet from frontend/app.js) + synthetic road network #rseed. Same return as run()."""
+    import copy as _c
+    from real_data.bihar_preset import load
+    if (key, rseed) not in _PCACHE:
+        f, fl, m = load(key)
+        rm, ratio = make_road_matrix(f, m, rseed)
+        _PCACHE[(key, rseed)] = (f, fl, m, rm, ratio)
+    f, fl, m, rm, ratio = _PCACHE[(key, rseed)]
+    _CACHE[("preset:" + key, rseed, "P")] = (f, fl, m, rm, ratio)
+    return run("preset:" + key, rseed, env=env, family="P", **kw) if False else _run_loaded(f, _c.deepcopy(fl), m, rm, ratio, key, rseed, env, **kw)
+
+
+def _run_loaded(farmers, fleet, markets, rm, ratio, key, seed, env, **kw):
+    prices = FarmgatePrices(markets, DISCOUNT)
+    env = dict(env or {})
+    old = {k: os.environ.get(k) for k in env}
+    os.environ.update({k: str(v) for k, v in env.items()})
+    try:
+        with use_road_matrix(rm):
+            fg = score(run_farmgate_baseline_v2(farmers, markets), farmers, markets, fleet, prices)
+            t0 = time.time()
+            res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+            secs = time.time() - t0
+            val = score(res, farmers, markets, fleet, prices)
+    finally:
+        for k, v in old.items():
+            if v is None: os.environ.pop(k, None)
+            else: os.environ[k] = v
+    return dict(n=len(farmers), seed=seed, family="P:" + key, value=val, fg=fg, gain=val - fg, secs=secs,
+                chosen=meta["chosen"], meta=meta, ratio=ratio)

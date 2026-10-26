@@ -921,7 +921,7 @@ def _t_after_pickup(comp, duration, order, flist, from_pickup):
 def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, return_trace=False,
                       withhold_uneconomic=True, farmgate_value_fn=None, dispatch_margin=0.0,
                       fix_route_duration=False, spoilage_from_pickup=False, charge_return_leg=False,
-                      raw_pools_override=None, pool_hints=None, keep_pool_order=False):
+                      raw_pools_override=None, pool_hints=None, keep_pool_order=False, hold_pools=None):
     """withhold_uneconomic=False reproduces the previous behaviour exactly (every pool that
     can get a vehicle is dispatched, even at a loss). True (default) adds economic dispatch:
     the plan is re-computed with loss-making trips withheld, so their vehicle-time and market
@@ -937,7 +937,9 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
       pool_hints: {frozenset(farmer ids): {"vehicle_id", "start"}} -- pin those pools to a vehicle / start hour
         (ILO v3 fleet-aware set partitioning). Unhonourable hints fall back to the greedy assignment.
       keep_pool_order: execute raw_pools_override in the order given (the planner's own route) instead of
-        re-routing each pool with order_route(). Default False = unchanged. Experiment switch (experiments_v4)."""
+        re-routing each pool with order_route(). Default False = unchanged. Experiment switch (experiments_v4).
+      hold_pools: indices (into raw_pools_override) of pools the planner decides to sell at the farm gate: they are
+        withheld from the start and never re-admitted. Default None = unchanged. Experiment switch (experiments_v4)."""
     capacity_slots = fleet_capacity_cycle(fleet)
     raw_pools = []
     if raw_pools_override is not None:
@@ -1038,10 +1040,12 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
 
     n_pools = len(routed)
 
+    _held = set(hold_pools or ())
+
     def search(order_mode):
         """Economic dispatch under one claim order. Returns the best plan found:
         (active, results, net, allocs, veh_of, avail_after)."""
-        active = list(range(n_pools))
+        active = [i for i in range(n_pools) if i not in _held]
         best = (active,) + plan(active, order_mode)
         if not (withhold_uneconomic and n_pools):
             return best
@@ -1077,7 +1081,7 @@ def run_our_system_v2(farmers, fleet, markets, elastic_pricing=False, top_k=6, r
                     moves += [("drop", i) for i in dispatched]
                 else:         # nothing starved: still try dropping a trip that loses money on its own
                     moves += [("drop", i) for i in dispatched if b_results[i]["net_return"] < hurdle(i)]
-                moves += [("add", i) for i in sorted(set(range(n_pools)) - b_set,
+                moves += [("add", i) for i in sorted(set(range(n_pools)) - b_set - _held,
                                                       key=lambda i: -pool_descs[i]["total_qty"])]
                 for kind, i in moves:
                     if evals >= LOCAL_SEARCH_MAX_EVALS:

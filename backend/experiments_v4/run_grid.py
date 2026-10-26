@@ -14,7 +14,8 @@ for seed in seeds:
         if (fam, n, seed, name) in done:
             continue
         t0 = time.time()
-        r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        r = (common.run_preset(fam[2:], seed, env=VARIANTS[name]) if fam.startswith("P:")
+             else common.run(n, seed, env=VARIANTS[name], family=fam))
         m = r["meta"]; fa = m.get("fleet_aware", {}); pv = m["plan_values"]
         rec = dict(family=fam, n=n, seed=seed, variant=name, value=r["value"], fg=r["fg"], gain=r["gain"], secs=r["secs"],
                    chosen=r["chosen"], sp_obj=fa.get("sp_obj"), lp=fa.get("lp_bound"), fl_status=fa.get("status"),

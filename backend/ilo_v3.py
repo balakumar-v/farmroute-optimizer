@@ -721,6 +721,45 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                 plans["B:set_partition"], traces["B:set_partition"] = run_our_system_v2(
                     farmers, copy.deepcopy(fleet), markets, raw_pools_override=fpools, pool_hints=hints,
                     return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")), **kw)
+                if os.environ.get("ILO_HOLD_SINGLES"):      # plan B1: leftover farmers stay at the farm gate
+                    nt = len(fchosen)
+                    mode = os.environ["ILO_HOLD_SINGLES"]
+                    if mode == "2":           # hold only leftover singles of crops carried by trips plan B withheld
+                        ids_ = {frozenset(r["farmer_ids"]): r for r in plans["B:set_partition"]}
+                        wh_crops = {f.crop for c in fchosen if ids_.get(c["ids"], {}).get("vehicle_id", 0) is None
+                                    for f in c["order"]}
+                        held = [i for i in range(nt, len(fpools)) if fpools[i][0].crop in wh_crops]
+                    else:
+                        held = list(range(nt, len(fpools)))
+                    if held:
+                        plans["B1:hold_singles"], traces["B1:hold_singles"] = run_our_system_v2(
+                            farmers, copy.deepcopy(fleet), markets, raw_pools_override=fpools, pool_hints=hints,
+                            return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")),
+                            hold_pools=held, **kw)
+                it_log = []
+                banned = set()
+                for _it in range(int(_env_f("ILO_ITER", 0))):     # sim-in-the-loop: ban SP trips the simulator withheld, re-solve
+                    best_res = plans["B:set_partition"]
+                    chosen_ids = {c["ids"] for c in fchosen}
+                    wh = {frozenset(r["farmer_ids"]) for r in best_res
+                          if frozenset(r["farmer_ids"]) in chosen_ids and r["revenue"] <= 0}
+                    if not wh:
+                        break
+                    banned |= wh
+                    cols2 = [c for c in cols if c["ids"] not in banned]
+                    f2, st2, m2 = solve_fleet_set_partition(cols2, markets, fleet, price_impact)
+                    if st2 not in ("optimal", "time_limit_best_found"):
+                        break
+                    h2 = assign_vehicles_to_columns(f2, fleet)
+                    cov2 = {i for c in f2 for i in c["ids"]}
+                    p2 = [c["order"] for c in f2] + [[f] for f in farmers if f.id not in cov2]
+                    r2, t2 = run_our_system_v2(farmers, copy.deepcopy(fleet), markets, raw_pools_override=p2, pool_hints=h2,
+                                               return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")), **kw)
+                    it_log.append({"withheld": len(wh), "old": S(best_res), "new": S(r2)})
+                    if S(r2) > S(best_res) + 1e-6:
+                        plans["B:set_partition"], traces["B:set_partition"] = r2, t2
+                        fchosen, hints = f2, h2
+                fl_meta["iter_log"] = it_log
                 fl_meta["trips_chosen"] = len(fchosen)
                 fl_meta["sp_obj"] = float(sum(c["delta"] for c in fchosen))
                 fl_meta["chosen_cols"] = fchosen if os.environ.get("ILO_KEEP_CHOSEN") else None
