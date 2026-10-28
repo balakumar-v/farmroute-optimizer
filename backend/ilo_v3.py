@@ -73,16 +73,17 @@ def _env_f(name, default):
 # ----------------------------------------------------------------------
 # Standalone trip evaluation (candidate scoring)
 # ----------------------------------------------------------------------
-def _eval_trip_topk(order, markets, prices, vtypes, margin, k, start_override=None, cap_mult=1.0):
+def _eval_trip_topk(order, markets, prices, vtypes, margin, k, start_override=None, cap_mult=1.0, spoil_weight=0.0):
     """The k best (market, vehicle) evaluations of one trip by net at base prices, best first. With price impact
     the SP must be able to send a trip to its 2nd or 3rd best mandi when the best one is crowded, so every trip is
     offered at several mandis instead of only the best one."""
     out = []
     for m in markets:
-        e = _eval_trip(order, markets, prices, vtypes, margin, m, start_override=start_override, cap_mult=cap_mult)
+        e = _eval_trip(order, markets, prices, vtypes, margin, m, start_override=start_override, cap_mult=cap_mult,
+                       spoil_weight=spoil_weight)
         if e is not None:
             out.append(e)
-    out.sort(key=lambda e: -e["net"])
+    out.sort(key=lambda e: -e["score"])
     return out[:k]
 
 
@@ -119,10 +120,13 @@ def _cheap_order(pool):
     return order if _simulate_end_time(order, True)[0] else None
 
 
-def _eval_trip(order, markets, prices, vtypes, margin, forced_market=None, start_override=None, cap_mult=1.0):
+def _eval_trip(order, markets, prices, vtypes, margin, forced_market=None, start_override=None, cap_mult=1.0,
+               spoil_weight=0.0):
     """Best single-mandi plan for hiring one FPO vehicle to take `order` (in that sequence); None if infeasible.
     Returns the gain over selling everything at the farm gate (`delta`) and what is needed to constrain mandi
-    capacity in the set-partitioning model."""
+    capacity in the set-partitioning model.
+    `spoil_weight` (spoilage-first mode, 0 = off) charges each rupee of produce that spoils `spoil_weight` extra
+    times: it steers the market choice and `delta`, while `net` stays the real net return."""
     if not _simulate_end_time(order, True)[0]:
         return None
     start = min(f.ready_hr for f in order) if start_override is None else start_override
@@ -166,13 +170,15 @@ def _eval_trip(order, markets, prices, vtypes, margin, forced_market=None, start
             qeff[f.crop] += f.qty_kg * frac[f.crop] * (1 - spoilage_fraction(f.crop, veh.refrigerated, hrs))
         rev = sum(q * m.price[c] for c, q in qeff.items())
         net = rev - cost
-        if best is None or net > best["net"]:
-            best = {"order": order, "market": m, "net": net, "qty_by_crop": dict(qty_c), "vehicle": veh,
+        spoil_val = sum(m.price[c] * (frac[c] * qty_c[c] - qeff[c]) for c in qeff)     # revenue lost to spoilage
+        score = net - spoil_weight * spoil_val
+        if best is None or score > best["score"]:
+            best = {"order": order, "market": m, "net": net, "score": score, "spoil_val": spoil_val, "qty_by_crop": dict(qty_c), "vehicle": veh,
                     "start": start, "rev": rev, "cost": cost, "qeff_by_crop": dict(qeff)}
     if best is None:
         return None
     best["fg"] = fg
-    best["delta"] = best["net"] - fg * (1.0 + margin)
+    best["delta"] = best["score"] - fg * (1.0 + margin)
     best["ids"] = frozenset(f.id for f in order)
     return best
 
@@ -275,7 +281,8 @@ def _cw_lambdas():
     return [float(x) for x in raw.split(",") if x.strip()] or [1.0]
 
 
-def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=True, cap_mult=1.0, markets_per_trip=1):
+def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=True, cap_mult=1.0, markets_per_trip=1,
+                        spoil_weight=0.0):
     """Dict ids(frozenset) -> best scored trip. Only trips that beat the farm gate (delta > 0) are kept."""
     vtypes = _fleet_types(fleet)
     cands = {}
@@ -288,9 +295,10 @@ def generate_candidates(farmers, fleet, markets, prices, margin, consolidate=Tru
             offer(list(reversed(order)), source, forced, _rev=False)
         stats[source + "_tried"] += 1
         if markets_per_trip > 1 and forced is None:
-            evals = _eval_trip_topk(order, markets, prices, vtypes, margin, markets_per_trip, cap_mult=cap_mult)
+            evals = _eval_trip_topk(order, markets, prices, vtypes, margin, markets_per_trip, cap_mult=cap_mult,
+                                    spoil_weight=spoil_weight)
         else:
-            e = _eval_trip(order, markets, prices, vtypes, margin, forced, cap_mult=cap_mult)
+            e = _eval_trip(order, markets, prices, vtypes, margin, forced, cap_mult=cap_mult, spoil_weight=spoil_weight)
             evals = [] if e is None else [e]
         for c in evals:
             if c["delta"] <= _EPS:
@@ -432,7 +440,7 @@ def _class_label(key):
     return f"{key[0]:g}kg{'-reefer' if key[1] else ''}"
 
 
-def expand_fleet_columns(cands, fleet, markets, prices, margin, cap_mult=1.0, keep_market=False):
+def expand_fleet_columns(cands, fleet, markets, prices, margin, cap_mult=1.0, keep_market=False, spoil_weight=0.0):
     """Turn each candidate trip into columns (trip, vehicle class, start slot). Occupancy matches what
     assign_fleet simulates: a vehicle is busy from `start` for route_duration (+ TURNAROUND_HR), rounded
     outward onto a FLEET_DT_HR grid so that conflict-free columns are truly conflict-free."""
@@ -458,7 +466,7 @@ def expand_fleet_columns(cands, fleet, markets, prices, margin, cap_mult=1.0, ke
             for k in idx:
                 s_k = s0 + k * dt
                 e = _eval_trip(order, markets, prices, [rep], margin, c["market"] if keep_market else None,
-                               start_override=s_k, cap_mult=cap_mult)
+                               start_override=s_k, cap_mult=cap_mult, spoil_weight=spoil_weight)
                 if e is None or e["delta"] <= _EPS:
                     continue
                 c0 = int(np.floor(s_k / dt + 1e-9))
@@ -640,6 +648,25 @@ def _repair_and_share(results, farmers, prices):
 # ----------------------------------------------------------------------
 # Main entry point
 # ----------------------------------------------------------------------
+def _spoil_value(results, farmers, markets):
+    """Rupee value of the produce that spoiled in transit under `results`: each pool's spoiled kg at the
+    qty-weighted median mandi price of its crops. Only used to rank plans in spoilage-first mode."""
+    by_id = {f.id: f for f in farmers}
+    ref = {}
+    for c in {f.crop for f in farmers}:
+        ps = sorted(m.price[c] for m in markets if c in m.price)
+        ref[c] = ps[len(ps) // 2] if ps else 0.0
+    total = 0.0
+    for r in results:
+        kg = r.get("spoilage_loss_kg") or 0.0
+        if not kg or r["vehicle_id"] is None:
+            continue
+        mem = [by_id[i] for i in r["farmer_ids"]]
+        q = sum(f.qty_kg for f in mem)
+        total += kg * sum(f.qty_kg * ref[f.crop] for f in mem) / q
+    return total
+
+
 def _trace_json(trace, results):
     """JSON-ready per-pool market allocations for the visualization adapter, keyed by the pool's index in
     `results` (as strings, like main.py stores them). Only pools that are still dispatched are kept, so a trip
@@ -663,7 +690,7 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                safeguard=True, repair=True, return_meta=False, return_trace=False,
                fleet_aware=True, keep_blind_plan=True, price_impact=None, true_price_impact=None,
                stress_discounts=DEFAULT_STRESS_DISCOUNTS, mc_draws=0, mc_min_prob=None, mc_kwargs=None,
-               markets_per_trip=None):
+               markets_per_trip=None, spoil_weight=0.0):
     """See module docstring. `fleet` is not mutated. Returns the pool-result list (same shape as ILO v2); with
     return_meta=True, (results, meta); with return_trace=True as well, (results, meta, trace_json) where
     trace_json is what the visualization adapter needs for exact per-market receipts ({} when the returned plan
@@ -691,11 +718,12 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
     meta = {"params": {"discount": prices.discount, "dispatch_margin": dispatch_margin,
                        "consolidate": consolidate, "set_partition": set_partition, "price_impact": price_impact is not None,
                        "true_price_impact": acct is not None, "capacity_multiple_belief": belief_mult,
-                       "safeguard": safeguard, "repair": repair}}
+                       "safeguard": safeguard, "repair": repair, "spoil_weight": spoil_weight}}
     if set_partition and farmers:
         t1 = time.time()
         cands, cstats = generate_candidates(farmers, fleet, markets, prices, dispatch_margin, consolidate,
-                                            cap_mult=belief_mult, markets_per_trip=markets_per_trip)
+                                            cap_mult=belief_mult, markets_per_trip=markets_per_trip,
+                                            spoil_weight=spoil_weight)
         chosen, sp_status = solve_set_partition(cands, markets, price_impact)
         covered = {i for c in chosen for i in c["ids"]}
         pools = [c["order"] for c in chosen] + [[f] for f in farmers if f.id not in covered]
@@ -706,7 +734,7 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
         fl_meta = {}
         if fleet_aware and fleet:
             cols = expand_fleet_columns(cands, fleet, markets, prices, dispatch_margin, cap_mult=belief_mult,
-                                        keep_market=markets_per_trip > 1)
+                                        keep_market=markets_per_trip > 1, spoil_weight=spoil_weight)
             if os.environ.get("ILO_COLGEN", "0") not in ("0", ""):
                 import ilo_v3_ext
                 cols, cg_log = ilo_v3_ext.colgen(cols, cands, farmers, fleet, markets, prices, dispatch_margin,
@@ -721,45 +749,6 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                 plans["B:set_partition"], traces["B:set_partition"] = run_our_system_v2(
                     farmers, copy.deepcopy(fleet), markets, raw_pools_override=fpools, pool_hints=hints,
                     return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")), **kw)
-                if os.environ.get("ILO_HOLD_SINGLES"):      # plan B1: leftover farmers stay at the farm gate
-                    nt = len(fchosen)
-                    mode = os.environ["ILO_HOLD_SINGLES"]
-                    if mode == "2":           # hold only leftover singles of crops carried by trips plan B withheld
-                        ids_ = {frozenset(r["farmer_ids"]): r for r in plans["B:set_partition"]}
-                        wh_crops = {f.crop for c in fchosen if ids_.get(c["ids"], {}).get("vehicle_id", 0) is None
-                                    for f in c["order"]}
-                        held = [i for i in range(nt, len(fpools)) if fpools[i][0].crop in wh_crops]
-                    else:
-                        held = list(range(nt, len(fpools)))
-                    if held:
-                        plans["B1:hold_singles"], traces["B1:hold_singles"] = run_our_system_v2(
-                            farmers, copy.deepcopy(fleet), markets, raw_pools_override=fpools, pool_hints=hints,
-                            return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")),
-                            hold_pools=held, **kw)
-                it_log = []
-                banned = set()
-                for _it in range(int(_env_f("ILO_ITER", 0))):     # sim-in-the-loop: ban SP trips the simulator withheld, re-solve
-                    best_res = plans["B:set_partition"]
-                    chosen_ids = {c["ids"] for c in fchosen}
-                    wh = {frozenset(r["farmer_ids"]) for r in best_res
-                          if frozenset(r["farmer_ids"]) in chosen_ids and r["revenue"] <= 0}
-                    if not wh:
-                        break
-                    banned |= wh
-                    cols2 = [c for c in cols if c["ids"] not in banned]
-                    f2, st2, m2 = solve_fleet_set_partition(cols2, markets, fleet, price_impact)
-                    if st2 not in ("optimal", "time_limit_best_found"):
-                        break
-                    h2 = assign_vehicles_to_columns(f2, fleet)
-                    cov2 = {i for c in f2 for i in c["ids"]}
-                    p2 = [c["order"] for c in f2] + [[f] for f in farmers if f.id not in cov2]
-                    r2, t2 = run_our_system_v2(farmers, copy.deepcopy(fleet), markets, raw_pools_override=p2, pool_hints=h2,
-                                               return_trace=True, keep_pool_order=bool(os.environ.get("ILO_KEEP_ORDER")), **kw)
-                    it_log.append({"withheld": len(wh), "old": S(best_res), "new": S(r2)})
-                    if S(r2) > S(best_res) + 1e-6:
-                        plans["B:set_partition"], traces["B:set_partition"] = r2, t2
-                        fchosen, hints = f2, h2
-                fl_meta["iter_log"] = it_log
                 fl_meta["trips_chosen"] = len(fchosen)
                 fl_meta["sp_obj"] = float(sum(c["delta"] for c in fchosen))
                 fl_meta["chosen_cols"] = fchosen if os.environ.get("ILO_KEEP_CHOSEN") else None
@@ -790,6 +779,8 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
             plans[f"fallback:neighbour_{tag}"] = run_neighbour_pooling_v2(farmers, fleet, markets, mk(), prices=prices,
                                                                           behaviour=beh, price_impact=acct)
     values = {name: S(res) for name, res in plans.items()}
+    if spoil_weight:                               # spoilage-first: rank plans by net minus the extra spoilage charge
+        values = {name: v - spoil_weight * _spoil_value(plans[name], farmers, markets) for name, v in values.items()}
     # strict > keeps the earlier (ILO-own) plan on ties, so a fallback is chosen only when it is strictly better
     chosen_name = max(values, key=lambda k: (values[k], -list(values).index(k)))
     results = plans[chosen_name]
@@ -825,3 +816,48 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
     if return_trace:
         return results, meta, _trace_json(trace, results)
     return (results, meta) if return_meta else results
+
+
+# ----------------------------------------------------------------------
+# Spoilage-first mode
+# ----------------------------------------------------------------------
+SPOIL_WEIGHTS = (0.0, 1.0, 3.0, 10.0)      # extra charge per rupee of spoiled produce; 0 = the normal returns plan
+
+
+def run_ilo_v3_spoilage_first(farmers, fleet, markets, max_value_sacrifice=0.10, weights=SPOIL_WEIGHTS,
+                              return_meta=False, return_trace=False, **kw):
+    """Spoilage-first ILO: the plan with the least produce spoiled in transit whose farmer value
+    (net_return_incl_farmgate) is within `max_value_sacrifice` of the best returns plan.
+
+    Minimising spoilage alone is degenerate (haul nothing and nothing spoils), so spoilage is traded against
+    value: ILO v3 is run once per weight in `weights` (the first must be 0 = the normal returns plan, which
+    fixes the value budget), each run charging spoiled produce `weight` extra times in candidate scoring and
+    plan ranking, then the lowest-spoilage plan inside the budget wins. Ties go to the higher value.
+    `meta["spoilage_first"]["frontier"]` lists every run so the trade-off can be shown. Other keyword
+    arguments go to run_ilo_v3 unchanged.
+    """
+    if not weights or weights[0] != 0:
+        raise ValueError("weights must start with 0 (the returns plan that sets the value budget)")
+    if not 0 <= max_value_sacrifice < 1:
+        raise ValueError("max_value_sacrifice must be in [0, 1)")
+    prices = _as_prices(markets, kw.get("discount", FARMGATE_DISCOUNT), kw.get("prices"))
+    runs = []
+    for w in weights:
+        res, meta, trace = run_ilo_v3(farmers, fleet, markets, spoil_weight=w, return_meta=True, return_trace=True,
+                                      **kw)
+        sm = summarize_with_farmgate(res, farmers, markets, len(fleet), prices=prices)
+        runs.append({"weight": w, "res": res, "meta": meta, "trace": trace, "value": sm["net_return_incl_farmgate"],
+                     "spoilage_kg": sm["total_spoilage_kg"], "unsold_kg": sm["total_unsold_kg"],
+                     "hauled_kg": sm["total_qty_kg"] - sm["farmgate_kg"]})
+    budget = (1.0 - max_value_sacrifice) * runs[0]["value"]
+    inside = [r for r in runs if r["value"] >= budget - _EPS]
+    pick = min(inside, key=lambda r: (r["spoilage_kg"], -r["value"], r["weight"]))
+    meta = dict(pick["meta"])
+    meta["mode"] = "spoilage"
+    meta["spoilage_first"] = {
+        "max_value_sacrifice": max_value_sacrifice, "chosen_weight": pick["weight"],
+        "returns_plan_value": runs[0]["value"], "returns_plan_spoilage_kg": runs[0]["spoilage_kg"],
+        "frontier": [{k: r[k] for k in ("weight", "value", "spoilage_kg", "unsold_kg", "hauled_kg")} for r in runs]}
+    if return_trace:
+        return pick["res"], meta, pick["trace"]
+    return (pick["res"], meta) if return_meta else pick["res"]

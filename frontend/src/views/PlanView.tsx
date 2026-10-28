@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Icon } from "../components/Icon";
 import { BusyButton, PageHead, StaleBanner } from "../components/Shell";
 import { fmt, inr } from "../lib/format";
-import type { Pool, ViewName } from "../lib/types";
+import type { PlanMode, Pool, ViewName } from "../lib/types";
 import { useApp } from "../state/store";
 
 export function Line({ label, value, cls }: { label: ReactNode; value: ReactNode; cls?: string }) {
@@ -81,7 +81,16 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
   const plan = state.plan;
   const head = (
     <PageHead title="Recommended plan" lede="Integrated Logistics Optimization (ILO), computed fresh from the data on the Data tab."
-      action={<BusyButton busy={computing} busyLabel={"Computing…"} label="Compute plan" onClick={() => void actions.computePlan()} />} />
+      action={
+        <div className="head-actions">
+          <label className="mode-pick"><span>Optimise for</span>
+            <select value={state.planMode} disabled={computing} onChange={(e) => actions.setPlanMode(e.target.value as PlanMode)}>
+              <option value="returns">Net return</option>
+              <option value="spoilage">Least spoilage</option>
+            </select>
+          </label>
+          <BusyButton busy={computing} busyLabel={"Computing…"} label="Compute plan" onClick={() => void actions.computePlan()} />
+        </div>} />
   );
   if (!plan) return <>{head}<NoPlan title="No plan yet" text="Run a scenario from the Scenarios tab, or compute one from the data you entered." go={go} /></>;
 
@@ -107,6 +116,12 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
     ? `ILO found no set of trips that beats a simpler plan under these prices, so it recommends that plan instead (${chosen.replace("fallback:", "").replace(/_/g, " ")}). On this scenario the pooling logic adds nothing; try a lower farm-gate price or nearer mandis.`
     : "";
   const pools = ilo.pools ?? [];
+  const meta = plan.realistic_baselines?.ilo_meta;
+  const sf = meta?.mode === "spoilage" ? meta.spoilage_first : undefined;
+  const picked = sf?.frontier.find((x) => x.weight === sf.chosen_weight);
+  const spoilText = sf && picked && sf.returns_plan_value > 0
+    ? `Spoilage-first plan: ${fmt(picked.spoilage_kg, 1)} kg spoiled in transit, against ${fmt(sf.returns_plan_spoilage_kg, 1)} kg for the net-return plan. Farmer value is ${fmt((picked.value / sf.returns_plan_value) * 100, 1)}% of the net-return plan (allowed to fall by up to ${fmt(sf.max_value_sacrifice * 100, 0)}%). It hauls ${fmt(picked.hauled_kg, 0)} kg, so more produce may be sold at the farm gate.`
+    : "";
 
   return (
     <>
@@ -147,6 +162,10 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
             </dl>
           </div>
         </div>
+
+        {spoilText && (
+          <div id="dashSpoilNote" className="note" role="note"><Icon name="check" small={false} /><span>{spoilText}</span></div>
+        )}
 
         {(missed > 0.05 || fellBack) && (
           <div id="dashCoverageNote" className="note warn" role="note"><Icon name="alert" small={false} /><span>{[fallbackText, coverageText].filter(Boolean).join(" ")}</span></div>

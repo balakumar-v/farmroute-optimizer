@@ -99,8 +99,21 @@ export interface AlgoResult {
   farmgate_discount?: number;
 }
 
+/** What the optimizer aims for: farmer value (net return) or the least produce spoiled in transit. */
+export type PlanMode = "returns" | "spoilage";
+
+export interface SpoilageFirstMeta {
+  max_value_sacrifice: number;
+  chosen_weight: number;
+  returns_plan_value: number;
+  returns_plan_spoilage_kg: number;
+  frontier: { weight: number; value: number; spoilage_kg: number; unsold_kg: number; hauled_kg: number }[];
+}
+
 export interface RealisticMeta {
   chosen?: string;
+  mode?: PlanMode;
+  spoilage_first?: SpoilageFirstMeta;
 }
 export interface BehaviourAssumptions {
   max_haul_km: number;

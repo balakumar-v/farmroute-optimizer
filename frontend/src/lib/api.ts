@@ -1,5 +1,5 @@
 import type {
-  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanResponse, Vehicle, VehicleIn,
+  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, Vehicle, VehicleIn,
 } from "./types";
 
 export class ApiError extends Error {
@@ -17,7 +17,7 @@ export interface ApiClient {
   addFarmer(f: FarmerIn): Promise<Farmer>;
   addVehicles(v: VehicleIn): Promise<Vehicle[]>;
   addMarket(m: MarketIn): Promise<Market>;
-  computePlan(): Promise<PlanResponse>;
+  computePlan(mode?: PlanMode): Promise<PlanResponse>;
   reset(): Promise<unknown>;
 }
 
@@ -58,7 +58,7 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     addFarmer: (f) => post<Farmer>("/farmers", f),
     addVehicles: (v) => post<Vehicle[]>("/vehicles", v),
     addMarket: (m) => post<Market>("/markets", m),
-    computePlan: () => post<PlanResponse>("/plan/compute"),
+    computePlan: (mode = "returns") => post<PlanResponse>(mode === "returns" ? "/plan/compute" : "/plan/compute?mode=spoilage"),
     reset: () => post("/reset"),
   };
 }

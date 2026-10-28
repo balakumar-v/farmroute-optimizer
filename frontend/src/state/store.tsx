@@ -3,7 +3,7 @@ import { ApiError, createApi, type ApiClient } from "../lib/api";
 import { DEFAULT_API_BASE } from "../lib/constants";
 import { SCENARIOS } from "../lib/scenarios";
 import type {
-  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanResponse, Vehicle, VehicleIn,
+  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, Vehicle, VehicleIn,
 } from "../lib/types";
 
 export interface Toast { id: number; kind: "ok" | "err" | "info"; text: string }
@@ -22,6 +22,8 @@ export interface AppState {
   planStale: boolean;
   planStatus: "idle" | "computing" | "error";
   planError: string;
+  /** what the next computed plan optimises for (the plan on screen reports its own mode in ilo_meta) */
+  planMode: PlanMode;
   run: RunProgress | null;
   runError: string;
   runNote: string;
@@ -43,7 +45,7 @@ const initial: AppState = {
   conn: "unknown",
   farmers: [], vehicles: [], markets: [],
   tables: "idle", tablesError: "",
-  plan: null, planStale: false, planStatus: "idle", planError: "",
+  plan: null, planStale: false, planStatus: "idle", planError: "", planMode: "returns",
   run: null, runError: "", runNote: "",
   toasts: [],
 };
@@ -66,6 +68,7 @@ export interface Actions {
   addVehicles(v: VehicleIn): Promise<void>;
   addMarket(m: MarketIn): Promise<void>;
   computePlan(): Promise<PlanResponse | null>;
+  setPlanMode(mode: PlanMode): void;
   runScenario(key: string): Promise<boolean>;
   resetAll(): Promise<void>;
   toast(kind: Toast["kind"], text: string): void;
@@ -134,10 +137,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async addVehicles(v) { await apiRef.current.addVehicles(v); await loadTables(); markStale(); },
     async addMarket(m) { await apiRef.current.addMarket(m); await loadTables(); markStale(); },
 
+    setPlanMode(mode) { patch({ planMode: mode }); },
+
     async computePlan() {
       patch({ planStatus: "computing", planError: "" });
       try {
-        const plan = await apiRef.current.computePlan();
+        const plan = await apiRef.current.computePlan(stateRef.current.planMode);
         patch({ plan, planStale: false, planStatus: "idle" });
         return plan;
       } catch (e) {
@@ -167,7 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         for (const m of sc.markets) { step("Loading markets"); await a.addMarket(m); done++; }
         step("Computing the plan (large scenarios take a few seconds)");
         await loadTables();
-        const plan = await a.computePlan();
+        const plan = await a.computePlan(stateRef.current.planMode);
         patch({ plan, planStale: false, planStatus: "idle", run: null, runNote: "" });
         return true;
       } catch (e) {

@@ -184,24 +184,35 @@ def list_markets():
 # =========================================================================
 
 @app.post("/plan/compute")
-def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = True):
+def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
+                 max_value_sacrifice: float = 0.10):
     """Computes and stores a plan. How distance is measured (stored with the plan as `distance_model`):
 
     - default: measured ROAD distances between every farmer/market pair (OpenStreetMap via OSRM, cached) so the
       plan itself changes when roads do; if road data is unavailable it falls back to straight lines.
     - road_distances=false: skip the road lookup (legacy straight-line / FARMROUTE_ROAD_CIRCUITY behaviour).
     - road_circuity=k: use a fixed road-km / straight-km factor for every distance (fit one with calibrate_circuity.py).
+
+    What the optimizer aims for (stored in ilo_meta["mode"]):
+    - mode=returns (default): maximise farmer value (net return plus the farm-gate value of what is not hauled).
+    - mode=spoilage: minimise produce spoiled in transit, giving up at most `max_value_sacrifice` (a fraction,
+      default 0.10) of the returns-mode value. Slower: it runs the planner several times.
     """
+    if mode not in ("returns", "spoilage"):
+        raise HTTPException(400, "mode must be 'returns' or 'spoilage'.")
+    if not 0 <= max_value_sacrifice < 1:
+        raise HTTPException(400, "max_value_sacrifice must be between 0 and 1 (e.g. 0.10 for 10%).")
     from logistics_lib_v2 import _check_circuity
     if road_circuity is not None:
         try:
             road_circuity = _check_circuity(road_circuity)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-    return _compute_plan_impl(road_circuity, road_distances)
+    return _compute_plan_impl(road_circuity, road_distances, mode, max_value_sacrifice)
 
 
-def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True):
+def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
+                       max_value_sacrifice: float = 0.10):
     with get_conn() as conn:
         farmer_rows = conn.execute("SELECT * FROM farmers ORDER BY id").fetchall()
         vehicle_rows = conn.execute("SELECT * FROM vehicles ORDER BY id").fetchall()
@@ -249,10 +260,10 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
             model, matrix = roads.plan_distance_model(conn, farmers, markets, enabled=road_distances)
     from logistics_lib_v2 import road_circuity as _rc, use_road_matrix
     with (use_road_matrix(matrix) if matrix is not None else _rc(model["k"])):
-        return _run_plan(farmers, fleet_template, markets, model)
+        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice)
 
 
-def _run_plan(farmers, fleet_template, markets, model):
+def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10):
     # Imported lazily here (not at module load) so a problem with
     # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
     # requirements.txt) only breaks this one endpoint, not the whole API.
@@ -263,7 +274,7 @@ def _run_plan(farmers, fleet_template, markets, model):
             run_proximity_pooling_v2,
             summarize,
         )
-        from ilo_v3 import run_ilo_v3
+        from ilo_v3 import run_ilo_v3, run_ilo_v3_spoilage_first
         from baselines_v3 import (
             DEFAULT_BEHAVIOUR,
             FARMGATE_DISCOUNT,
@@ -296,8 +307,14 @@ def _run_plan(farmers, fleet_template, markets, model):
     # price, merges farmers heading to the same mandi into full trucks, picks the trip set with an exact solver,
     # and returns the best of its own plans and every baseline under identical accounting (meta["chosen"] says
     # which). ILO v2 is still computed, only as a legacy reference under realistic_baselines.
-    res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3(farmers, fleet_template, markets, return_meta=True,
-                                                   return_trace=True)
+    if mode == "spoilage":
+        res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3_spoilage_first(
+            farmers, fleet_template, markets, max_value_sacrifice=max_value_sacrifice, return_meta=True,
+            return_trace=True)
+    else:
+        res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3(farmers, fleet_template, markets, return_meta=True,
+                                                       return_trace=True)
+        ilo_meta["mode"] = "returns"
     res_ilo_v2 = run_ilo_v2(farmers, copy.deepcopy(fleet_template), markets)
     # The two comparison baselines are the BEHAVIOURAL farmer baselines from baselines_v3.py, not the old
     # strawmen: "individual_transport" = each farmer hires a spot truck to the nearest mandi if it is within

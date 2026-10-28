@@ -54,3 +54,7 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton, .spinner, .toast, .run-bar > i { animation: none; transition: none; }
 }
+
+.head-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.mode-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.mode-pick select { min-height: 40px; }

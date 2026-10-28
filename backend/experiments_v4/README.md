@@ -10,11 +10,3 @@ Re-run table: python3 experiments_v4/analyze.py experiments_v4/results_main.json
 Tests after edits, all switches off: 155 pass, 4 fail (same 4 as before: missing agmarknet module). Logs: pytest_after.log.
 
 Extra results: results_n15.jsonl, oracle_multi.jsonl / oracle_single.jsonl (complete-column oracle, n=15), results_scale.jsonl (D300).
-
-Addendum: ILO_ITER (sim-in-the-loop, already in the zip) re-tested uncontended. results_presets.jsonl / results_knn.jsonl /
-pytest_default_off.txt / real_data run_preset were produced by a SECOND job sharing this directory (not by the author of the rest);
-treat those as unaudited. Runtime figures from the period when both jobs ran are contended (preset rows: secs inflated).
-
-Final addendum: ILO_HOLD_SINGLES=1|2 (algorithms_v2.hold_pools) tested: null (see results_scale.jsonl / results_main.jsonl rows *+HOLD, *+HOLD2).
-n=300 SP-vs-simulator gap (27-38%) is UNEXPLAINED: not vehicle starvation, not valuation error, not (mainly) leftover singles.
-Tests after all edits, all switches off: 155 pass, 4 fail (missing agmarknet) - see pytest_final2.log.

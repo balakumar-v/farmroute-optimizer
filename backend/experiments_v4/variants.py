@@ -34,13 +34,4 @@ VARIANTS = {
     "BEST+CAP90":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_CAP_SLACK": 0.90},
     "ROAD":            {"ILO_ROAD_DBSCAN": 1},
     "C13+ROAD":        {**C1, **C3, "ILO_ROAD_DBSCAN": 1},
-    "C13+ITER2":       {**C1, **C3, "ILO_ITER": 2},
-    "BEST+ITER2":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_ITER": 2},
-    "C13+ITER3":       {**C1, **C3, "ILO_ITER": 3},
-    "BEST+ITER3":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_ITER": 3},
-    "BEST+MIX+TL120":  {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_MIXED": 1, "ILO_SP_TIME_LIMIT": 120},
-    "C13+HOLD":        {**C1, **C3, "ILO_HOLD_SINGLES": 1},
-    "BEST+HOLD":       {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_HOLD_SINGLES": 1},
-    "C13+HOLD2":       {**C1, **C3, "ILO_HOLD_SINGLES": 2},
-    "BEST+HOLD2":      {**C1, **C3, **CW5, **ENR, "ILO_COLGEN": 2, "ILO_HOLD_SINGLES": 2},
 }

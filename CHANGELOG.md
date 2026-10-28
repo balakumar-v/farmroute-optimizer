@@ -1,5 +1,11 @@
 # Changelog
 
+## Spoilage-first mode (Oct 2026)
+A second, selectable aim for the optimizer. `POST /plan/compute?mode=spoilage[&max_value_sacrifice=0.10]` (and the "Optimise for" selector on the Plan tab) returns the plan with the least produce spoiled in transit whose farmer value is within `max_value_sacrifice` of the normal net-return plan. The default (`mode=returns`) is unchanged to the last digit.
+- Minimising spoilage alone is degenerate (haul nothing and nothing spoils), so it is a trade-off: `run_ilo_v3_spoilage_first` runs ILO v3 at several `spoil_weight` values (extra charge per rupee of spoiled produce, applied in `_eval_trip` scoring and in plan ranking), then picks the lowest-spoilage plan inside the value budget. `ilo_meta["spoilage_first"]["frontier"]` lists every run.
+- Cost: about 4 planner runs, so it is several times slower than the default. Lower spoilage usually means hauling less (more produce sold at the farm gate); the Plan tab says so.
+- Tests: `backend/tests/test_spoilage_mode.py`.
+
 ## Frontend rewrite: React + TypeScript + Vite (Oct 2026)
 Replaced the vanilla-JS frontend with a Vite/React/TS app (see `frontend/README.md`). Same look and class names; map engine kept as ES modules behind a typed wrapper. UX: run progress, backend-down banner, toasts, inline validation, stale-plan banner, sortable pools, keyboard shortcuts. Backend untouched. Vitest tests for the simulation engine.
 
