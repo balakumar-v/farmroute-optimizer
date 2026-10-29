@@ -3,7 +3,7 @@ milp_benchmark.py
 ------------------
 Small-instance benchmark: exact Integrated MILP vs. ILO (the heuristic,
 formerly "Our System"). Deliberately tiny (n=5,6,7) -- see
-MILP_GROUND_TRUTH.md for why this is the honestly-supportable range for
+docs/MILP_GROUND_TRUTH.md for why this is the honestly-supportable range for
 the current candidate-enumeration implementation, and what "gap" means
 precisely when the solver doesn't reach proven optimality in time.
 """

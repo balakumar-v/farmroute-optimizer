@@ -1,15 +1,13 @@
 import maplibregl from "maplibre-gl";
 import * as deck from "./deckApi.js";
-// frontend/vis/logisticsMap.js
+// frontend/src/vis/logisticsMap.js
 // -------------------------------------------------------------------------
 // MapLibre GL JS provides the interactive base map/camera; deck.gl renders
-// every data layer on top via a MapboxOverlay (interleaved, per the brief's
-// "follow the current official integration approach rather than a custom
-// WebGL overlay"). No React: this project's frontend is plain HTML/CSS/JS
-// with no build step (see README.md / frontend/app.js), so this uses
-// deck.gl's core (non-React) layer classes directly -- introducing React
-// here just for this one tab would mean introducing a bundler too, which
-// rule 20.12 of the brief explicitly says not to do.
+// every data layer on top via a MapboxOverlay (interleaved, the current
+// official integration approach rather than a custom WebGL overlay). This
+// module is framework-free and uses deck.gl's core (non-React) layer classes
+// directly; MapView.tsx owns the React side and reaches it through the typed
+// wrapper in index.ts.
 //
 // This file only draws what solution/route/simulation data it's given. It
 // contains no optimization, pooling, or routing logic of its own.
@@ -45,7 +43,7 @@ import { Vis } from "./namespace.js";
     const css = getComputedStyle(document.documentElement);
     const v = (n, d) => css.getPropertyValue(n).trim() || d;
     const dark = v("--wash", "#e6ecf0").charAt(1) < "5" && v("--wash", "#e6ecf0") !== "#e6ecf0";
-    // Keyless by default. CARTO began watermarking keyless raster tiles in Aug 2026, so it's opt-in via config.js.
+    // Keyless by default. CARTO began watermarking keyless raster tiles in Aug 2026, so it's opt-in via src/config.ts.
     const cfg = Vis.config || {};
     const esri = (name) => `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${name}/MapServer/tile/{z}/{y}/{x}`;
     const tile = {

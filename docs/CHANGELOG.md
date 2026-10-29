@@ -10,7 +10,7 @@ A second, selectable aim for the optimizer. `POST /plan/compute?mode=spoilage[&m
 Replaced the vanilla-JS frontend with a Vite/React/TS app (see `frontend/README.md`). Same look and class names; map engine kept as ES modules behind a typed wrapper. UX: run progress, backend-down banner, toasts, inline validation, stale-plan banner, sortable pools, keyboard shortcuts. Backend untouched. Vitest tests for the simulation engine.
 
 ## ILO v3.1: fleet-aware planning, road distance, price impact, break-even and stress tests (Oct 2026)
-Five additions to ILO v3, from a review of its weaknesses (`ALGORITHM_AND_RESULTS_V2.md`, section 22). Everything new is
+Five additions to ILO v3, from a review of its weaknesses (`ALGORITHM_AND_RESULTS.md`, section 22). Everything new is
 opt-in or additive: with default arguments the planner uses the same distances and prices as v3, and the core
 trip and dispatch rules are unchanged. What does change by default is listed first.
 - **Changed by default.** ILO v3 now reports value-gain sharing as `per_farmer_net` (own farm-gate value plus a kg-share of
@@ -62,7 +62,7 @@ trip and dispatch rules are unchanged. What does change by default is listed fir
 - UI: the headline is farmer value (net return plus farm-gate sales); farm-gate sellers are slate on the map, never red; the Plan tab says when ILO recommends a simpler plan.
 - Bihar preset rebuilt (Dec 2025 to Feb 2026, 8 mandis, placeholder capacities flagged). Four regional presets added: Karnataka (Bengaluru), Uttar Pradesh (Aligarh), Maharashtra (Junnar), Madhya Pradesh (Indore), built by `real_data/build_regional_presets.py`.
 - Cold chain no longer shows a win: with spoilage counted from pickup, ILO and Proximity Pooling tie.
-- Details and results: `ALGORITHM_AND_RESULTS_V2.md`, sections 19 to 21.
+- Details and results: `ALGORITHM_AND_RESULTS.md`, sections 19 to 21.
 
 ## Frontend redesign (Oct 2026)
 - New UI: "painted mandi rate board" design system (see `DESIGN.md`, `PRODUCT.md`). Scenarios tab is the new first screen; one click loads a scenario, computes the plan and opens the map.

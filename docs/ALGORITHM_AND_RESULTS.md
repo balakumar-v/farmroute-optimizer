@@ -958,7 +958,7 @@ safeguard never fell back to a baseline in these runs. 71 backend tests pass.
 
 ## 21. Four regional presets from state-wide India Data Portal CSVs
 
-Added presets (all `category: "real"` in `frontend/app.js`): `karnataka_bengaluru`, `up_aligarh`, `maharashtra_junnar`,
+Added presets (all `category: "real"` in `frontend/src/lib/scenarios.ts`): `karnataka_bengaluru`, `up_aligarh`, `maharashtra_junnar`,
 `mp_indore`. Built by `backend/real_data/build_regional_presets.py` from the four state CSVs (27 Oct 2025 - 31 May 2026, every
 commodity); one command per preset, and each writes a `.js` block plus a `.json` record of everything cleaned, imputed and
 assumed to `backend/real_data/data/regional/`. Only the six crops the simulator supports are used.

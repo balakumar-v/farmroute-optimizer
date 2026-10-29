@@ -1,15 +1,17 @@
 """
 main.py
 -------
-FastAPI app for the FPO decision-layer course demo backend.
+FastAPI app for the Farmroute decision-layer backend.
 
 Endpoints:
     POST /farmers            GET /farmers
     POST /vehicles           GET /vehicles
-    POST /markets             GET /markets
+    POST /markets            GET /markets
     POST /plan/compute
     GET  /plan/{plan_id}
-    POST /sensors/reading
+    GET  /plan/{plan_id}/visualization
+    POST /plan/{plan_id}/roads
+    POST /sensors/reading    GET /sensors/readings
     POST /reset
 
 See README.md for example request/response JSON.
@@ -47,12 +49,10 @@ VEHICLE_TYPES_BY_NAME = {t[0]: t for t in VEHICLE_TYPES}
 
 app = FastAPI(title="FPO Decision Layer API", version="0.1.0")
 
-# The frontend is a static index.html/app.js pair opened either straight
-# from disk (file://) or via a local dev server on some other port than
-# the API's :8000 -- both are cross-origin from the browser's point of
-# view, so without this the frontend's fetch() calls fail silently with
-# a CORS error before they ever reach a route below. Local course demo,
-# no auth -- wide open is fine here.
+# The frontend runs on its own origin (the Vite dev server on :5173), which is
+# cross-origin to the API's :8000 from the browser's point of view, so without
+# this the frontend's fetch() calls fail with a CORS error before they reach a
+# route below. Local demo, no auth -- wide open is fine here.
 # ALLOWED_ORIGINS: comma-separated frontend origins (no trailing slash), e.g.
 # "https://my-app.onrender.com". Unset = "*" (any site), fine for local dev.
 _allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]

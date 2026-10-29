@@ -221,7 +221,7 @@ def haversine(lat1, lng1, lat2, lng2):
     return d if d is not None else m.ratio * crow_km(lat1, lng1, lat2, lng2)
 
 
-# Spoilage model parameters. Uncalibrated assumptions (see ALGORITHM_AND_RESULTS_V2.md section 23): a per-crop linear
+# Spoilage model parameters. Uncalibrated assumptions (see docs/ALGORITHM_AND_RESULTS.md section 23): a per-crop linear
 # loss rate per hour, tripled for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%.
 SPOIL_UNREFRIG_MULT = 3.0
 SPOIL_CAP = 0.6
@@ -353,7 +353,7 @@ def _grid_partition(farmer_list, cell_km=DEPOT_CELL_KM):
 
 
 def _spread_based_depot_floor(farmer_list, reference_area_km2=DEPOT_REFERENCE_AREA_KM2):
-    """Fix for the n<=100 regression traced in ALGORITHM_AND_RESULTS_V2.md
+    """Fix for the n<=100 regression traced in docs/ALGORITHM_AND_RESULTS.md
     s3/s6: farmer-count-based sizing alone (round(n/farmers_per_depot))
     can floor to 1 depot even when the farmers span a non-trivial area,
     because it has no notion of physical distance -- a spread-out n=50
@@ -407,7 +407,7 @@ def _depot_partition(farmer_list, farmers_per_depot=FARMERS_PER_DEPOT):
     n_depots = max(1, round(n / farmers_per_depot))
     # Take the max of the count-based figure and the spread-based floor
     # (not swapping one count-only heuristic for another, per the
-    # ALGORITHM_AND_RESULTS_V2.md s6 next-step note) -- whichever calls
+    # docs/ALGORITHM_AND_RESULTS.md s6 next-step note) -- whichever calls
     # for more depots wins; a low-n, wide-spread population no longer
     # collapses to a single depot just because round(n/40)==1.
     n_depots = max(n_depots, _spread_based_depot_floor(farmer_list))
@@ -424,7 +424,7 @@ def _depot_partition(farmer_list, farmers_per_depot=FARMERS_PER_DEPOT):
 
 def depot_aware_fleet_composition(farmers, farmers_per_depot=FARMERS_PER_DEPOT):
     """Fix for the confirmed coverage-plateau root cause (see
-    ALGORITHM_AND_RESULTS_V2.md s6): default_fleet_composition() sized
+    docs/ALGORITHM_AND_RESULTS.md s6): default_fleet_composition() sized
     the WHOLE fleet off a single global farmer count, so two scenarios
     with the same n but different spatial spread (one dense clump vs.
     several separate pockets) got the identical fleet -- even though
