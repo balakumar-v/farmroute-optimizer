@@ -1,5 +1,0 @@
-__pycache__/
-*.pyc
-backend/fpo.db
-.DS_Store
-backend/.env

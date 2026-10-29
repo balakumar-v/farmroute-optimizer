@@ -1,0 +1,1223 @@
+# Algorithm v2: Redesign for Scale
+
+This is a redesign of the original prototype, built directly from the audit
+findings on v1 (see `ALGORITHM_AND_RESULTS.md`) and stress-tested up to
+10,000 farmers. It is still a prototype on synthetic data — the goal here
+is a proof of concept that the *approach* holds up computationally and
+economically at scale, not a production system.
+
+Code: `logistics_lib_v2.py` (data model), `algorithms_v2.py` (pipeline),
+`benchmark_v2.py` (scalability + comparison harness). Results:
+`results_v2_raw.csv` (450 runs), `results_v2_summary.csv` (aggregated).
+Interface: `CONTRACT.md`.
+
+**This revision (Round 3) adds:** a live sensor-override hook connecting
+the IoT hardware layer to the algorithm (§2), and k-means depot placement
+replacing the earlier grid partition (§3, includes a full benchmark re-run
+and an honest before/after — it helped net return meaningfully and did
+**not** resolve the coverage plateau, which was the specific thing it was
+trying to fix). Sections 1 and 4–6 carry over from the Round 2 write-up
+with numbers refreshed after the depot-placement change.
+
+**Round 4 adds:** an exact MILP ground-truth benchmark for small
+instances (see `MILP_GROUND_TRUTH.md`) — and, unlike Round 3's
+depot-placement finding, this one led to an actual ILO fix, not just a
+diagnosis. Tracing ILO's worst small-instance gap against the MILP
+(74.4% of the true optimum) found a real, mechanical cause — DBSCAN's
+fixed clustering radius blocking an economically-obvious pooling
+decision under refrigerated-fleet scarcity. Fixed with a
+scarcity-aware widened radius applied only to refrigeration-needing
+farmers (§10), reverified against both the MILP (mean ratio 85.3%→96.0%)
+and the full 450-run benchmark (net return +1.5% to +12.9% and service%
++0.8 to +3.4 points at **every** tested scale, zero regressions). All
+tables in §4–§5 below reflect the numbers after this fix.
+
+## 1. What changed from v1 (Round 2, unchanged this round)
+
+**Wider sample space.** 6 crops instead of 2 (tomato, onion, potato,
+cauliflower, mango, spinach) and 7 vehicle types instead of 4 (500kg
+mini-pickup up to a 5,000kg refrigerated truck).
+
+**A real, finite fleet.** Vehicles are individual instances with an
+`available_at_hr` that updates as they're used, and can be reused later
+the same day (multi-trip modeling). A pool that can't get a vehicle in
+time is genuinely unserved.
+
+**Market allocation is a linear program, not a greedy pass.** One LP per
+crop (`scipy.optimize.linprog`, HiGHS) solved jointly across every pool
+competing for that crop's markets — provably optimal for "maximize net
+value subject to capacity," and it naturally leaves produce unsold rather
+than force a trade at a loss.
+
+**Mixed-crop pooling.** A truck can carry tomatoes from one farmer and
+onions from another in the same load.
+
+**Fast geo-clustering.** DBSCAN with `metric='haversine',
+algorithm='ball_tree'` instead of an O(n²) pairwise distance matrix.
+
+**Optional elastic market pricing.** Off by default.
+
+Five real bugs were found and fixed by actually running this at
+increasing scale (broken vehicle-reuse timing, a ready-time-instead-of-
+deadline gate that silently disabled multi-trip reuse, bin-packing to
+the single largest vehicle starving every other size class, weight-sorted
+bin-packing ignoring geography, and a one-shot capacity queue that ran
+dry) — full detail in the Round 2 section preserved below (§7).
+
+## 2. Live sensor-override hook (Round 3, new)
+
+**The problem this closes:** the hardware track posts live
+temperature/humidity readings to `POST /sensors/reading`, but nothing
+consumed them — a real reading had zero effect on any plan's numbers.
+This is the gap between "we built a sensor" and the pitch deck's actual
+hardware claim (live reading → adjusted spoilage → net return
+recalculates).
+
+**The design wrinkle, and the decision made.** `run_our_system_v2()`'s
+per-crop `allocs` (each with its own market split, price, kg) get summed
+into the flat `pool_result` by `_finalize()` and are otherwise discarded.
+Since v2 pools are mixed-crop, correctly overriding one pool's spoilage
+needs each crop's own allocation, not just the pool total — a single
+truck carries several crops at different spoilage rates. Two options were
+open: (a) have `run_our_system_v2()` optionally return/cache the per-crop
+breakdown, or (b) reverse-engineer a pool's crop composition from the
+flat result after the fact. **Chose (a).** Option (b) would need farmer
+crop lookups threaded back in from elsewhere anyway and gains nothing
+over keeping the breakdown that already exists mid-call — it would be
+solving the same problem a second time, worse.
+
+**What was built:**
+- `run_our_system_v2(..., return_trace=False)` — new optional argument.
+  When `True`, returns `(results, trace)` instead of just `results`.
+  `trace` is `dict[int, PoolTrace]`, one entry per pool that actually got
+  a vehicle (infeasible pools have no trace entry — there's nothing to
+  override). Default behavior (`return_trace=False`) is **unchanged** —
+  verified against the exact worked example in `CONTRACT.md`
+  (`net_return_per_farmer=3027.1`, reproduced exactly).
+- `PoolTrace` — one dispatched pool's farmers, assigned vehicle,
+  `transport_cost` (fixed once dispatched), `unsold_kg` (LP-driven, also
+  fixed), and `crop_allocations: dict[crop -> list of {market_id, price,
+  kg, dist_km}]` — literally the LP's own edge output, cached instead of
+  thrown away.
+- `apply_sensor_reading(trace, pool_id, observed_temp_c, elapsed_hours)`
+  — recomputes `spoilage_loss_kg`, `revenue`, `net_return`, and
+  `per_farmer_net` from the observed reading, per crop, using a new
+  `spoilage_fraction_from_temp()` in `logistics_lib_v2.py`. Everything
+  else (`markets_used`, `unsold_kg`, `unserved_no_vehicle_kg`,
+  `transport_cost`) is carried over unchanged — market allocation is not
+  re-run, exactly as specified. Raises `KeyError` with a clear message
+  for an unknown `pool_id` or a pool that never dispatched.
+- `spoilage_fraction_from_temp(crop, observed_temp_c, transit_hours)` —
+  the base pipeline only ever knows a vehicle's refrigerated/not
+  *design fact* (a binary); a real sensor gives a continuous temperature.
+  Modeled as spoilage rate increasing linearly with how far the observed
+  temperature sits above a per-crop safe transit threshold (4°C for
+  crops needing refrigeration, 20°C otherwise; +8%/°C above that,
+  capped at the same 0.6 loss ceiling as the rest of the model). This is
+  an explicitly-not-fit assumption, flagged the same way the rest of
+  this prototype's spoilage modeling is — replacing it with something
+  calibrated to real produce is future work, not claimed here.
+
+**Verified, not just written:** tested on a real dispatched mixed-crop
+pool (4 crops, 8 farmers) at three conditions —
+
+| Condition | revenue | spoilage_loss_kg | net_return |
+|---|---:|---:|---:|
+| Modeled estimate (original) | 32,370.6 | 803.4 | 26,057.5 |
+| Sensor: 4°C, 3hr (cold chain held) | 43,189.6 | 169.6 | 36,876.5 |
+| Sensor: 28°C, 6hr (cold chain broken) | 30,397.5 | 943.0 | 24,084.4 |
+
+`transport_cost` (6,313.1) and `unsold_kg` (0.0) identical across all
+three, as required. Also checked: unknown `pool_id` and infeasible-pool
+`pool_id` both raise `KeyError` correctly.
+
+**Usage example** (also added to `CONTRACT.md`):
+```python
+results, trace = run_our_system_v2(farmers, copy.deepcopy(fleet), markets, return_trace=True)
+# ... truck for pool 3 posts a live reading mid-transit ...
+updated = apply_sensor_reading(trace, pool_id=3, observed_temp_c=26.5, elapsed_hours=4.2)
+# updated["net_return"], updated["spoilage_loss_kg"] etc. reflect the live reading;
+# updated["markets_used"] / ["unsold_kg"] / ["transport_cost"] are unchanged from results[3].
+```
+
+## 3. Depot placement (Round 3, new — replaces the grid partition)
+
+**What changed.** `_grid_partition()` (fixed ~26km grid cells) is
+replaced as the default by `_depot_partition()`: k-means on farmer
+coordinates places `round(n_farmers / 40)` depots (the same ~1-vehicle-
+per-40-farmers ratio `default_fleet_composition()` uses), then each
+farmer is assigned to their nearest depot (exactly what a k-means label
+is) before DBSCAN + bin-packing run within each depot's catchment. The
+grid partition is kept only as the fallback when scikit-learn isn't
+available.
+
+**Why this was expected to help:** a fixed grid cell doesn't adapt to
+where farmers actually are — a sparse cell forms a small, inefficient
+pool right next to a dense cell forming an oversized one. Density-adaptive
+depots should produce more evenly-sized, tighter pools, and shorter
+average routes should mean faster vehicle turnaround (more trips/vehicle/
+day for the same fleet).
+
+**What the full benchmark re-run actually showed** (5 trials/n, same
+seeds as Round 2, so this is a genuine paired before/after — grid vs.
+depot, everything else identical):
+
+| Farmers | Net return: grid → depot | Service%: grid → depot |
+|---:|---:|---:|
+| 50 | 152,264 → 141,273 | 69.4% → **64.6%** (worse) |
+| 100 | 165,185 → 154,791 | 42.1% → **37.9%** (worse) |
+| 300 | 248,932 → 279,928 (+12%) | 29.5% → 29.9% (flat) |
+| 1,000 | 334,809 → 416,124 (+24%) | 15.8% → 16.3% (flat) |
+| 4,000 | 1,129,003 → 1,300,343 (+15%) | 13.9% → 14.2% (flat) |
+| 10,000 | 2,850,915 → 3,127,659 (+10%) | 13.1% → 13.2% (flat) |
+
+**Honest reading — don't oversell this:**
+
+1. **Net return improved meaningfully and consistently from n=300 up
+   (+8% to +24%).** Depot-based pools are genuinely more efficient
+   trips — this part worked as expected.
+2. **The coverage plateau — the specific thing this change was meant to
+   fix — did not move.** Service% at scale is flat within noise (13.1%
+   → 13.2% at n=10,000; the largest movement anywhere from n=300 up is
+   +0.6 points). More efficient individual trips didn't translate into
+   materially more farmers served, because total fleet capacity didn't
+   change — the same number of vehicle-hours were just spent slightly
+   better. **This confirms rather than contradicts the Round 2
+   diagnosis**: the plateau is a fleet-*sizing* problem (a flat ratio
+   that ignores local density), not a pooling-*quality* problem, and
+   better pooling alone — however done — was never going to fix it.
+3. **Small-n (50, 100) actually got worse**, and this was traced to a
+   real mechanism, not noise: at n=50, `round(50/40)=1`, so k-means
+   places a single depot containing *all* 50 farmers regardless of how
+   spread out they are — re-verified directly (`_depot_partition`
+   returns one 50-farmer group at n=50, vs. the old grid's 10
+   appropriately-sized cells for the same scenario). This reintroduces
+   some of the exact sprawl problem the grid partition was originally
+   built to fix (§7, bug 4), specifically in the regime where farmer
+   *count* is low but the *service area* isn't small. The fix would be
+   bounding depot count by geographic spread as well as farmer count,
+   not swapping one count-only heuristic for another — not done here;
+   flagged for the next round.
+
+Updated charts: `chart_net_return_v2.png`, `chart_service_pct_v2.png`,
+`chart_runtime_scaling_v2.png` (runtime shape unchanged — k-means adds
+negligible overhead, e.g. 3.9s vs 4.7s at n=10,000 for the whole run,
+both dominated by the LP stage, not clustering).
+
+## 4. Runtime (Our System, mean of 5 trials, refreshed after the Round 4 fix in §10)
+
+| Farmers | Vehicles | Markets | Runtime |
+|---:|---:|---:|---:|
+| 50 | 4 | 3 | 0.04s |
+| 1,000 | 24 | 4 | 0.43s |
+| 4,000 | 100 | 13 | 1.36s |
+| 10,000 | 250 | 33 | 4.21s |
+
+Still near-linear; negligibly higher than before the fix (the extra
+DBSCAN pass for refrigeration-needing farmers is cheap). Full table:
+`results_v2_summary.csv`.
+
+## 5. What this does not show (updated)
+
+Everything in the Round 2 write-up's honesty section still applies — net
+return and service coverage are separate axes, Proximity Pooling's
+collapse is by construction (naive baseline), and the disclosed
+simplifications (haversine distance, constant vehicle speed, a flat
+1-hour turnaround buffer, no VRP solver) are unchanged.
+
+**Added this round:** depot placement was tested against the specific
+claim it was meant to validate ("does this fix the coverage plateau?")
+and the honest answer is no — see §3. It's a real, separately-useful
+improvement (better trip economics), not a fix for the thing it was
+asked to fix. Reporting a net-return win here without the service%
+number next to it would repeat exactly the mistake `CONTRACT.md` already
+warns against.
+
+## 6. Suggested next step (revised)
+
+Round 2 suggested depot placement as the top lever for the coverage
+plateau. Having built and tested it, that diagnosis needs sharpening:
+**depot placement improves trip efficiency but does not add capacity
+where the density is** — it reshapes existing vehicle-hours rather than
+allocating more of them to where farmers actually are. The next step
+that actually targets the plateau is **density-aware fleet allocation**:
+size or place vehicles proportional to *local* depot demand (e.g.
+`default_fleet_composition()` currently takes only a global farmer
+count; it should take the depot sizes from `_depot_partition()` and
+distribute vehicles across them, not just fix a global ratio). A smaller
+follow-up worth doing alongside it: bound depot count by geographic
+spread, not just farmer count, to fix the small-n regression in §3.
+
+## 7. Bugs found by actually running it (Round 2, unchanged — kept for reference)
+
+Four of five were caught by testing at increasing scale, not by
+inspection.
+
+1. **Individual Transport's vehicle-reuse timing ignored `ready_hr`.**
+   Hardcoded pickup-completion time as a flat 0.65hr for every farmer,
+   letting 4 trucks appear to serve 30 farmers individually at n=30.
+2. **A vehicle had to be free *before* a pool's `ready_hr`.** Since every
+   pool becomes ready in the first ~4 hours while a single trip often
+   takes longer, no vehicle could ever qualify for a second trip — fixed
+   by checking against the pool's *deadline* instead.
+3. **Bin-packing to the single largest vehicle's capacity starved every
+   other vehicle type.** At n=1,000, 75 of 83 pools needed one of only 5
+   largest trucks; 19 smaller/mid vehicles sat idle. Fixed by drawing
+   each pool's capacity ceiling from the fleet's actual capacity mix.
+4. **Bin-packing by weight ignored geography.** Produced pools with a
+   mean pickup route of 291km at n=10,000 (worst case: 44 simulated
+   hours). Fixed with a sweep-order pack (sort by angle around the
+   group's centroid).
+5. **The fleet-capacity menu was a one-shot queue.** Once it emptied,
+   every remaining pool collapsed to ~1 farmer. Fixed by making it an
+   infinite round-robin over the fleet's capacity mix.
+
+## 8. Benchmark methodology (unchanged)
+
+Paired-trial design: for each farmer count, the same generated scenario
+(same seed) runs through all three algorithms. 5 trials per farmer count,
+n ∈ {50, 100, 300, 600, 1000, 2000, 4000, 6000, 8000, 10000} — 450 runs
+total. Fleet and market count scale with farmer count (~1 vehicle per 40
+farmers, ~1 market per 300 farmers). Both baselines get the same real
+fleet, multi-trip-reuse, and depot-placement pooling as Our System — the
+only remaining difference is decision logic (LP allocation vs. no pooling
+vs. naive single-market selection).
+
+## 9. Not done this round
+
+**Unit tests (stretch #3) and the package refactor / Shapley-value option
+(stretch #4) were not attempted.** Per the prompt's own priority order,
+#1 and #2 took the full available effort once done properly (each
+surfaced real, non-obvious findings worth verifying rather than
+asserting) — starting #3–#4 on top of that would have meant less
+rigor on the two things actually asked for first. The three invariants
+named in #3 (no double vehicle-booking, LP never exceeds market capacity,
+`unsold_kg + unserved_no_vehicle_kg` + sold reconciles to `total_qty_kg`)
+remain a good next-session task and would likely have caught bugs 2, 3,
+and 5 above faster than manual scale-testing did.
+
+## 10. Refrigeration-scarcity-aware clustering (Round 4, new — found via the exact MILP, then fixed)
+
+Building the exact MILP ground truth (`MILP_GROUND_TRUTH.md`) wasn't
+just a benchmarking exercise — tracing ILO's worst small-instance gap
+against it (74.4% of the proven optimum) led to a real fix, not just a
+diagnosis, per the same "verify by running, don't just assert" standard
+the rest of this project has held to.
+
+**What the MILP found.** On the traced instance, the MILP's optimal
+solution pools 4 farmers — 0, 2, 3, 4 — onto a single refrigerated
+truck; ILO split them into 4 separate trips instead. Farmers 2 and 3
+are 33.2km apart, and no pair among {0,2,3,4} is within ILO's
+`EPS_KM=12` DBSCAN radius even via a chain, so ILO's clustering stage
+never even considers this pooling. The MILP takes it anyway because 4
+of these 6 farmers need refrigeration and the fleet has exactly 1
+refrigerated vehicle — paying that reefer's fixed cost twice (or more)
+is far worse than a longer combined trip. **DBSCAN's geographic-
+compactness proxy and the problem's real economic driver
+(refrigerated-fleet scarcity) disagreed, and ILO's pooling stage had no
+way to see that**, since it commits to clusters before vehicle
+assignment ever runs.
+
+**The fix**: `_refrig_eps_km()` in `algorithms_v2.py` widens the DBSCAN
+radius used for refrigeration-needing farmers specifically (never for
+the general population — the tight radius that fixed the §7-bug-4
+sprawl regression at scale stays untouched), scaled by two distinct
+scarcity signals taken together — how much refrigeration-needing demand
+exists relative to total refrigerated capacity, *and* how few
+refrigerated vehicles exist at all (the latter matters independently:
+each extra trip pays a full fixed cost again no matter how full it is).
+An earlier version using only the capacity signal closed the traced
+instance to just 82.1% — under-weighting how badly a second avoidable
+trip hurts when only one refrigerated vehicle exists at all. Taking the
+max of both signals closed it to 95.3%, matching the MILP's pooling
+structure exactly. Capped at 3× the base radius so it can't grow
+unbounded.
+
+**Reverified two ways, not asserted:**
+
+- **Against the MILP** (`milp_benchmark.py`, same 9 small instances):
+  mean ILO/MILP ratio on proven-optimal cases rose from **85.3% to
+  96.0%** (min 74.4%→91.0%, max 100.0%→102.1%). Full before/after table
+  in `MILP_GROUND_TRUTH.md` §6b.
+- **Against the full-scale benchmark** (`benchmark_v2.py`, 450 runs,
+  n=50–10,000) — the check that mattered most, since a naive "just widen
+  the radius" fix risked reopening the exact sprawling-route regression
+  §7 bug 4 fixed. Sample-checked route distances directly before
+  trusting the result: mean pickup-route distance grew modestly
+  (≈14–18km → ≈20–22km) but stayed bounded (max ≈130km, nowhere near the
+  original 291km/44-simulated-hour blowup). Net return improved and
+  service% improved at **every single tested scale**, zero regressions:
+
+| Farmers | Net return (mean) | Service% (mean) |
+|---:|---:|---:|
+| 50 | 154,051 (+9.0%) | 68.0% (+3.4pp) |
+| 100 | 161,191 (+4.1%) | 40.8% (+3.0pp) |
+| 300 | 284,090 (+1.5%) | 31.9% (+1.9pp) |
+| 1,000 | 426,355 (+2.5%) | 17.2% (+0.9pp) |
+| 2,000 | 772,294 (+12.9%) | 16.8% (+1.6pp) |
+| 4,000 | 1,365,419 (+5.0%) | 15.6% (+1.4pp) |
+| 6,000 | 2,219,484 (+7.9%) | 15.8% (+0.8pp) |
+| 8,000 | 2,286,849 (+12.2%) | 13.2% (+0.9pp) |
+| 10,000 | 3,388,166 (+8.3%) | 14.1% (+0.8pp) |
+
+(% changes are vs. the depot-placement-only numbers in §3/§4 before this
+fix.) Full table: `results_v2_summary.csv`.
+
+**Applied only to ILO, not Proximity Pooling** — this is genuine
+problem-aware intelligence (recognizing refrigerated capacity as the
+binding constraint, not just geography), not a bookkeeping correction,
+and the naive baseline is deliberately kept geography-only for
+comparability with its original definition.
+
+**Honest residual limits, unchanged from before this fix:** the
+coverage plateau (§5/§6) is still open — this fix improves trip quality
+within the existing fleet, it doesn't add fleet capacity where density
+needs it, which remains the identified next lever. The small-n
+regression from depot placement (§3, n≤100) is partially offset (n=50
+service% recovered from 64.6% to 68.0%, still short of the original
+grid-based 69.4%) but not the primary target of this fix and not fully
+closed.
+
+## 11. Density-aware fleet allocation (Round 5, new — targets §6's plateau directly)
+
+§6 named this as the next lever after depot placement was shown (§3) to
+improve trip efficiency without moving the coverage plateau. This round
+implements it.
+
+**The change**: `default_fleet_composition(n_farmers)` sized the whole
+fleet off a single global farmer count. `depot_aware_fleet_composition(farmers)`
+(new, in `logistics_lib_v2.py`, now `generate_scenario_v2`'s default)
+partitions farmers with the exact same `_depot_partition()` the
+clustering stage uses (moved into `logistics_lib_v2.py` so both modules
+share one implementation instead of risking two copies drifting apart),
+then sums each depot's own vehicle-equivalent demand
+(`max(1, len(depot)/FARMERS_PER_DEPOT)`, floored per depot) into the
+fleet total, instead of dividing total farmer count by the ratio once.
+The type-mix weights are still applied once, globally, to that total —
+**not** re-derived per depot.
+
+That last point was a real bug caught before this ever got benchmarked,
+not a design choice: an earlier version reapplied the ~1-per-40 ratio
+*inside* each depot too. Since depots are already sized to be ~40
+farmers by construction (`FARMERS_PER_DEPOT` is the same constant), a
+depot's own count divided by 40 rounds to ~1 almost every time — which
+collapsed every depot's local type-mix computation to a single
+fallback vehicle. Caught by testing at n=1,000–10,000: the fleet came
+back 100% `van`, zero refrigerated capacity generated at any scale.
+Fixed by keeping the type-mix step global and letting only the total
+vary with how demand is distributed across depots — see the function's
+docstring for the specific numbers this produced.
+
+**What it actually does**: a single dense depot (or several
+evenly-sized depots near `FARMERS_PER_DEPOT`) reduces to the same total
+the flat version computed — confirmed identical fleet size and identical
+downstream results at n=50/100/300 below, since those scenarios'
+depots happen to land close to that size. Where depot sizes are
+uneven — several genuinely small, separate pockets that the flat ratio
+would silently pool in with a much larger one — the total grows
+(each small pocket contributes its own floored vehicle-equivalent).
+Isolated unit check (bypassing depot *placement* itself, which is a
+separate, still-open issue — §6, next bullet): a synthetic 350-farmer
+depot plus four separate 5-farmer pockets (n=370 total) got 13 vehicles
+under the new function vs. 9 under the flat one.
+
+**Reverified against the full-scale benchmark** (mean of 5 seeds per n,
+same farmers/markets fed to both fleets so only the fleet-sizing method
+differs):
+
+| Farmers | Net return: old → new | Service%: old → new | Fleet size: old → new |
+|---:|---:|---:|---:|
+| 50 | 163,331 → 163,331 (+0.0%) | 70.85% → 70.85% (+0.00pp) | 4 → 4 |
+| 100 | 168,684 → 168,684 (+0.0%) | 42.54% → 42.54% (+0.00pp) | 4 → 4 |
+| 300 | 347,187 → 347,187 (+0.0%) | 31.46% → 31.46% (+0.00pp) | 9 → 9 |
+| 1,000 | 578,672 → 582,914 (+0.7%) | 18.34% → 18.99% (+0.66pp) | 24 → 28 |
+| 2,000 | 853,329 → 839,638 (-1.6%) | 18.19% → 18.36% (+0.17pp) | 50 → 54 |
+| 4,000 | 1,853,212 → 1,865,444 (+0.7%) | 17.36% → 17.43% (+0.07pp) | 100 → 107 |
+| 6,000 | 2,597,517 → 2,678,253 (+3.1%) | 16.44% → 16.60% (+0.16pp) | 151 → 160 |
+| 8,000 | 3,111,357 → 3,118,665 (+0.2%) | 14.74% → 15.03% (+0.29pp) | 200 → 216 |
+| 10,000 | 3,745,573 → 3,652,818 (-2.5%) | 14.35% → 14.40% (+0.05pp) | 250 → 269 |
+
+**Honest read of this table, not just the headline direction**: service%
+moves in the right direction at every n≥1,000 (small — +0.05pp to
++0.66pp — not the plateau-breaking jump §6 was hoping to test for), at
+the cost of a modestly larger fleet (+4% to +9% more vehicles) that this
+function now judges necessary given how demand is actually distributed
+across depots. Net return is mixed (two of nine scales dipped slightly,
+within run-to-run noise territory given only 5 seeds) — more vehicles
+slightly dilutes average per-trip efficiency even as it raises total
+volume served, exactly the tradeoff a real fleet-sizing decision would
+face. n=50/100/300 are provably unchanged (identical fleet, identical
+result) because those particular scenarios' depots already land close
+to `FARMERS_PER_DEPOT` in size — this fix only bites when depot sizes
+are uneven, which random depot placement doesn't reliably produce at
+every scale/seed.
+
+**This is a real, verified step in the right direction, not the fix for
+the plateau.** §6's other named lever — bounding depot *count* by
+geographic spread, not just farmer count (the n≤100 regression cause) —
+is still open and would need to land before fleet allocation can be
+sized off genuinely spread-aware depots rather than count-only ones.
+Vehicles also remain a single shared, location-agnostic pool at
+assignment time (`assign_fleet()` isn't depot-bound) — this fix changes
+fleet SIZE, not routing or vehicle-to-depot binding.
+
+## 12. Depot count bounded by geographic spread (Round 5, new — targets §3's small-n regression)
+
+§6 named this as a smaller follow-up alongside density-aware fleet
+allocation: bound depot count by geographic spread, not just farmer
+count, to fix the n≤100 regression §3 traced (a single depot spanning
+the whole area when `round(n/40)` floors to 1).
+
+**The change**: `_spread_based_depot_floor()` (new, `logistics_lib_v2.py`)
+computes each population's actual lat/lng bounding-box area and compares
+it to a reference per-depot area (~2,880 km², calibrated from what
+`FARMERS_PER_DEPOT=40` already implies spatially at n=300-10,000 in this
+project's own benchmark scenarios — see the function's docstring).
+`_depot_partition()` now takes `max(count_based, spread_based)` instead
+of count alone, so a population whose actual area is large relative to
+what its own farmer count would normally imply gets more depots; a
+normally-proportioned one is untouched.
+
+**A wrong first version, caught before benchmarking**: tiling the whole
+bounding box with fixed `DEPOT_CELL_KM`-sized cells (26.4km, the
+grid-partition fallback's cell size, derived from the unrelated DBSCAN
+radius) gave 1,054 depots of ~3-9 farmers each at n=10,000, vs. the
+validated 250 — a ~4x inflation at **every** scale, not just small n,
+because `DEPOT_CELL_KM` and `FARMERS_PER_DEPOT` were never calibrated to
+imply the same area per depot. Would also have wrecked
+`depot_aware_fleet_composition()`'s per-depot vehicle floor (§11) —
+each of those 1,054 slivers would have claimed its own vehicle. Replaced
+with the calibrated-reference-area version above once this was caught.
+
+**Honest result — this is a no-op on this project's own benchmark
+data, not a fix for the documented regression:**
+
+- Re-ran `_spread_based_depot_floor()` against `generate_scenario_v2`
+  at n=10/20/50/100/300/1,000/4,000/10,000 (seed=1): it never exceeds
+  the count-based figure at any scale — confirms the calibration
+  doesn't inflate depot count anywhere it wasn't already needed.
+- Ran n=50 across 10 different seeds specifically: the floor stayed at
+  1 (matching count-based) every single time. Full-pipeline service%
+  at n=50/300/1,000 came back bit-identical to §11's pre-this-fix
+  numbers (70.85% / 31.46% / 18.99%).
+- **Why**: `generate_scenario_v2` draws farmer positions i.i.d.
+  uniformly inside a bounding box, so density stays close to its
+  expected value almost every draw — there's no genuine area-vs-count
+  anomaly for this floor to catch at any of the scales this project
+  benchmarks at. §3's original n=50/100 regression must have had a
+  different root cause than a literal area/density mismatch (a
+  single-vs-multiple DBSCAN catchment boundary effect is the likely
+  candidate, not yet isolated) — this fix does not resolve it, and that
+  regression **remains open**.
+- **Verified the mechanism itself is real**, on data this benchmark
+  generator can't produce: two 25-farmer pockets ~440km apart (n=50
+  total, bimodal rather than uniform) got `count_based=1` but
+  `spread_floor=2`, correctly forcing 2 depots instead of 1 spanning
+  both pockets. This is exactly the failure mode a real deployment
+  (genuinely separated villages/regions) could hit even at low farmer
+  counts — the fix is a real, working safety net for that case, it
+  simply isn't exercised by this project's own synthetic test data.
+
+**Net assessment**: implemented as specified, verified working on the
+scenario it's designed for, verified inert (correctly, not by
+accident) on this project's own benchmark suite. §3's n≤100 regression
+needs a different, still-unidentified fix.
+
+## 13. Generalizing scarcity-aware clustering beyond refrigeration (Round 5, new — and reverted)
+
+§6 named this as a follow-up: `_refrig_eps_km`'s pattern (widen the
+DBSCAN radius for farmers needing a scarce vehicle subtype, scaled by
+how scarce it actually is) seemed like it should generalize to other
+scarce vehicle types, not just refrigeration.
+
+**What shipped**: `_refrig_eps_km`'s math was pulled out into a
+reusable `_scarcity_eps_km(farmers, fleet, needs_predicate,
+capable_predicate, ...)` helper, and `_geo_clusters()` was generalized
+from a hardcoded two-way (refrig / not) split to an arbitrary dict of
+named scarcity dimensions — a farmer matching several at once gets
+clustered at the max of their applicable epsilons. Both are real,
+useful refactors on their own and are still in place.
+
+**What was tried and reverted**: a second dimension, `_capacity_eps_km`,
+treating "farmers whose own qty_kg exceeds the fleet's smallest vehicle
+tier" as the analog of "needs refrigeration." Refrigeration is the
+*only* farmer-level attribute in this data model that maps cleanly to
+"requires a specific vehicle subset" — capacity need is otherwise an
+aggregate, pool-level property (no single farmer's qty_kg, 150-600kg
+here, ever needs a whole 5-tonne truck alone), so this was the one
+analog available without inventing a new farmer attribute.
+
+**Benchmarked before deciding to keep it — and it was a real
+regression, not a no-op:** mean of 5 seeds, n=50-10,000, isolating just
+this one change:
+
+| Farmers | Net return: without → with | Service%: without → with |
+|---:|---:|---:|
+| 300 | 342,028 → 325,702 (**-4.8%**) | 30.70% → 30.09% (-0.61pp) |
+| 1,000 | 580,211 → 575,492 (-0.8%) | 18.85% → 18.63% (-0.22pp) |
+| 2,000 | 871,804 → 770,899 (**-11.6%**) | 18.39% → 17.80% (-0.59pp) |
+| 4,000 | 1,832,777 → 1,749,352 (-4.6%) | 17.24% → 16.95% (-0.28pp) |
+| 8,000 | 3,095,545 → 2,864,206 (-7.5%) | 15.06% → 14.81% (-0.24pp) |
+| 10,000 | 3,712,586 → 3,389,297 (**-8.7%**) | 14.42% → 14.21% (-0.21pp) |
+
+**Root cause, traced before reverting (not just "it got worse")**:
+`_scarcity_eps_km`'s formula treats a resource as scarce when the
+"capable" fleet subset is small — that's true for reefers (~32% of the
+fleet by design). But "capacity above the smallest tier" selects
+everything except `mini_pickup`, which is only ~10-11% of this fleet —
+i.e. the "capable" set here is ~89% of all vehicles, the *opposite* of
+scarce. Confirmed directly: `capacity_scarcity` (needing-demand ÷
+capable-capacity) came back at 2.15 at n=1,000 — not because capable
+vehicles were scarce, but because comparing a full day's aggregate
+demand against a one-shot (non-multi-trip) capacity sum overstates
+scarcity for any subset at scale, refrigeration included (its own
+ratio comes back 6-12x at every scale tested, also always pinned to
+the max multiplier) — refrigeration's fix still works despite this
+because reefers really are a minority resource; capacity's didn't
+because non-mini_pickup vehicles aren't. Widening eps for ~20-24% of
+farmers who didn't actually face a real vehicle-availability
+bottleneck just sprawled their pools' geography for no offsetting
+benefit.
+
+**Also caught before shipping, a second and separate bug**: an early
+version of the generalized `_geo_clusters()` iterated its scarcity
+groups in whatever order a `defaultdict` happened to populate them in
+(dependent on incidental farmer ordering within each depot cell), not
+a fixed order. Since `fleet_capacity_cycle()` is a single shared,
+stateful iterator consumed in cluster-processing order, this silently
+changed which capacity ceilings downstream pools drew — caught by
+diffing against the pre-refactor baseline (n=300/1,000 service% came
+back 0.15-0.75pp off with no intended functional change). Fixed by
+always processing scarcity groups in descending-eps order, reproducing
+the original hardcoded ordering (refrig group, always the wider one,
+was always processed first) exactly — reverified bit-identical to the
+§11/§12 baseline after the fix.
+
+**Net assessment**: the generalized `_scarcity_eps_km`/`_geo_clusters`
+machinery is real, working, and kept (useful if a genuine second
+scarcity dimension is ever added to the data model). The one capacity
+analog available in the *current* model isn't a genuine instance of
+the pattern it was modeled on, measurably hurts results, and was not
+shipped. `run_our_system_v2` uses only the refrigeration dimension,
+identical to §10's behavior.
+
+## 14. Joint (Hungarian-matching) vehicle assignment (Round 5, tried and reverted)
+
+§6 named this too: `assign_fleet()`'s one-pool-at-a-time greedy pass
+processes pools in `ready_hr` order and best-fits whichever vehicle is
+free — which pool "claims" a scarce vehicle when several compete is
+whichever gets processed first, an arbitrary order artifact, not a
+jointly optimal decision.
+
+**What was built**: a round-based replacement. Each round solves one
+exact bipartite min-cost matching
+(`scipy.optimize.linear_sum_assignment`, the Hungarian algorithm)
+across every still-unassigned pool and the whole fleet at once —
+cost = the assigned vehicle's `capacity_kg` (preserving the original's
+best-fit preference), `+1e5` for a feasible-but-non-reefer match on a
+refrigeration-needing pool (preserving the original's *soft*
+refrigeration preference — never a hard constraint, since spoilage
+already penalizes the wrong vehicle downstream), infeasible pairs
+priced at `1e9` and discarded from the result regardless of what a
+rectangular matching forces. After each round, matched vehicles'
+`available_at_hr` advances exactly as before, freeing them for a
+*later* round — this is what was meant to preserve multi-trip reuse.
+
+**Benchmarked before trusting it, and it was a severe regression, not
+a subtle tradeoff:** mean of 5 seeds, controlled A/B (same
+farmers/fleet/markets, only `assign_fleet` swapped):
+
+| Farmers | Net return: greedy → joint | Service%: greedy → joint |
+|---:|---:|---:|
+| 50 | 163,331 → 103,231 (**-36.8%**) | 70.85% → 43.33% (**-27.53pp**) |
+| 100 | 168,684 → 97,725 (**-42.1%**) | 42.54% → 26.57% (-15.97pp) |
+| 300 | 347,187 → 260,747 (-24.9%) | 31.46% → 23.90% (-7.56pp) |
+| 1,000 | 582,914 → 492,227 (-15.6%) | 18.99% → 15.13% (-3.86pp) |
+| 4,000 | 1,865,444 → 1,644,228 (-11.9%) | 17.43% → 14.76% (-2.67pp) |
+| 10,000 | 3,652,818 → 3,285,116 (-10.1%) | 14.40% → 12.76% (-1.64pp) |
+
+Runtime was fine (comparable to the greedy version, ~5s at n=10,000)
+— the problem was never speed.
+
+**Root cause, traced by instrumenting round-by-round (not just
+"it got worse"):** at n=1,000 (26 vehicles, 307 pools needing
+assignment), per-round assignment counts came back **26, 26, 25, 16,
+3, 1, then stuck** — 210 of 307 pools (68%) left unassigned, versus
+most of them being served by the greedy version. The mechanism: a
+Hungarian matching is one-to-one, so a single round can assign **at
+most one pool per vehicle** — with far more pools than vehicles
+(routine here), that caps each round at `n_vehicles` assignments no
+matter how the cost matrix is shaped. Worse, rounds synchronize every
+vehicle's clock together (all matched vehicles advance to
+`completion + TURNAROUND_HR` at the same logical step), discarding the
+fact that different vehicles actually become free at different real
+times — which is exactly the granularity multi-trip reuse depends on
+when individual trips and the workday (`WORKDAY_END_HR=14`) are both
+short relative to fleet size. The greedy version's fine-grained,
+one-decision-at-a-time processing captures that granularity for free;
+batching by round throws it away in exchange for removing the order
+artifact — a bad trade, confirmed directly, not assumed.
+
+**What a real fix would need, and why it wasn't attempted this
+round:** genuine time-expanded modeling — each vehicle offering
+several discrete availability slots through the day (a min-cost-flow
+formulation over a time-expanded network is the standard approach for
+this class of vehicle-scheduling problem) — not a per-round batch
+match. That's a materially bigger undertaking than "a small assignment
+LP per time-slice" implied, and wasn't attempted this round.
+
+**Net assessment**: reverted. `assign_fleet()` is unchanged from
+before this fix; the attempt is kept as `_assign_fleet_joint_attempt()`
+(not called anywhere) with the full trace in its docstring, the same
+way §13's reverted capacity dimension was kept documented rather than
+silently deleted. Order-artifact-free vehicle assignment remains open;
+it needs a bigger structural change than this round attempted.
+
+## 15. Merged into the map/simulation frontend (Round 6)
+
+A separate agent built a `Map & simulation` tab on top of this project
+(MapLibre GL + deck.gl, `frontend/vis/*.js`) and a backend adapter layer
+(`backend/visualization_adapter.py`, `GET /plan/{id}/visualization`) that
+reshapes `/plan/compute`'s stored output into farmers/vehicles/markets/
+routes/simulation-events, working from an earlier snapshot of this file's
+Round 4 algorithm (pre-§11-14: flat `default_fleet_composition`, no
+spread-based depot floor, hardcoded refrig-only `_geo_clusters`).
+
+This round merges the two: `backend/algorithms_v2.py` and
+`backend/logistics_lib_v2.py` here are the §11-14 versions (depot-aware
+fleet sizing, spread-based depot floor, generalized scarcity-eps
+clustering; joint vehicle assignment tried and reverted per §14 — same
+status as before this merge), dropped in under the visualization layer
+unchanged. `backend/main.py`, `backend/database.py`,
+`backend/visualization_adapter.py`, and every `frontend/` file are the
+other agent's work, untouched by this merge.
+
+**Why the merge required no adapter changes**: `visualization_adapter.py`
+consumes `run_ilo_v2(..., return_trace=True)`'s `PoolTrace` output
+(`crop_allocations` per pool) and each algorithm's flat
+`{farmer_ids, vehicle_id, markets_used, total_qty_kg, revenue,
+transport_cost, spoilage_loss_kg, unsold_kg, net_return, infeasible}`
+pool dicts — none of that shape changed across §11-14; those rounds
+changed fleet sizing and clustering internals, not `_finalize()`'s
+output contract or `PoolTrace`'s fields. `run_ilo_v2`,
+`run_individual_transport_v2`, `run_proximity_pooling_v2`, and
+`summarize()` all kept identical signatures throughout. Verified directly
+(not just argued): ran `generate_scenario_v2` -> all three algorithms ->
+`build_plan_visualization()` end to end post-merge and confirmed routes,
+`distanceKm`, `simulationEvents`, and `marketBreakdownAvailable` all come
+back populated and shaped as `visualization_adapter.py`'s docstring
+describes.
+
+**What did NOT get merged, on purpose**: the other agent's own
+documentation (this project's `README.md` map/simulation section,
+`backend/README.md`'s endpoint docs, `backend/verify_visualization.py`)
+still describes the visualization layer's own design and honesty rules
+— those weren't touched, since this round only changed which algorithm
+sits underneath them. The still-open items from §14 (joint vehicle
+assignment) and the "P2 #5" backlog note further up (real road distance
+via OSRM) are unaffected by this merge either way; see the assessment of
+the visualization layer itself for a separate list of what's worth
+improving there.
+
+## 16. Simulation-frontend performance fixes (Round 7)
+
+Two scale issues flagged when reviewing the merged visualization layer
+(§15), now fixed in `frontend/vis/simulationEngine.js` and
+`frontend/vis/logisticsMap.js`. Neither changes what is rendered --
+verified by a Node-based equivalence harness (not included in the
+shipped tree) that ran the old and new `SimulationEngine` against 20+
+synthetic multi-vehicle scenarios across a forward sweep, random seeks,
+and boundary times: 4,840 snapshot comparisons, zero mismatches.
+
+**`SimulationEngine.snapshot()`** used to rescan the ENTIRE event list
+(for cumulative visited-farmer/visited-market state) and re-derive each
+vehicle's trip grouping from scratch, on every single animation frame --
+an O(total events) cost per frame regardless of how much simulated time
+actually advanced. Replaced with: an incremental cursor over the sorted
+event array for the visited-sets (only processes events newly crossed
+since the last frame during forward playback; a backward seek pays a
+one-time full rebuild, not a per-frame one), and a one-time (constructor
+only) precompute of each vehicle's trips as a short, dispatch-time-sorted
+array, searched with binary search per frame instead of a linear scan.
+Also added `visitedGeneration`, a counter on the snapshot that bumps only
+when the visited sets' actual content changed this call -- consumed by
+the fix below.
+
+**`LogisticsMap._render()`** rebuilt every deck.gl layer -- including the
+full farmer/route/pooling data arrays -- from scratch on every call, even
+though `setVehiclePositions()`/`setVisitedSets()` (called every animation
+frame during playback) only ever change vehicle positions and which
+stops are visited; the farmer/route/market/pooling data itself doesn't
+change until a new solution, stage, or compare-solution is loaded. Added
+`_memoLayers()`: a small per-layer-group cache keyed by whatever that
+group actually depends on (the solution reference, `vis.colored`,
+`compareMode`, or `visitedGeneration` from the fix above), so a group is
+only rebuilt when one of its own dependencies actually changes --
+returning the exact same layer-instance array otherwise, which also lets
+deck.gl skip re-diffing that layer when it's passed to
+`overlay.setProps({layers})` again. Verified in isolation (build-count
+assertions confirming a cache hit for identical deps and a rebuild for
+each of solution/stage/compare/generation changing) -- not something a
+Python test can reach, since deck.gl/MapLibre only run in a browser.
+
+**Net effect**: per-animation-frame cost during playback now scales with
+what actually changed since the last frame (vehicle positions, and only
+the specific farmers/markets newly visited) instead of with total
+farmer/event count -- the fix targeted the exact n=1,000-10,000 concern
+raised when this layer was reviewed, without changing any rendered
+output.
+
+## 17. Economic dispatch (Round 8)
+
+**Problem.** Before this round ILO dispatched every pool that could get a truck, even at a loss, and the truck
+it spent on a loss-making trip was then unavailable to a profitable one. Seen on a real-market scenario
+(Bihar potato/onion, 34 synthetic farmers, 4-vehicle fleet): one 166 kg pool lost INR 3,200 while 2,392 kg
+(18.8 %) in other pools "never got a truck".
+
+**Mechanism** (`run_our_system_v2(..., withhold_uneconomic=True)`, default; `False` reproduces the old behaviour exactly):
+1. Plan once with every pool, then withhold every dispatched pool whose true net return is < `DISPATCH_MIN_NET` (0) and
+   re-plan (freed vehicle-time and market capacity can make other pools profitable); repeat to a fixed point.
+2. Bounded local search over *which pools run* (drop a low earner when others are starved, drop a lone loser,
+   re-admit a withheld pool). A move is kept only if total net return strictly improves.
+3. The whole search is repeated under several vehicle-claim orders (ready / qty / deadline / slack, plus
+   `N_RANDOM_ORDERS` fixed-seed random ones) and the best plan found is kept. No single order wins everywhere.
+Withheld pools are reported separately (`withheld`, `withheld_uneconomic_kg`; counted as NOT served in `pct_qty_served`).
+Baselines are unchanged. Guards: local search only up to `LOCAL_SEARCH_MAX_POOLS`, random orders only up to
+`RANDOM_ORDERS_MAX_POOLS`, multi-start only up to `MULTISTART_MAX_POOLS`.
+
+**Provenance (read this).** The withhold / claim-order / local-search code was already present in the working
+copy at the start of this round with no recorded origin. It was not trusted on sight: it was reviewed line by line,
+audited for constraint violations, and measured against the original (below) before being kept. This round added
+the random claim orders, the lone-loser drop move, the `app.js` pool-card display for withheld pools, the tests in
+`backend/tests/test_economic_dispatch.py`, and this section.
+
+**Measured** (same inputs, original `algorithms_v2.py` vs. current; 36 scenarios; never worse in any):
+
+| Scenario set | Mean net return | Served % | Loss-making pools |
+|---|---|---|---|
+| Real Bihar markets, 3 fleet sizes x 8 seeds (24) | 154,287 -> 162,047 (**+5.0 %**) | 91.8 -> 93.3 | 19 -> 3 |
+| Project synthetic, n = 20/40/80 x 4 seeds (12) | 117,014 -> 132,412 (**+13.2 %**) | 69.3 -> 69.3 | 2 -> 0 |
+| Larger synthetic, n = 100/200/400/800 (1 seed each) | +5.5 / +10.6 / +7.4 / +14.3 % | - | - |
+| Exact MILP, n = 5,6 (6 proven-optimal instances) | ILO = 96.8 % of optimum before **and** after (identical) | - | - |
+
+Audit of every plan (each farmer in exactly one pool, truck capacity, per-market capacity, kg accounting,
+net = revenue - cost): 0 violations in 36 plans.
+
+**Costs / limits.** Runtime rises from ~0.03-0.6 s to ~0.7-4 s (n = 12-800). Remaining loss-making pools (3 in 24
+real scenarios, INR -19 to -73 each) are cases where withholding them lowers the *total* because it changes how the
+greedy vehicle assignment treats other pools. Search-budget increases give diminishing returns (10x local-search
+evaluations: +0.16 %; 24 vs 8 random orders: ~+0.2 %). The exact MILP only verifies n <= ~6, so the true gap to
+the optimum at n ~ 30+ is **not** measured. Not addressed: pool formation itself (clustering / bin-packing) is
+unchanged, and idle vehicles are still free in this model, so larger fleets never cost extra.
+
+---
+
+## 18. Realistic status-quo baselines (Round 9)
+
+**Why.** The two original baselines were not what farmers actually do, so "ILO beats them" proved little.
+Measured on the project's synthetic generator (n=1000, 3 seeds): legacy Individual Transport dispatched 277 trips from
+the FPO's own scarce fleet, 181 of them at a loss; legacy Proximity Pooling sent every pool to the highest *listed*
+price regardless of distance, 93 of 105 trips at a loss. Neither could decline a trip, and produce they did not haul
+was valued at Rs 0, although the real alternative is selling at the farm gate to a trader.
+
+**What was added** (`backend/baselines_v3.py`; `algorithms_v2.py` and the legacy baselines are untouched):
+
+| Baseline | Model |
+|---|---|
+| Farm-gate only | everyone sells at the doorstep: (1 - discount) x median quoted price, no transport |
+| Self-haul | each farmer hires a *spot* vehicle (not the FPO fleet, never scarce), nearest mandi buying the crop, **round trip**, goes only if it beats farm-gate |
+| Neighbour pooling | <= 4 farmers within 5 km with overlapping time windows share one hired vehicle to the nearest mandi buying all their crops; goes only if it beats everyone's farm-gate sale. No depots, LP, fleet-aware sizing or multi-market split |
+
+`summarize_with_farmgate()` values everything a plan did not haul (withheld / no truck / chose farm-gate) at the
+farm-gate price and reports `net_return_incl_farmgate`, the number to compare across algorithms (works for ILO and the
+legacy baselines too). `benchmark_baselines_v3.py` prints the comparison. The API returns the new results under
+`realistic_baselines` (additive; persisted in a new nullable `plan_runs.result_realistic_baselines` column, migrated
+on startup). The three original keys, the visualization adapter and the frontend are unchanged, so the map still shows
+the legacy two until the adapter is extended.
+
+**Assumptions (not data).** `FARMGATE_DISCOUNT = 0.20` (sensitivity at 0.10/0.30 is in the benchmark); spot vehicles
+are non-refrigerated, same cost table as the FPO's, no markup; farmers know price/spoilage but not market crowding.
+`match_ilo_accounting=True` makes the baselines copy ILO's conventions (no return leg, absolute-clock spoilage).
+
+**Result (synthetic data, 3 seeds, value incl. farm-gate, 20% discount).** ILO vs best realistic baseline:
+n=50 -15.3%, n=300 -8.3%, n=1000 -9.8% (like-for-like accounting: -12.8% / -8.6% / -9.8%; 10% discount: -19% / -11% / -11%;
+30% discount: -13.5% / -5.0% / -8.0%). **On this data ILO currently loses to simply selling at the farm gate**, while it
+still beats both legacy baselines by a wide margin. Cause, measured: ILO's economic dispatch withholds a trip only when
+net return < 0, not when it is < the farm-gate value of that produce. 83% (n=300) and 86% (n=1000) of the pools ILO
+dispatches earn less than farm-gate (hauled net 1.10M vs 1.49M at n=300; 2.01M vs 3.55M at n=1000). The synthetic
+geography also puts mandis ~125 km (median) from farmers at n=1000, which favours not hauling.
+
+**Next step this points to:** set `DISPATCH_MIN_NET` to a per-pool opportunity cost (the pool's farm-gate value) in
+`run_our_system_v2`, then re-run `benchmark_baselines_v3.py`. Not done here (the brief was the baselines only).
+Re-run on the Bihar real-data preset before quoting any figure externally.
+
+**Known limitations.** ILO still charges no return leg and measures spoilage from the absolute clock; the like-for-like
+mode neutralises this for the comparison but ILO itself is unchanged. Self-haul/neighbour decisions use expected, not
+crowding-adjusted, revenue. Tests: `backend/tests/test_realistic_baselines.py` (existing economic-dispatch tests also
+re-run, all passing; run here through a small shim because pytest could not be installed offline).
+
+
+---
+
+## 19. Behavioural baselines and the rebuilt Bihar preset
+
+### 19.1 Baselines are now behavioural (what the comparison tab shows)
+Individual Transport and Proximity Pooling are `run_self_haul_v2` and `run_neighbour_pooling_v2` (`baselines_v3.py`)
+in their BEHAVIOURAL tier. Farmers do not compute profit. A farmer (or a group of up to 4 neighbours within 5 km)
+hauls iff the nearest mandi buying the crop is within `max_haul_km` (40) AND its posted price beats the trader's offer
+by `price_margin` (10%); otherwise they sell at the farm gate. Hired trucks are SPOT hires (not the FPO fleet): they cost
+`spot_markup` (1.15x) and arrive `spot_lead_hr` (1 h) after the request. A group waits for its last member, routes
+nearest-first, and a pickup after someone's deadline is a no-show (that farmer sells at the farm gate). Because nobody
+checks the arithmetic, some trips lose money and some profitable ones are skipped.
+All four numbers are ASSUMPTIONS, not data (`Behaviour` dataclass; change them in one place). The RATIONAL tier
+(`behaviour=None`: exact economics, hauls only if it beats the farm gate) and the farm-gate-only reference are kept as
+yardsticks and returned by the API under `realistic_baselines`; the legacy strawmen are kept there as `legacy_*`.
+Farm-gate price = (1 - `FARMGATE_DISCOUNT`) x median mandi price (20%, an ASSUMPTION), via `FarmgatePrices`.
+
+Accounting. ILO v2 charges no empty-return leg and measures spoilage from hour 0. `main.py` therefore costs the
+baselines the same way (`match_ilo_accounting=True`) so the comparison is like-for-like; with the physically correct
+accounting the baselines would pay a return leg and ILO would not, which tilts the table in ILO's favour.
+
+UI changes: the headline is "farmer value" (net return + value of produce not hauled at the farm-gate price) because a
+plain net return scores a farmer who sold at the doorstep as zero. Farm-gate sellers are slate on the map and are listed
+in `farmgateFarmerIds`, never in `unservedFarmerIds`; spot trucks appear as "Spot-hired ..." vehicles with ids that cannot
+collide with the fleet. The three synthetic demo scenarios were re-run: ILO still beats both baselines in all three under
+the like-for-like accounting (cold chain 44.7k vs 37.1k / 31.9k, market arbitrage 53.4k vs 11.8k / 12.3k, fleet scarcity
+45.7k vs 42.0k / 42.5k farmer value). In scenario 3 only ILO is limited to the 3-vehicle fleet (the baselines hire), so ILO
+sells less produce at a market (46.6% vs 100% / 53.4%) and still earns more.
+
+### 19.2 Rebuilt Bihar preset (`bihar_dec2025_feb2026`)
+Source: the India Data Portal "APMC Arrivals and Prices (New Source)" CSV, 27 Oct 2025 - 1 Apr 2026, imported with
+`import_idp_csv.py --from 2025-12-01 --to 2026-02-28` and built with `build_real_markets.py`. What changed vs the old preset
+(`bihar_mar2026`):
+- One window for all mandis (Dec-Feb) instead of 3 Mar - 1 Apr. Potato fell across Bihar from October to March, so a
+  one-month window is a snapshot of a falling price, and Piro (Bhojpur, the farmers' own district; the only onion mandi near
+  them) stopped reporting on 23 Feb and was invisible to the March window.
+- Added Piro (25.33, 84.42; Wikipedia, ~1 km) and Natwar (25.23, 84.16; India Post list; another site says 25.21, 84.25).
+  Dropped Barahat (184 km+ from every farmer). Brahmpur, Motihari and Bahadurganj report prices but have no reliable
+  coordinates, so they are left out and listed in `meta.dropped_no_coords`.
+- Capacity is still the median reported daily arrival, but series where one value repeats on over 70% of days (and at
+  least 20 days) are now flagged `capacity_is_placeholder`: Aarah 1.33 t (95% of days), Tajpur 2 t (96%), Natwar 4 t (99%),
+  Buxur 5 t (98%), Chakia 60 t (98%), Barahat 4 t (100%). These are reporting defaults, not measurements.
+- Farmers and fleet are UNCHANGED (same generator, seed 0, 34 farmers, 8 vehicles): they are SYNTHETIC, so only the mandis
+  changed and the two presets are directly comparable on that axis. No FPO records were available.
+- Farmer reach to a buying mandi is now: potato median 44 km, 7 of 17 farmers within 40 km; onion median 51 km, 5 of 17
+  within 40 km (before: none within 40 km for onion).
+Result (ILO v2 vs the behavioural baselines, like-for-like accounting, synthetic farmers, ASSUMED farm-gate discount; farmer
+value): discount 10%: +0.7% vs both baselines and vs farm-gate only (no trip pays, so everyone sells at the doorstep);
+20%: +32.4% vs Individual, +23.5% vs Proximity, +12.9% vs farm-gate only; 30%: +50.0% / +39.6% / +28.7%.
+If farmers will travel further (reach 80-150 km) the behavioural baselines make 16-20 trips and lose money on most of them,
+so ILO's lead grows to +88% / +44% at 20% (the baselines' lead over farm-gate shrinks as they haul more). The rational
+baselines stay within about 3% of farm-gate only: their best option is almost always not to haul.
+Caveats that matter: the size of ILO's lead depends on the assumed discount and on Sheohar's premium (potato Rs 22/kg and
+onion Rs 24 against medians of Rs 12.5 and Rs 20), which the baselines never reach because they only visit the nearest
+mandi; whether Sheohar's price holds when more volume arrives is untested; and the farmers are synthetic.
+Reproduce: `python real_data/import_idp_csv.py <csv> --state Bihar --from 2025-12-01 --to 2026-02-28`, then
+`python real_data/build_real_markets.py`, then `python real_data/make_preset_block.py --id bihar_dec2025_feb2026 ...`.
+
+
+---
+
+## 20. ILO v3 applied to this project
+
+`ilo_v3.py` (Phases 1-5, see its module docstring) now produces the recommended plan (`integrated_logistics_optimization`
+in `/plan/compute`). It needs the new options added to `run_our_system_v2` in `algorithms_v2.py` (all default to the old
+behaviour; with them off the output is identical to the previous version). ILO v2 is still computed, only as a legacy
+reference under `realistic_baselines.legacy_ilo_v2`; `realistic_baselines.ilo_meta` says which plan v3 returned
+(`chosen`), its candidate counts and solver status. The comparison baselines are now costed with the correct accounting
+(empty return leg, spoilage from pickup), the same as v3. ILO's per-market received-kg (map and story) still comes from an
+exact trace; it is empty when v3 returns a baseline plan. Deliberately unhauled pools are flagged `sold_at_farmgate`, so the
+map shows them slate, not red; pools that wanted a truck and got none stay red.
+
+### 20.1 Results, rebuilt Bihar preset (synthetic farmers; farm-gate discount ASSUMED; value = net return + farm-gate sales)
+At the default 20% discount: ILO v3 Rs 208,586 vs best baseline Rs 167,803 (rational neighbour pooling) = +24.3%; vs
+behavioural Individual +54.0%, behavioural Proximity +42.2%, farm-gate only +28.3%. v3 runs 4 trips (8.2 t hauled, 64.5%
+sold at a market, 14 farmers at the farm gate); ILO v2 ran 17 trips but its number omits the return leg and counts spoilage
+from hour 0, so it is not comparable (it would not survive the honest accounting).
+Across discount 5/10/20/30/40%: +12.2 / +15.5 / +24.3 / +33.0 / +53.9% vs the best baseline. If the planner assumes 20% and the
+truth is 10% / 30%: +16.4% / +33.3%. Stress tests: mandi capacities x0.5 / x2 / x5: +10.0 / +28.8 / +34.1%; Sheohar's prices
+cut 15 / 30 / 45%: +14.5 / +8.7 / +11.2%; Sheohar removed: +9.3%.
+Fairness check: the shipped "rational" baselines only visit the NEAREST mandi. A stronger rational baseline that picks the
+best mandi per farmer or neighbour group with exact economics (not a shipped baseline) reaches Rs 193-197k / 177-181k /
+136-145k at 10 / 20 / 30%; ILO v3 is still +9.4 / +15.3 / +37.8% ahead of it. So the lead is not only market choice.
+### 20.2 Demo scenarios (20% discount, same accounting for all)
+- Cold chain: ILO v3 56.2k vs behavioural Proximity 56.1k / rational Proximity 55.9k / behavioural Individual 53.3k: a tie
+  (+0.1% vs the best). Pulling the mandis further away does not help: at ~32 km +1.9%, at 64 km+ nobody hauls. The earlier
+  advantage came from ILO v2's spoilage clock (from hour 0) charged to the baselines; with spoilage counted from pickup the
+  refrigeration effect is small at these distances. The scenario shows the mechanism, not a win (its blurb now says so).
+- Market arbitrage: 54.3k vs best baseline 13.4k (+306%). Fleet scarcity: 50.4k vs 45.6k (+10.4%), 93% sold at a market in 3
+  trips (v2: 2 trips, 47%).
+### 20.3 What this does not show
+Farmers, lots, ready times and the fleet are synthetic and the farm-gate price is an assumption; the result depends on price
+differences between mandis (Sheohar potato Rs 22, Piro Rs 15.9, Buxur Rs 14 against a median of Rs 12.5) being capturable,
+and no price response to extra volume is modelled. Six of the mandi-crop capacities are reporting defaults. ILO's own
+safeguard never fell back to a baseline in these runs. 71 backend tests pass.
+
+
+---
+
+## 21. Four regional presets from state-wide India Data Portal CSVs
+
+Added presets (all `category: "real"` in `frontend/src/lib/scenarios.ts`): `karnataka_bengaluru`, `up_aligarh`, `maharashtra_junnar`,
+`mp_indore`. Built by `backend/real_data/build_regional_presets.py` from the four state CSVs (27 Oct 2025 - 31 May 2026, every
+commodity); one command per preset, and each writes a `.js` block plus a `.json` record of everything cleaned, imputed and
+assumed to `backend/real_data/data/regional/`. Only the six crops the simulator supports are used.
+
+### 21.1 What is real and what is assumed
+REAL: mandi coordinates (the portal's own latitude/longitude, which every row carried; mandis with none were dropped, never
+geocoded or invented), prices and daily arrivals. SYNTHETIC: the farmers, the fleet, and the counts below. The farm-gate price
+used in the comparison is an assumption (20% below the median mandi price) here as everywhere.
+
+### 21.2 Cleaning (counts are in each preset's JSON and summarised in its blurb)
+- Row level: modal price <= 0; modal outside [min, max]; min > max; price unit not Rs/quintal or Rs/kg.
+- Day level, per (mandi, crop): modal price outside 1/3x-3x of the series median; arrival above 20x the series median
+  (typos such as 60,500 t).
+- Units: leafy crops are often traded by the bundle but labelled "Rs/quintal" and "tonnes", giving Rs 0.1/kg prices and
+  thousands of tonnes of spinach. Series are dropped when the median price is outside Rs 2-150/kg (mango 5-400) or the median
+  arrival exceeds a per-crop ceiling. Arrival units that are not weight (Nos, Bundle) make the arrival unusable.
+- Coordinates: must fall inside the state's bounding box; a mandi more than 120 km from its district's other mandis is
+  dropped; shared coordinates are flagged. Mandis without coordinates: Karnataka 0, Uttar Pradesh 0, Maharashtra 5,
+  Madhya Pradesh 27 (reported as dropped, not guessed).
+- A (mandi, crop) needs at least 15 days with price and arrival in the window.
+Counts (rows in the state/window/supported crops -> dropped by row and day cleaning; series dropped for implausible units;
+series dropped as under 1 t/day; placeholder capacities raised): Karnataka 5,178 -> 79; 0; 9; 2. Uttar Pradesh 28,512 -> 51;
+1; 36; 5. Maharashtra 12,841 -> 34; 13; 12; 3. Madhya Pradesh 9,587 -> 47; 0; 23; 2. Windows: Karnataka, Maharashtra and
+Madhya Pradesh Feb-Apr 2026, Uttar Pradesh Nov 2025 - Jan 2026 (chosen for the densest reporting of the mix crops).
+
+### 21.3 Capacity (a proxy, with an assumption layered on it)
+Capacity = median reported daily arrival. Where one value repeats on over 70% of days (>= 20 days) it is a reporting default;
+that capacity is RAISED to the lower quartile of the state's non-flagged mandis for the same crop (at least 5 peers needed),
+never lowered. Lower quartile rather than median because mandi sizes are heavy-tailed. After that, any series absorbing under
+1 t/day is removed: a yard that small is not a market for a pickup round. Flagged and imputed series are marked in each
+mandi's comment in `app.js` and in the JSON.
+
+### 21.4 Counts (assumptions, written into every blurb)
+- Mandis: the 8 nearest to the farmer cluster centre (up to 12 until at least 3 crops have 2+ buyers). Madhya Pradesh uses 11.
+- Farmers: about 60 pickups, a realistic collection round for one FPO, shared across crops in proportion to sqrt(local
+  absorption) and capped so that a crop's produce never exceeds 30% of what the chosen mandis absorb of it per day; a crop
+  that would get fewer than 3 farmers is left out. Results: Bengaluru 61, Aligarh 59, Junnar 60, Indore 57 farmers.
+- Layout: villages (n/5, within 18 km of the centre), farmers jittered ~1 km around them, each village leaning 60% to one crop.
+  This differs from the older presets, which scatter farmers uniformly.
+- Lots 150-600 kg, ready 0-4 h, deadline 6-14 h later (the project generator's distributions).
+- Fleet: capacity 1.5x the day's produce, refrigerated and plain sized separately (50% 5 t, 35% 2 t, 15% 1 t vehicles).
+Resulting scale: 20.6-23.9 t of produce, 13-16 vehicles. Hub mandis: Bengaluru, Aligarh, Junnar (Otur), Indore (Sanwer was
+tried first and left with no series after the tiny-yard filter).
+
+### 21.5 Results (ILO v3 vs the best of the five baselines, same accounting, farm-gate price ASSUMED)
+| Preset | 10% discount | 20% | 30% | planner assumes 20%, truth 10% / 30% |
+|---|---|---|---|---|
+| Karnataka (Bengaluru) | +6.2% | +12.2% | +19.5% | +5.3% / +19.5% |
+| Uttar Pradesh (Aligarh) | +16.4% | +23.3% | +24.0% | +15.9% / +23.4% |
+| Maharashtra (Junnar) | +11.3% | +17.8% | +24.3% | +11.1% / +23.5% |
+| Madhya Pradesh (Indore) | +11.6% | +19.7% | +37.3% | +9.5% / +37.3% |
+ILO v3 was ahead in all 12 cells, took 0.5-3.8 s, and returned its own plan every time (never a baseline fallback). Mandi capacity
+x0.5 / x2 changes the lead by less than 5 points in three presets (Karnataka +10.0/+14.2%, Aligarh +19.2/+24.4%, Junnar
+unchanged, Indore +22.0/+16.5%).
+### 21.6 Caveats
+In these presets the farmer cluster sits 9-16 km (median) from the nearest buyer by construction (the cluster is centred on a
+mandi hub), so hauling pays far more often than in Bihar, where the nearest buyer was 44-51 km away; do not compare lead sizes
+across presets as a statement about the regions. Farmers are synthetic and the farm-gate price is an assumption. Imputed
+capacities, the 30% absorption cap and the 60-pickup round are modelling choices. Madhya Pradesh lost 27 mandis to missing
+coordinates, which thins its mandi set. No farmer-level data exists for any state.
+Reproduce: `python real_data/build_regional_presets.py --preset <id> --csv <state csv>`; `--list` shows the four configs.
+
+---
+
+## 22. ILO v3.1: weaknesses found and the fixes (Oct 2026)
+
+Everything here comes from the synthetic generator (`generate_scenario_v2`) with 2 to 6 seeds per setting, run with the scripts in `backend/experiments_v3_1/`. The numbers test mechanisms and rank problems; they say nothing about a real region. "Gain" means value over the farm-gate-only reference unless stated.
+
+### 22.1 Weaknesses of ILO v3, ranked by measured severity
+
+| # | Weakness | Measured | Fix in v3.1 |
+|---|---|---|---|
+| 1 | Straight-line distance, constant 32 km/h | Plans re-costed at road circuity 1.3 / 1.6: gain -31% / -59%; 7 of 45 / 17 of 43 trips fall below the farm-gate price (n=80, 6 scenarios) | circuity factor (22.3); OSRM matrix deferred |
+| 2 | Set partition ignored the fleet; fleet assigned greedily afterwards | n=1000: 29 trips chosen, 27 dispatched, 18 t unserved, plan B no better than plan A. Gain over farm-gate: +17% (n=60), +2.6% (150), +1.6% (300), +1.2% (600), +0.7% (1000). Local search, multistart and random orders are switched off above 120 / 300 / 60 pools | fleet-aware set partition (22.2) |
+| 3 | Fixed mandi prices | Same plans re-costed with the old stylized price steps: gain -22% | price impact (22.4) |
+| 4 | Farm-gate price is an assumption; the guarantee is relative to it | Wrong discount changes which trips pay (22.5) | break-even output, discount stress (22.5) |
+| 5 | Trips are single-mandi; consolidation is per crop; each farmer sees only their top 3 mandis | Measured in section 24: top-3 cut harmless, multi-mandi trips not justified, mixed-crop worth about 0 to 5%. The finding is that mandi capacity binds | not built; soft capacity proposed |
+| 6 | One deterministic day | not measured directly | Monte Carlo replay (22.6) |
+| 7 | Spoilage: linear, uncalibrated, binary refrigeration | Hourly rate x2: gain -25% and half the hauled farmers change; unrefrigerated multiplier 3 -> 6: gain -12%; ILO still beats every baseline (section 23) | rates are the parameter to calibrate; MC spoilage shock (23) |
+| 8 | Pro-rata sharing left farmers worse off (3 at n=150, 22 at n=1000) | as stated | value-gain sharing is the only split ILO v3 reports |
+
+### 22.2 Fleet-aware set partitioning
+
+Columns are (trip, vehicle class, start slot), at most 6 slots per pair on a 15-minute grid. A constraint per (class, cell) bounds the number of busy trips by the vehicles of that class free in that cell. Occupancy follows `assign_fleet`: start, then the pickup-leg duration plus the 1 h turnaround, rounded outward, so accepted plans are conflict-free. The solution is turned into concrete vehicles by interval colouring and pinned through `pool_hints` (honoured by `assign_fleet`; unhonourable hints fall back to greedy). The old fleet-blind plan stays as a competitor in the safeguard.
+
+| n | fleet vehicles | gain over farm-gate, old -> new | final value vs old |
+|---|---|---|---|
+| 60 | 4 | 14.56% -> 15.76% | +0.0 to +2.5% |
+| 150 | 4 | 4.78% -> 4.88% | +0.0 to +0.3% |
+| 150 | 2 | 2.29% -> 2.47% | +0.0 to +0.4% |
+| 300 | 9 | 1.45% -> 1.46% | +0.0 to +0.01% |
+| 600 | 16 | 1.46% -> 1.62% | +0.0 to +0.3% |
+| 1000 | 26 to 28 | 0.79% -> 1.08% | +0.1 to +0.5% |
+
+On some seeds the fleet-aware plan alone is slightly below the blind one (for example 301.9k vs 303.7k at n=60): the cell rounding is a little stricter than the simulator. The safeguard keeps the better plan, so final value never drops. A diagnostic run honoured 7 of 8 pinned vehicles; the eighth was a Rs 329 trip the simulator re-routed out of profit. The LP duals on the fleet rows give a first-order value of one extra vehicle per class (about Rs 4.7k for a reefer in one n=60 scenario, near zero for the others). The gains are small because the synthetic fleet is about one vehicle per 40 farmers, so almost all value is farm-gate. Runtime at n=1000 is about 35 s (the 0/1 program hits its 30 s limit). Limit: occupancy counts only the pickup leg plus turnaround, as the simulator does.
+
+### 22.3 Road distance
+
+`haversine()` returns `ROAD_CIRCUITY` x straight-line km; time follows because it is distance over speed. Default 1.0 keeps old benchmarks comparable. Clustering and neighbour radii are road-km. `calibrate_circuity.py` takes the median of road/straight ratios over 100 to 200 real pairs and warns when p90 - p10 exceeds 0.5 (then use a real matrix).
+
+Truth set to 1.4; planner told k; plans re-costed at 1.4 (6 scenarios, n=80):
+
+| planner k | trips | below farm-gate | gain vs farm-gate (true roads) |
+|---|---|---|---|
+| 1.0 (old) | 65 | 15 | 155k |
+| 1.2 | 60 | 8 | 183k |
+| 1.4 (exact) | 58 | 2 | 187k |
+| 1.6 | 45 | 1 | 161k |
+
+Underestimating by 0.2 costs about 2%; overestimating by 0.2 about 14%, so when calibration is uncertain pick the low side. Truth here is simulated: the test shows the mechanism, not that 1.4 is right for any region. Constant speed and a single global factor remain.
+
+### 22.4 Price impact
+
+Model: price(q) = p0 (1 + q/V)^(-eta), V = the mandi-crop's median daily arrival (`capacity_kg`), revenue = q x price(q), five linear tranches. In the MILP, tranche variables carry the revenue (no binaries); the allocation LP uses the same tranches as demand nodes; baselines get realised revenue reduced first-come-first-served and do not anticipate it.
+
+Estimated eta (`price_flexibility_regression.py`: log modal price on log arrivals, market and crop-day fixed effects, five states): tomato about 0.09, cauliflower 0.05 to 0.1, spinach about 0.08, onion and potato about 0, mango unstable. These are lower bounds (measurement error pulls toward zero; the data cannot show the effect of one extra truck). The old stylized steps (1.0 / 0.9 / 0.78 over a day's capacity) correspond to eta about 0.35, roughly 3.5x. Defaults in `DEFAULT_ETA`: tomato 0.09, cauliflower 0.07, spinach 0.08, mango 0.04, onion 0.02, potato 0.015.
+
+SP-predicted gain matched simulated gain within about 3% (scale 1: 65.8k vs 64.5k; scale 3.5: 46.6k vs 44.4k). Scored on the same 3 seeds (n=80):
+
+| | gain |
+|---|---|
+| fixed-price accounting | 207k |
+| same planner scored with eta x1 | 173k (-17%) |
+| same planner scored with eta x3.5 | 111k (-46%) |
+
+Planner belief vs truth (gain under the TRUE elasticity; ignorant = plans with fixed prices):
+
+| true eta | ignorant | belief exact | belief 0.5x | belief 2x |
+|---|---|---|---|---|
+| x1 | 172.9k | 169.4k (-2%) | 169.0k | 171.5k |
+| x3.5 | 111.3k | 119.0k (+6.9%) | 115.3k (+3.5%) | 111.5k (+0.1%) |
+
+Reading: reporting with price response matters for honesty (fixed prices overstate gain by about 17% even at the conservative eta). Planning with it pays only when the response is strong, and a belief 2x too large is as bad as ignoring it. Keep planning belief off until eta is validated; use `true_price_impact` for scoring. Not modelled: baselines that anticipate impact; the effect of one extra truck on the day's price.
+
+### 22.5 Break-even doorstep price and the farm-gate discount
+
+Per dispatched trip: `breakeven.price_scale` (net return / assumed farm-gate value), `cushion_pct`, `per_kg_by_crop` (doorstep Rs/kg at which hauling is neutral), and `breakeven_discount`. The operational rule is to dispatch only if the live doorstep quote is below `per_kg_by_crop`. `meta["discount_stress"]` re-values the finished plan (no re-planning, all doorstep prices scaled together) for true discounts of 5/10/20/30/35%, with and without that rule.
+
+Planner assumes d, truth differs (6 seeds, n=80, summed gain):
+
+| planner assumes | truth 5% | truth 20% | truth 35% | mean over truths, run all | mean, live-quote rule |
+|---|---|---|---|---|---|
+| 10% (38 trips) | 105k, 7 trips lose | 257k | 409k | 257k | 258k |
+| 20% (67 trips) | 71k, 27 lose | 309k | 547k | 309k | 318k |
+| 30% (90 trips) | -8.6k, 52 lose | 292k (14 lose) | 593k | 292k | 322k |
+
+With the live-quote rule, regret against the best plan at each true discount was at most 11% (assume 30%, truth 5%), 8% (assume 20%, truth 35%) and about 30% (assume 10%, high truths). Plan at 20% to 30% with the rule; at about 20% if no live quotes exist. Limits: uniform scaling of doorstep prices; the true price only matters for trips already chosen; a backtest on price history is not built; about 10 real doorstep quotes per crop would beat any of this.
+
+### 22.6 Monte Carlo stress test
+
+`stress.py` replays the finished plan (same pools, vehicles and planned start hours, so zero noise reproduces the plan) through the real simulator under shocks: one day-wide travel-time factor (lognormal, sigma 0.2), each farmer ready late by |N(0, 1 h)|, mandi-crop and doorstep prices x lognormal (sigma 0.08 each). A trip that loses its vehicle or misses a deadline in a draw becomes a doorstep sale. Shock sizes are judgement calls.
+
+4 seeds, n=80, 100 selection draws then 100 fresh evaluation draws, summed over seeds:
+
+| trips kept | nominal gain | mean gain | P5 gain | P(gain<0) | trips lost per draw (avg per seed) |
+|---|---|---|---|---|---|
+| all 48 | 260k | 229k | 127k | 0 | 0.89 |
+| p_beat >= 0.7 (37) | 220k | 212k | 118k | 0 | 0.05 |
+| p_beat >= 0.8 (36) | 217k | 211k | 120k | 0 | 0.05 |
+| p_beat >= 0.9 (31) | 208k | 200k | 111k | 0 | 0.05 |
+
+The plan keeps about 88% of its nominal gain on average and about 49% in the worst 5% of draws, and never lost money overall. Withholding fragile trips lowers mean, P5 and expected shortfall alike: those trips are sometimes lost but profitable on average. `mc_min_prob` therefore stays off; use the break-even rule for downside protection. A 100-draw run takes about 10 to 12 s at n=80.
+
+### 22.7 What is still open
+
+OSRM road matrix (deferred to the end of the project); soft-capacity planning that beats ignoring price impact reliably (section 25: the SP and the simulator still disagree by 10% to 14% there); calibrated per-crop spoilage rates (section 23 says rates matter more than the model's shape); a price-history backtest; real doorstep quotes; the delivery leg not occupying vehicles; baselines that anticipate price impact.
+
+---
+
+## 23. Spoilage sensitivity (Oct 2026)
+
+Question: how much do ILO's results depend on the spoilage model, whose parameters are assumptions (per-crop linear hourly rate, tripled for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%)? `spoilage_params(rate_scale, unrefrig_mult, cap)` in `logistics_lib_v2.py` now changes them temporarily (constants `SPOIL_UNREFRIG_MULT`, `SPOIL_CAP`; defaults unchanged). For each variant the whole pipeline (ILO v3 and every baseline) is planned and scored under that variant (`experiments_v3_1/spoilage_sensitivity.py`; 4 seeds, n=80, summed).
+
+| variant | gain over farm-gate | vs nominal | ILO lead over best baseline | ILO's own plan returned | trips | farmers hauled that also appear in the nominal plan (Jaccard) | regret of running the nominal plan |
+|---|---|---|---|---|---|---|---|
+| nominal | 260k | - | +8.5% | 4/4 | 48 | 1.00 | 0 |
+| hourly rate x0.5 | 303k | +16% | +9.4% | 4/4 | 50 | 0.74 | +0.4% |
+| hourly rate x2 | 194k | -25% | +6.3% | 4/4 | 44 | 0.49 | +10.1% |
+| hourly rate x4 | 125k | -52% | +4.1% | 4/4 | 31 | 0.45 | +74.9% |
+| unrefrigerated multiplier 1.5 | 287k | +10% | +8.6% | 4/4 | 45 | 0.77 | +0.5% |
+| unrefrigerated multiplier 6 | 230k | -12% | +8.2% | 4/4 | 49 | 0.64 | +9.4% |
+| rate x2 and multiplier 6 | 175k | -33% | +6.8% | 4/4 | 40 | 0.49 | +44.2% |
+
+Regret = gain lost by executing the nominal plan's schedule (its pools, vehicles and start hours) under the variant instead of the variant's own plan, with no withholding, so trips that stop paying count as losses. A live-quote or break-even check (section 22.5) would avoid part of that.
+
+Reading:
+- The ranking is stable: ILO's own plan was returned in all 28 runs and led the best baseline by 4% to 9% everywhere. Spoilage uncertainty does not threaten the conclusion that planning beats the farmer heuristics.
+- The level and the content of the plan are not stable. Doubling the hourly rate removes a quarter of the gain and changes about half of the hauled farmers; a 4x rate removes half of it. The refrigeration multiplier matters less (6 vs 3: -12%).
+- So the next investment is measuring the per-crop hourly rates (for example from the ESP32 temperature logs plus received weight at the mandi), not a more elaborate functional form. Until then, `monte_carlo_stress(..., spoilage_rate_sd=0.5)` (or `run_ilo_v3(mc_draws=100, mc_kwargs={"spoilage_rate_sd": 0.5})`) shows how much a rate error moves a plan's gain.
+- Not tested: the 60% cap (trips here are mostly 2 to 7 h, where refrigerated crops stay well below it), non-linear or temperature-driven loss, price penalties for lower grade, and waiting time at the farm. Those may matter for long or hot trips.
+- Limits: synthetic scenarios, 4 seeds, one fleet size. The variants scale every crop together; crop-specific errors would change which farmers are hauled differently.
+
+---
+
+## 24. Is a richer trip structure worth building? (Oct 2026)
+
+Measured before building anything (`experiments_v3_1/trip_structure_probe.py`, `trip_structure_end_to_end.py`, `trip_structure_presets.py`; no planner code changed). Four questions on ILO v3's candidate set:
+- **capacity x3**: regenerate candidates and re-solve with every mandi-crop capacity tripled. An upper bound on what splitting loads across mandis could add, and a direct read on how much the capacity cap costs.
+- **top-K = all**: remove the cut that shows each farmer only their 3 best mandis (matters only with more than 3 mandis).
+- **mixed-crop**: add Clarke-Wright trips mixing crops of one refrigeration class (today a route carries one crop).
+- **binding**: share of chosen (mandi, crop) pairs filled to at least 90% of capacity, and of chosen trips sitting on them.
+
+"SP" figures are the fleet-blind set-partition objective (total gain over the farm gate); "end-to-end" is the full fleet-aware `run_ilo_v3`.
+
+### Synthetic scenarios (3 seeds each; SP objective)
+
+| farmers | mandis | base gain | capacity x3 | top-K all | mixed-crop | pairs >= 90% full | trips on full pairs | chosen trips already multi-crop |
+|---|---|---|---|---|---|---|---|---|
+| 80 | 3 | 79.6k | +27.3% | +0.0% | +1.7% | 43% | 60% | 10% |
+| 80 | 8 | 94.9k | +15.8% | +1.3% | +4.9% | 26% | 46% | 14% |
+| 150 | 3 | 53.5k | +51.4% | +0.0% | +11.7% | 43% | 72% | 25% |
+| 150 | 8 | 122.3k | +34.5% | -2.2% | +11.4% | 41% | 55% | 9% |
+| 300 | 3 | 32.5k | +113.6% | +0.0% | +12.1% | 41% | 70% | 25% |
+| 300 | 8 | 140.6k | +53.9% | +0.9% | +12.5% | 51% | 72% | 21% |
+
+End-to-end, n=150, 3 seeds, gain over farm-gate (sum): 3 mandis base 114.2k, mixed-crop +1.1%, capacity x3 +17.3%; 8 mandis base 214.6k, mixed-crop +4.9%, capacity x3 +8.9%. Per seed, mixed-crop ranged from about -12% to +13% against the baseline: a bigger candidate set can lower the final value because the set-partition objective and the simulator disagree by a few percent.
+
+### The five real-data presets (one scenario each)
+
+| preset | farmers / mandis / vehicles | SP base | capacity x3 | top-K all | mixed-crop | pairs >= 90% full | e2e base gain | e2e mixed-crop | e2e capacity x3 |
+|---|---|---|---|---|---|---|---|---|---|
+| bihar_dec2025_feb2026 | 34 / 8 / 8 | 44.4k | +52.2% | +0.0% | +6.9% | 33% | 46.0k | -1.7% | +38.7% |
+| karnataka_bengaluru | 61 / 8 / 16 | 79.0k | +14.6% | +0.0% | +0.0% | 29% | 78.1k | +0.0% | +18.6% |
+| up_aligarh | 59 / 8 / 15 | 72.7k | +18.8% | +0.1% | +0.5% | 14% | 74.5k | +1.7% | +15.3% |
+| maharashtra_junnar | 60 / 8 / 14 | 44.9k | +0.0% | +0.0% | +0.0% | 0% | 46.0k | +0.0% | +0.0% |
+| mp_indore | 57 / 11 / 13 | 41.6k | +0.0% | +0.0% | +0.0% | 0% | 38.0k | -0.2% | +4.6% |
+
+### Reading
+- **Multi-mandi trips are not justified.** What binds is each mandi's capacity, not the trip structure. A single truck split across two mandis only helps when its load exceeds one mandi's remaining room, which is a small slice of the capacity-x3 figure (that figure lets the same mandi absorb three times as much at the same price).
+- **The top-3 mandi cut is harmless** (0.0% in 11 of 15 synthetic cells and all presets; the few non-zero cells are within noise, since a larger eligible set changes Clarke-Wright merges).
+- **Mixed-crop consolidation is not worth it now.** The SP objective rises 2% to 12% on synthetic scenarios, but end-to-end it is +1% to +5% on average with seeds on both sides of zero, and between -1.7% and +1.7% on the presets.
+- **Mandi capacity is the lever.** In 3 of 5 presets (Bihar, Bengaluru, Aligarh) 14% to 33% of the chosen mandi-crop pairs are filled to 90% or more, and tripling capacity adds 15% to 39% end-to-end. In synthetic scenarios 26% to 51% of pairs are full and tripling adds 9% to 17% end-to-end (16% to 114% before the fleet limit). Junnar and Indore never bind.
+- Capacity is itself a weak input: it is the median daily arrival at the mandi (scaled), and six Bihar mandi-crop values are reporting defaults, not measurements. A hard cap also says a mandi takes nothing beyond it at any price. A soft cap (price falls with volume beyond a normal day, see section 22.4) is more realistic and would move plans exactly where the cap binds. Until then, report capacity sensitivity alongside gains.
+- Limits: the presets are one scenario each; the probes use the fleet-blind objective except where marked end-to-end; capacity x3 is a bound, not a forecast.
+
+---
+
+## 25. Soft mandi capacity (Oct 2026)
+
+Section 24 found that mandi capacity binds in 3 of 5 presets. A hard cap says a mandi takes nothing beyond a normal day's arrivals at any price. `PriceImpact(capacity_multiple=M)` (or `PriceImpact.soft(M)`) makes it soft: tranches continue to M times a normal day's arrivals at the falling price (1 + q/V)^-eta (V = `capacity_kg`). M=None or 1.0 is the old hard cap and the default. `price_impact.capacity_multiple` also scales the SP's capacity rows, candidate revenue and the baselines' remaining-capacity ledger, so planner, simulator and baselines all see the same world. `run_ilo_v3` reports `meta["params"]["capacity_multiple_belief"]`.
+
+**A flaw found on the way.** With price impact on, each trip was offered at only its single best-price mandi, so the SP could not spread volume to the second-best mandi when the best was crowded. With a soft cap the SP's optimum was even below what the hard-cap plan scores in the soft model (Aligarh: 65.0k vs 69.8k). `run_ilo_v3(markets_per_trip=...)` now offers each trip at up to 3 mandis whenever `price_impact` is set (1 otherwise, so default behaviour and keys are unchanged); after that the soft SP beats the hard plan in the soft model (78.5k vs 70.5k on Aligarh).
+
+`experiments_v3_1/soft_capacity.py`: truth = soft capacity (M=3) at eta x1 and x3.5; planners: fixed prices + hard cap (today), price impact + hard cap, price impact + soft cap; all scored with `true_price_impact` = the soft world. Gain over farm-gate:
+
+| scenario | eta | fixed+hard | impact+hard | impact+soft | soft vs fixed+hard |
+|---|---|---|---|---|---|
+| Bihar | x1 | 54.3k | 53.3k | 57.2k | +5.4% |
+| Bihar | x3.5 | 48.1k | 42.2k | 45.9k | -4.6% |
+| Bengaluru | x1 | 87.3k | 87.3k | 88.3k | +1.1% |
+| Bengaluru | x3.5 | 73.0k | 73.0k | 73.4k | +0.6% |
+| Aligarh | x1 | 78.0k | 81.0k | 75.8k | -2.9% |
+| Aligarh | x3.5 | 62.1k | 64.9k | 56.1k | -9.7% |
+| synthetic 150x3, seed 1 | x1 | 20.2k | 20.6k | 25.8k | +27.5% |
+| synthetic 150x3, seed 1 | x3.5 | 9.0k | 8.2k | 13.4k | +47.9% |
+| synthetic 150x3, seed 2 | x1 | 34.5k | 32.8k | 40.3k | +16.8% |
+| synthetic 150x3, seed 2 | x3.5 | 20.4k | 19.6k | 18.9k | -7.4% |
+
+Reading:
+- **Planning with soft capacity is not reliably better.** It wins in 6 of 10 cells (up to +48%) and loses in 4 (down to -9.7%). The SP and the simulator still disagree by 10% to 14% under soft capacity: on Aligarh at eta x3.5 the soft plan is predicted at 64.7k and simulates at 55.6k, while the hard-cap plans simulate 7% to 10% above their own predictions (they truncate volume past the cap that the soft world sells). The cause of the soft-plan gap is not isolated (candidates: the simulator re-routing and re-allocating markets, and withholding marginal trips). Until it is, keep soft capacity out of the planning belief (`price_impact` default None) and use it for scoring (`true_price_impact`).
+- **The capacity assumption itself changes the reported gain.** For the same planner (fixed prices, hard cap), scoring in the soft world instead of a hard-cap world gives (eta x1 / x3.5): Bihar 44.1k -> 54.3k / 39.6k -> 48.1k, Bengaluru 74.3k -> 87.3k / 65.1k -> 73.0k, Aligarh 68.7k -> 78.0k / 58.1k -> 62.1k, synthetic seed 1 16.1k -> 20.2k / 9.7k -> 9.0k, seed 2 34.5k -> 34.5k / 19.3k -> 20.4k. That is +7% to +26% in 8 of 10 cells, and 0% and -7% in two synthetic cells (the final plan is chosen by simulated value, so the comparison is not strictly monotone). A hard cap is the conservative end; report both.
+- Limits: 3 presets and 2 synthetic seeds; M=3 is an assumption (how far a mandi can really stretch is unmeasured); eta uses the defaults of section 22.4, which are lower bounds.
