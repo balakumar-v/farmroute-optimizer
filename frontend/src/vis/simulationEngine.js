@@ -1,4 +1,4 @@
-// frontend/vis/simulationEngine.js
+// frontend/src/vis/simulationEngine.js
 // -------------------------------------------------------------------------
 // Turns a solution's `simulationEvents` (see visualization_adapter.py) into
 // a scrubbable timeline: play/pause/reset/speed/seek, plus a snapshot() of

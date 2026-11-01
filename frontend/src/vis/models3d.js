@@ -1,4 +1,4 @@
-// frontend/vis/models3d.js
+// frontend/src/vis/models3d.js
 // -------------------------------------------------------------------------
 // Builds actual recognizable low-poly 3D shapes -- a truck (cargo box + cab
 // + wheels), a market stall (walls + a wider overhanging roof slab), and a

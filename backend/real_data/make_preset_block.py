@@ -1,11 +1,11 @@
 """
 make_preset_block.py
 --------------------
-Prints a ready-to-paste entry for the frontend's preset list (frontend/app.js -> SCENARIOS), built from
+Prints a ready-to-paste entry for the frontend's preset list (frontend/src/lib/scenarios.ts -> SCENARIOS), built from
 data/real_markets.json, so adding the next real dataset = run this, paste the output, done.
 
 It lands in the "Real data" category of the preset dropdown (category: "real").
-Paste the printed entry inside `const SCENARIOS = { ... }` in frontend/app.js, after the existing real presets.
+Paste the printed entry inside `const SCENARIOS = { ... }` in frontend/src/lib/scenarios.ts, after the existing real presets.
 
     python real_data/make_preset_block.py --id up_bihar_mar2026 \
         --label "Bihar + UP mandis, Mar 2026" \

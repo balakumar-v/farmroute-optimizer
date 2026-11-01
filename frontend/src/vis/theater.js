@@ -1,4 +1,4 @@
-// frontend/vis/theater.js
+// frontend/src/vis/theater.js
 // -------------------------------------------------------------------------
 // Fullscreen "theater" presentation for a computed plan: a slideshow, not a
 // continuously-ticking animation -- each click of Next/Back moves exactly

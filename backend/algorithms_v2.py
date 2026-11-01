@@ -109,7 +109,7 @@ def _dbscan_clusters(farmer_list, eps_km=EPS_KM):
 # addressed separately by depot_aware_fleet_composition() in
 # logistics_lib_v2.py, which sizes the fleet off this same partition.
 # Re-run benchmark_v2.py after any change here; see
-# ALGORITHM_AND_RESULTS_V2.md for what past changes actually did to the
+# docs/ALGORITHM_AND_RESULTS.md for what past changes actually did to the
 # numbers, not just this claim.
 
 
@@ -212,7 +212,7 @@ def _refrig_eps_km(farmers, fleet, eps_km=EPS_KM, max_mult=REFRIG_EPS_MAX_MULT):
     trip for each small, eps-isolated cluster.
 
     This was not a guess: traced directly on a MILP-vs-ILO gap
-    (MILP_GROUND_TRUTH.md, "A concrete, traced cause of ILO's worst
+    (docs/MILP_GROUND_TRUTH.md, "A concrete, traced cause of ILO's worst
     gap") -- 4 of 6 farmers needing refrigeration against a fleet with
     exactly 1 refrigerated truck made a 33km-spanning consolidated trip
     the true optimum, but ILO's fixed 12km eps could never consider it:
@@ -221,7 +221,7 @@ def _refrig_eps_km(farmers, fleet, eps_km=EPS_KM, max_mult=REFRIG_EPS_MAX_MULT):
 
     Widens the clustering radius ONLY for refrigeration-needing farmers
     (the general population keeps the tight eps that fixed the
-    sprawling-route regression at scale -- ALGORITHM_AND_RESULTS_V2.md
+    sprawling-route regression at scale -- docs/ALGORITHM_AND_RESULTS.md
     ss7 bug 4 -- stays intact for everyone else), scaled by how scarce
     refrigerated capacity actually is and capped at max_mult so it can't
     grow unbounded.
@@ -240,7 +240,7 @@ def _refrig_eps_km(farmers, fleet, eps_km=EPS_KM, max_mult=REFRIG_EPS_MAX_MULT):
 
 # A "capacity scarcity" dimension (generalizing the refrigeration fix
 # above to vehicles above the fleet's smallest tier) was tried in this
-# round and reverted -- see ALGORITHM_AND_RESULTS_V2.md s13 for the
+# round and reverted -- see docs/ALGORITHM_AND_RESULTS.md s13 for the
 # full writeup. Short version: the one farmer-level attribute available
 # (qty_kg exceeding the smallest vehicle's capacity) does not identify
 # a genuinely SCARCE vehicle subset the way needs_refrigeration does --
@@ -458,7 +458,7 @@ def assign_fleet(pool_descs, fleet, order_key=None):
     pool and the whole fleet into one Hungarian-algorithm matching per
     round, repeated until nothing more can be assigned) was tried in
     Round 5 and reverted -- see _assign_fleet_joint_attempt() below and
-    ALGORITHM_AND_RESULTS_V2.md s14 for why. Short version: batching
+    docs/ALGORITHM_AND_RESULTS.md s14 for why. Short version: batching
     into synchronized rounds caps each round's assignments at one per
     vehicle, which throws away the fine-grained, per-vehicle timing
     that lets THIS version reuse a vehicle the instant it individually
@@ -538,7 +538,7 @@ ASSIGN_FLEET_INFEASIBLE_COST = 1.0e9  # >> any real capacity_kg + penalty; marks
 
 def _assign_fleet_joint_attempt(pool_descs, fleet):
     """NOT USED -- kept only as a documented, verified-worse alternative
-    (ALGORITHM_AND_RESULTS_V2.md s14), the same way _refrig_eps_km's
+    (docs/ALGORITHM_AND_RESULTS.md s14), the same way _refrig_eps_km's
     reverted capacity dimension is documented rather than silently
     deleted. Do not wire this in without re-reading s14 first.
 
@@ -846,7 +846,7 @@ def apply_sensor_reading(trace, pool_id, observed_temp_c, elapsed_hours):
 #    gained from smarter market allocation. Mixing crops recovers the
 #    trip-count advantage while keeping per-crop LP allocation.
 # ----------------------------------------------------------------------
-# --- economic dispatch control (see ALGORITHM_AND_RESULTS_V2.md s17) -------------------------
+# --- economic dispatch control (see docs/ALGORITHM_AND_RESULTS.md s17) -------------------------
 DISPATCH_MIN_NET = 0.0          # a trip must at least break even to run
 MAX_WITHHOLD_PASSES = 30        # re-plan passes after withholding loss-making trips (exits early at a fixed point)
 LOCAL_SEARCH_MAX_EVALS = 30     # full re-plans the bounded local search may spend

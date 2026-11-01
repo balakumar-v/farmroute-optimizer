@@ -17,7 +17,3 @@ scipy>=1.11
 # available and falls back to a pure-Python method if it's missing. Not
 # required, but recommended for larger datasets.
 scikit-learn>=1.3
-
-# Farmer-list upload (POST /farmers/upload): multipart form parsing and .xlsx reading.
-python-multipart>=0.0.9
-openpyxl>=3.1

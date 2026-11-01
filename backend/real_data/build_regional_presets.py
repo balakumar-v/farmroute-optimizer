@@ -2,7 +2,7 @@
 build_regional_presets.py
 --------------------------
 One India Data Portal "APMC Arrivals and Prices" CSV for a whole state  ->  one frontend preset (a JS block for
-frontend/app.js -> SCENARIOS) plus a JSON/markdown record of exactly what was cleaned, imputed and assumed.
+frontend/src/lib/scenarios.ts -> SCENARIOS) plus a JSON/markdown record of exactly what was cleaned, imputed and assumed.
 
     python real_data/build_regional_presets.py --preset karnataka_bengaluru --csv path/to/state.csv
     python real_data/build_regional_presets.py --list

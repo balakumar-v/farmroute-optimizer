@@ -8,7 +8,7 @@ backend brief.
 
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 from logistics_lib_v2 import CROPS, VEHICLE_TYPES
 
@@ -122,15 +122,3 @@ class SensorReadingIn(BaseModel):
 
 class SensorReadingOut(SensorReadingIn):
     id: int
-
-
-class QuoteCheckIn(BaseModel):
-    """A trader's doorstep offer for one farmer's whole lot, in Rs per kg."""
-    farmer_id: int
-    quote_per_kg: float = Field(gt=0)
-
-
-class LoginIn(BaseModel):
-    """Farmer login: the farmer's ID and the 6-digit PIN their FPO gave them."""
-    farmer_id: int
-    pin: str = Field(pattern=r"^\d{6}$")

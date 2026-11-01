@@ -1,4 +1,4 @@
-// frontend/vis/icons.js
+// frontend/src/vis/icons.js
 // -------------------------------------------------------------------------
 // Builds a tiny in-memory icon atlas for the map: a farmer/crop glyph, a
 // delivery vehicle glyph, and a market/storefront glyph, drawn as vector

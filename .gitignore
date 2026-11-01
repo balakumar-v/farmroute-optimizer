@@ -1,5 +1,19 @@
+# Python
 __pycache__/
 *.pyc
-backend/fpo.db
+.venv/
+venv/
+.pytest_cache/
+
+# Local environment and data
+.env
+*.db
+
+# Node
+node_modules/
+dist/
+
+# Editors and OS
 .DS_Store
-backend/.env
+.idea/
+.vscode/

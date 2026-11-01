@@ -27,17 +27,7 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     if (!base) throw new ApiError("Set the backend API base URL first.", "network");
     let res: Response;
     try {
-      const send = () => {
-        const h = new Headers(init?.headers);
-        const t = localStorage.getItem("farmroute.adminToken");
-        if (t) h.set("Authorization", `Bearer ${t}`);
-        return fetch(base + path, { ...init, headers: h });
-      };
-      res = await send();
-      if (res.status === 401) { // the backend has ADMIN_TOKEN set: ask once, remember it on this browser, retry
-        const t = window.prompt("This backend needs the admin token.");
-        if (t) { localStorage.setItem("farmroute.adminToken", t.trim()); res = await send(); }
-      }
+      res = await fetch(base + path, init);
       onConn("ok");
     } catch {
       onConn("bad");

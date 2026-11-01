@@ -1,4 +1,4 @@
-"""Load a preset from frontend/app.js (default: the Bihar Dec 2025 - Feb 2026 one) into the library's objects, so
+"""Load a preset from frontend/src/lib/scenarios.ts (default: the Bihar Dec 2025 - Feb 2026 one) into the library's objects, so
 the backend benchmarks and tests can run on it without a browser or the API.
 
     from real_data.bihar_preset import load
@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from logistics_lib_v2 import CROPS, Farmer, Market, make_fleet  # noqa: E402
 
-APP_JS = Path(__file__).resolve().parent.parent.parent / "frontend" / "app.js"
+SCENARIOS_TS = Path(__file__).resolve().parent.parent.parent / "frontend" / "src" / "lib" / "scenarios.ts"
 
 
 def _js_to_py(block):
@@ -24,7 +24,7 @@ def _js_to_py(block):
 
 
 def load(key="bihar_dec2025_feb2026"):
-    seg = APP_JS.read_text()
+    seg = SCENARIOS_TS.read_text()
     seg = seg[seg.index(f"  {key}: {{"):]
 
     def arr(name):

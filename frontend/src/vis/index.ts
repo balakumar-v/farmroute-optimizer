@@ -1,4 +1,4 @@
-// Typed entry point for the imperative map/simulation engine (ES modules ported from the legacy frontend/vis/*.js).
+// Typed entry point for the imperative map/simulation engine (the MapLibre + deck.gl ES modules in this folder).
 // The engine modules stay JavaScript; this file defines the surface the React app is allowed to use.
 import { Vis as VisNamespace } from "./namespace.js";
 import "./adapter.js";

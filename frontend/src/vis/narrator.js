@@ -1,4 +1,4 @@
-// frontend/vis/narrator.js
+// frontend/src/vis/narrator.js
 // -------------------------------------------------------------------------
 // Turns a solution's real routes + simulationEvents into a single,
 // chronologically-ordered list of plain-English steps -- "Farmers F3, F5
