@@ -1,10 +1,10 @@
-// frontend/src/vis/adapter.js
+// frontend/vis/adapter.js
 // -------------------------------------------------------------------------
 // Thin client-side consumer of GET /plan/{id}/visualization. The real
 // adapter work (pools -> routes/events/farmers/vehicles/markets) happens
 // backend-side in visualization_adapter.py -- this file does NOT contain
 // optimization or routing logic. Its only two jobs:
-//   1. fetch() the endpoint and surface errors with a readable message
+//   1. fetch() the endpoint and surface errors the way app.js's api() does
 //   2. deterministic color assignment, which is a presentation concern and
 //      belongs in the frontend, not the backend adapter.
 //
@@ -25,7 +25,7 @@ import { Vis } from "./namespace.js";
   };
 
   /** GET /plan/{planId}/visualization. Throws Error with a readable message
-   * on failure. */
+   * on failure, same convention app.js's api() uses. */
   Vis.fetchVisualization = async function (apiBase, planId) {
     if (!apiBase) throw new Error("Set the backend API base URL on the Data entry tab first.");
     if (planId === null || planId === undefined) throw new Error("No plan computed yet.");

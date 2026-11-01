@@ -89,6 +89,25 @@ CREATE TABLE IF NOT EXISTS road_routes (
     legs TEXT NOT NULL,        -- JSON [{coordinates, distanceKm, offRoadKm}, ...]
     created_at TEXT NOT NULL
 );
+
+-- Farmer portal. PINs are stored only as salted hashes. One row per farmer id.
+CREATE TABLE IF NOT EXISTS farmer_credentials (
+    farmer_id INTEGER PRIMARY KEY,
+    pin_hash TEXT NOT NULL,
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    locked_until DOUBLE PRECISION NOT NULL DEFAULT 0,   -- unix seconds; 0 = not locked
+    created_at DOUBLE PRECISION NOT NULL
+);
+
+-- The one plan farmers can see, as ready-made per-farmer cards (so a farmer's request reads one card and never
+-- touches the plan itself). A single row (id = 1).
+CREATE TABLE IF NOT EXISTS published_plan (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    plan_id INTEGER NOT NULL,
+    previous_plan_id INTEGER,
+    published_at TEXT NOT NULL,
+    cards TEXT NOT NULL      -- JSON: {farmer_id: card}
+);
 """
 
 

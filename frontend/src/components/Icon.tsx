@@ -4,7 +4,7 @@ export type IconName =
   | "list" | "table" | "route" | "bars" | "map" | "play" | "pause" | "reset" | "present" | "close" | "prev"
   | "next" | "check" | "plus" | "cube" | "truck" | "split" | "chevron" | "arrow" | "alert" | "spin";
 
-/** One sprite for the whole app (also used by the vis modules' innerHTML snippets). */
+/** One sprite for the whole app (also used by the legacy vis modules' innerHTML snippets). */
 export function IconSprite() {
   return (
     <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true" focusable="false">

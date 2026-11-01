@@ -1,0 +1,14 @@
+........................................................................ [ 52%]
+.................................................................        [100%]
+=============================== warnings summary ===============================
+real_data/tests/test_regional_presets.py::test_load_clean_drops_each_class_of_bad_row_and_counts_them
+  /home/claude/farmroute-optimizer-main/backend/real_data/build_regional_presets.py:143: UserWarning: Boolean Series key will be reindexed to match DataFrame index.
+    df, pf, af = df[keep], pf[keep], af[keep]
+
+tests/test_road_planning.py::test_model_is_road_matrix_and_second_plan_reuses_the_cache
+tests/test_road_planning.py::test_replay_uses_exactly_the_distances_the_plan_saw
+  /home/claude/farmroute-optimizer-main/backend/roads.py:526: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    json.dumps(km, separators=(",", ":")), ratio, datetime.datetime.utcnow().isoformat()),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+137 passed, 22 deselected, 3 warnings in 217.31s (0:03:37)

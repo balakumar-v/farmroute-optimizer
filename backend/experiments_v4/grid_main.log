@@ -1,0 +1,271 @@
+G60 s0 V0_zip: gain 17468 secs 10.7
+G60 s0 V1_cw5+enrich: gain 16256 secs 12.2
+G60 s0 C1_keeporder: gain 18436 secs 10.4
+G60 s0 C3_simspoil: gain 17002 secs 10.6
+G60 s0 C13: gain 20020 secs 10.7
+G60 s0 C123: gain 18566 secs 10.8
+G60 s0 C13+V1: gain 20315 secs 11.2
+G60 s0 C13+CG2: gain 21519 secs 12.0
+G60 s0 C13+CG2+V1: gain 20664 secs 13.1
+G60 s1 V0_zip: gain 45063 secs 10.5
+G60 s1 V1_cw5+enrich: gain 47550 secs 12.3
+G60 s1 C1_keeporder: gain 47463 secs 10.3
+G60 s1 C3_simspoil: gain 45063 secs 10.4
+G60 s1 C13: gain 47552 secs 10.6
+G60 s1 C123: gain 47709 secs 11.2
+G60 s1 C13+V1: gain 50811 secs 13.3
+G60 s1 C13+CG2: gain 52189 secs 12.5
+G60 s1 C13+CG2+V1: gain 54774 secs 16.0
+G60 s2 V0_zip: gain 18838 secs 13.7
+G60 s2 V1_cw5+enrich: gain 23517 secs 12.6
+G60 s2 C1_keeporder: gain 18859 secs 12.9
+G60 s2 C3_simspoil: gain 19113 secs 12.5
+G60 s2 C13: gain 19666 secs 12.0
+G60 s2 C123: gain 19755 secs 12.1
+G60 s2 C13+V1: gain 25132 secs 11.4
+G60 s2 C13+CG2: gain 25535 secs 13.2
+G60 s2 C13+CG2+V1: gain 24030 secs 13.1
+G60 s3 V0_zip: gain 51168 secs 12.8
+G60 s3 V1_cw5+enrich: gain 58272 secs 13.6
+G60 s3 C1_keeporder: gain 52068 secs 12.1
+G60 s3 C3_simspoil: gain 57447 secs 12.8
+G60 s3 C13: gain 57389 secs 12.7
+G60 s3 C123: gain 59740 secs 12.6
+G60 s3 C13+V1: gain 60632 secs 13.9
+G60 s3 C13+CG2: gain 62321 secs 14.1
+G60 s3 C13+CG2+V1: gain 62092 secs 17.5
+G60 s4 V0_zip: gain 18654 secs 14.0
+G60 s4 V1_cw5+enrich: gain 28153 secs 14.2
+G60 s4 C1_keeporder: gain 20449 secs 14.6
+G60 s4 C3_simspoil: gain 22755 secs 13.3
+G60 s4 C13: gain 23217 secs 14.0
+G60 s4 C123: gain 23958 secs 13.9
+G60 s4 C13+V1: gain 29923 secs 14.3
+G60 s4 C13+CG2: gain 26892 secs 14.5
+G60 s4 C13+CG2+V1: gain 29601 secs 18.0
+G60 s5 V0_zip: gain 8147 secs 12.0
+G60 s5 V1_cw5+enrich: gain 11203 secs 12.1
+G60 s5 C1_keeporder: gain 8147 secs 12.0
+G60 s5 C3_simspoil: gain 9359 secs 12.0
+G60 s5 C13: gain 9516 secs 11.8
+G60 s5 C123: gain 9823 secs 12.2
+G60 s5 C13+V1: gain 13366 secs 11.7
+G60 s5 C13+CG2: gain 15153 secs 12.0
+G60 s5 C13+CG2+V1: gain 15364 secs 12.6
+D150 s0 V0_zip: gain 7984 secs 4.4
+D150 s0 V1_cw5+enrich: gain 13513 secs 6.4
+D150 s0 C1_keeporder: gain 7200 secs 4.9
+D150 s0 C3_simspoil: gain 8001 secs 4.7
+D150 s0 C13: gain 7778 secs 4.7
+D150 s0 C123: gain 11246 secs 4.5
+D150 s0 C13+V1: gain 15442 secs 7.0
+D150 s0 C13+CG2: gain 16646 secs 5.9
+D150 s0 C13+CG2+V1: gain 16702 secs 12.3
+D150 s1 V0_zip: gain 34702 secs 10.2
+D150 s1 V1_cw5+enrich: gain 36632 secs 10.9
+D150 s1 C1_keeporder: gain 36408 secs 9.9
+D150 s1 C3_simspoil: gain 36853 secs 9.8
+D150 s1 C13: gain 38566 secs 9.8
+D150 s1 C123: gain 33522 secs 10.1
+D150 s1 C13+V1: gain 43900 secs 12.2
+D150 s1 C13+CG2: gain 43205 secs 13.5
+D150 s1 C13+CG2+V1: gain 49510 secs 17.8
+D150 s2 V0_zip: gain 43303 secs 8.1
+D150 s2 V1_cw5+enrich: gain 50155 secs 11.9
+D150 s2 C1_keeporder: gain 50065 secs 8.4
+D150 s2 C3_simspoil: gain 43382 secs 7.8
+D150 s2 C13: gain 50500 secs 8.0
+D150 s2 C123: gain 45516 secs 8.6
+D150 s2 C13+V1: gain 49745 secs 12.0
+D150 s2 C13+CG2: gain 59017 secs 11.5
+D150 s2 C13+CG2+V1: gain 56032 secs 17.6
+D150 s3 V0_zip: gain 53022 secs 6.1
+D150 s3 V1_cw5+enrich: gain 58241 secs 13.8
+D150 s3 C1_keeporder: gain 52697 secs 6.4
+D150 s3 C3_simspoil: gain 53742 secs 8.1
+D150 s3 C13: gain 54153 secs 7.8
+D150 s3 C123: gain 56840 secs 7.3
+D150 s3 C13+V1: gain 66843 secs 14.3
+D150 s3 C13+CG2: gain 67003 secs 15.1
+D150 s3 C13+CG2+V1: gain 64886 secs 25.0
+D150 s4 V0_zip: gain 48831 secs 10.9
+D150 s4 V1_cw5+enrich: gain 50418 secs 16.4
+D150 s4 C1_keeporder: gain 48831 secs 11.0
+D150 s4 C3_simspoil: gain 49365 secs 11.9
+D150 s4 C13: gain 51769 secs 12.6
+D150 s4 C123: gain 52099 secs 12.0
+D150 s4 C13+V1: gain 51452 secs 14.3
+D150 s4 C13+CG2: gain 60012 secs 17.6
+D150 s4 C13+CG2+V1: gain 66051 secs 27.0
+D150 s5 V0_zip: gain 24777 secs 3.8
+D150 s5 V1_cw5+enrich: gain 25669 secs 7.2
+D150 s5 C1_keeporder: gain 25484 secs 3.5
+D150 s5 C3_simspoil: gain 24777 secs 4.4
+D150 s5 C13: gain 25583 secs 4.4
+D150 s5 C123: gain 24777 secs 4.9
+D150 s5 C13+V1: gain 30555 secs 6.5
+D150 s5 C13+CG2: gain 28756 secs 5.9
+D150 s5 C13+CG2+V1: gain 32016 secs 9.4
+G60 s0 V0_zip: gain 17468 secs 11.0
+G60 s0 V0@T0: gain 15961 secs 10.1
+G60 s0 V0@T2.5: gain 14757 secs 9.7
+G60 s0 BEST: gain 20664 secs 12.2
+G60 s0 BEST@T0: gain 24391 secs 12.7
+G60 s0 BEST@T2.5: gain 21582 secs 13.1
+G60 s1 V0_zip: gain 45063 secs 10.4
+G60 s1 V0@T0: gain 38153 secs 9.2
+G60 s1 V0@T2.5: gain 31447 secs 9.2
+G60 s1 BEST: gain 54774 secs 16.0
+G60 s1 BEST@T0: gain 59924 secs 14.6
+G60 s1 BEST@T2.5: gain 53799 secs 14.4
+G60 s2 V0_zip: gain 18838 secs 13.0
+G60 s2 V0@T0: gain 17646 secs 12.4
+G60 s2 V0@T2.5: gain 17920 secs 12.4
+G60 s2 BEST: gain 24030 secs 13.8
+G60 s2 BEST@T0: gain 24419 secs 14.7
+G60 s2 BEST@T2.5: gain 25764 secs 13.8
+G60 s3 V0_zip: gain 51168 secs 12.7
+G60 s3 V0@T0: gain 53139 secs 12.9
+G60 s3 V0@T2.5: gain 46804 secs 13.0
+G60 s3 BEST: gain 62092 secs 17.8
+G60 s3 BEST@T0: gain 67000 secs 17.4
+G60 s3 BEST@T2.5: gain 58615 secs 15.7
+D150 s0 V0_zip: gain 7984 secs 4.6
+D150 s0 V0@T0: gain 7396 secs 4.1
+D150 s0 V0@T2.5: gain 9620 secs 5.3
+D150 s0 BEST: gain 16702 secs 11.2
+D150 s0 BEST@T0: gain 16197 secs 11.8
+D150 s0 BEST@T2.5: gain 16702 secs 12.0
+D150 s1 V0_zip: gain 34702 secs 10.0
+D150 s1 V0@T0: gain 36641 secs 9.4
+D150 s1 V0@T2.5: gain 23662 secs 9.6
+D150 s1 BEST: gain 49510 secs 18.7
+D150 s1 BEST@T0: gain 54582 secs 22.6
+D150 s1 BEST@T2.5: gain 40313 secs 16.8
+D150 s2 V0_zip: gain 43303 secs 8.7
+D150 s2 V0@T0: gain 44632 secs 8.0
+D150 s2 V0@T2.5: gain 41089 secs 8.8
+D150 s2 BEST: gain 56032 secs 17.9
+D150 s2 BEST@T0: gain 55209 secs 24.9
+D150 s2 BEST@T2.5: gain 59046 secs 17.2
+D150 s3 V0_zip: gain 53022 secs 6.5
+D150 s3 V0@T0: gain 54760 secs 6.4
+D150 s3 V0@T2.5: gain 46425 secs 7.4
+D150 s3 BEST: gain 64886 secs 23.8
+D150 s3 BEST@T0: gain 65662 secs 20.9
+D150 s3 BEST@T2.5: gain 67229 secs 19.2
+D300 s0 V0_zip: gain 83747 secs 35.8
+D300 s0 TL120: gain 84371 secs 125.9
+D300 s0 BEST: gain 96295 secs 63.4
+D150 s3 BEST+MIX: gain 72681 secs 58.9
+D150 s4 BEST+MIX: gain 70841 secs 70.2
+D150 s5 BEST+MIX: gain 32826 secs 24.3
+D150 s0 V0_zip: gain 7984 secs 5.5
+D150 s0 knn_forced: gain 7984 secs 5.1
+D150 s0 BEST: gain 16702 secs 14.3
+D150 s0 BEST+knn: gain 16702 secs 12.9
+D150 s1 V0_zip: gain 34702 secs 10.6
+D150 s1 knn_forced: gain 34702 secs 10.8
+D150 s1 BEST: gain 49510 secs 20.4
+D150 s1 BEST+knn: gain 49510 secs 21.5
+D150 s2 V0_zip: gain 43303 secs 8.8
+D150 s2 knn_forced: gain 43303 secs 9.7
+D150 s2 BEST: gain 56032 secs 21.4
+D150 s2 BEST+knn: gain 51616 secs 21.0
+D150 s3 V0_zip: gain 53022 secs 7.1
+D150 s3 knn_forced: gain 53022 secs 7.6
+D150 s3 BEST: gain 64886 secs 27.8
+D150 s3 BEST+knn: gain 69530 secs 28.8
+D300 s1 V0_zip: gain 40789 secs 34.6
+D300 s1 BEST: gain 46521 secs 51.6
+D300 s1 knn_forced: gain 44347 secs 34.4
+D300 s2 V0_zip: gain 46075 secs 21.5
+D300 s2 BEST: gain 50667 secs 64.5
+D300 s2 knn_forced: gain 46075 secs 16.4
+D300 s0 C13: gain 86262 secs 37.3
+D300 s0 C13+CAP90: gain 87447 secs 35.4
+D300 s0 C13+CAP80: gain 83747 secs 37.6
+D300 s1 C13: gain 43961 secs 22.7
+D300 s1 C13+CAP90: gain 40164 secs 34.7
+D300 s1 C13+CAP80: gain 40379 secs 10.4
+D300 s2 C13: gain 46075 secs 14.1
+D300 s2 C13+CAP90: gain 46075 secs 30.3
+D300 s2 C13+CAP80: gain 46075 secs 16.2
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+Traceback (most recent call last):
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/run_grid.py", line 17, in <module>
+    r = common.run(n, seed, env=VARIANTS[name], family=fam)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/common.py", line 91, in run
+    res, meta = ilo_v3.run_ilo_v3(farmers, fleet, markets, discount=DISCOUNT, return_meta=True, **kw)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../ilo_v3.py", line 689, in run_ilo_v3
+    plans["A:ilo_pools"], traces["A:ilo_pools"] = run_our_system_v2(farmers, copy.deepcopy(fleet), markets,
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 947, in run_our_system_v2
+    for gc in _geo_clusters(farmers, scarcity_eps=scarcity_eps):  # crop-blind clustering
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 156, in _geo_clusters
+    clusters.extend(_dbscan_clusters(eps_groups[eff_eps], eps_km=eff_eps))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/farmroute-optimizer-main/backend/experiments_v4/../algorithms_v2.py", line 62, in _dbscan_clusters
+    if os.environ.get("ILO_ROAD_DBSCAN"):          # experiment switch: cluster on the road matrix, not scaled straight-line
+       ^^
+NameError: name 'os' is not defined. Did you forget to import 'os'?
+D300 s0 ROAD: gain 75730 secs 37.0
+D300 s0 C13+ROAD: gain 84100 secs 36.9
+D300 s1 ROAD: gain 36866 secs 18.7
+D300 s1 C13+ROAD: gain 41845 secs 34.1
+D300 s2 ROAD: gain 45124 secs 22.7
+D300 s2 C13+ROAD: gain 45124 secs 8.4
+G60 s0 ROAD: gain 17468 secs 11.3
+G60 s1 ROAD: gain 45063 secs 11.3
+G60 s2 ROAD: gain 18838 secs 13.1
+G60 s3 ROAD: gain 51018 secs 14.5
+G60 s4 ROAD: gain 18849 secs 15.5
+G60 s5 ROAD: gain 7017 secs 12.7
+D150 s0 ROAD: gain 10958 secs 5.1
+D150 s1 ROAD: gain 26997 secs 7.8
+D150 s2 ROAD: gain 42901 secs 8.5
+D150 s3 ROAD: gain 53241 secs 8.0
+D150 s4 ROAD: gain 49196 secs 11.1
+D150 s5 ROAD: gain 24426 secs 5.7

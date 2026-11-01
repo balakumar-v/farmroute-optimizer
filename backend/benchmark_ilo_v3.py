@@ -5,7 +5,7 @@ Run from backend/:
   python benchmark_ilo_v3.py grid   [--n 30 100 300] [--seeds 2]     win/tie/loss map + property check
   python benchmark_ilo_v3.py robust [--n 100] [--seeds 3]            planner assumes 20% discount, truth differs
   python benchmark_ilo_v3.py margin [--n 100] [--seeds 3]            tune dispatch_margin under that mismatch
-  python benchmark_ilo_v3.py bihar                                   the Bihar preset (needs frontend/src/lib/scenarios.ts)
+  python benchmark_ilo_v3.py bihar                                   the Bihar preset (needs frontend/app.js)
 
 Every value is farmer-side value INCLUDING the farm-gate sale of anything not hauled, same prices and accounting
 (return leg charged, spoilage from pickup) for every algorithm. Baselines: farm-gate only, and rational and

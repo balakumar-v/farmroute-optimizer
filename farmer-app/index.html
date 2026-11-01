@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Farmroute</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#1E4D3A">
+<link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<link href="https://fonts.googleapis.com/css2?family=Mukta:wght@400;600;800&family=Noto+Sans+Telugu:wght@500;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Mukta,"Noto Sans Telugu",system-ui,sans-serif;color:#14231B;background:#fff;font-size:17px;line-height:1.4}
+#app{max-width:480px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
+button,input{font:inherit}button{cursor:pointer}svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}.col{display:flex;flex-direction:column;gap:16px}
+.hd{background:#1E4D3A;color:#fff;padding:calc(12px + env(safe-area-inset-top)) 20px 26px;display:flex;flex-direction:column;gap:8px}.hd.warn{background:#6B4A12}
+.big{font-size:84px;line-height:1;font-weight:800}.mid{font-size:40px;line-height:1.1;font-weight:800}
+.body{padding:20px 20px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px;flex:1}
+.lang{display:flex}.lang button{background:none;border:0;color:inherit;padding:10px 6px;min-height:44px;font-size:14px}.lang .on{font-weight:800;text-decoration:underline;text-underline-offset:5px}
+.btn{width:100%;min-height:60px;border-radius:14px;border:0;font-size:19px;font-weight:800;display:flex;gap:10px;align-items:center;justify-content:center;text-decoration:none}
+.amber{background:#F2B84B;color:#14231B}.green{background:#1E4D3A;color:#fff}.line{background:#fff;color:#1E4D3A;border:2px solid #1E4D3A;font-weight:600;min-height:56px;font-size:17px}
+.tag{font-size:12px;font-weight:600;border:1.5px solid currentColor;border-radius:99px;padding:1px 8px;white-space:nowrap}
+.note{font-size:14px;color:#3E5247}.ban{background:#FFF4D6;border-radius:12px;padding:12px 14px}.off{background:#3B4650;color:#fff;padding:10px 20px;display:flex;gap:10px;align-items:center}
+.link{min-height:44px;display:flex;align-items:center;color:#1E4D3A;font-weight:600;background:none;border:0;padding:0;text-decoration:none}
+.step{display:flex;gap:16px}.dot{width:40px;height:40px;border-radius:50%;border:2.5px solid #1E4D3A;color:#1E4D3A;display:flex;align-items:center;justify-content:center;flex:none;font-weight:800}.dot.f{background:#1E4D3A;color:#fff}
+.ln{width:3px;flex:1;background:#BFD0C6}.sc{display:flex;flex-direction:column;align-items:center}
+.slip{background:#F2F6F3;border-radius:14px;padding:4px 16px 16px}.slip .row{padding:12px 0;border-bottom:1px solid #D5DED8}
+input{min-height:56px;border:2px solid #7C8F84;border-radius:12px;padding:0 14px;font-size:22px;letter-spacing:.15em;width:100%}
+label{display:flex;flex-direction:column;gap:6px;font-weight:600}.err{color:#9B2C1F;font-weight:600}
+.ico{width:72px;height:72px;border-radius:50%;background:#E4EEE8;color:#1E4D3A;display:flex;align-items:center;justify-content:center;margin-top:40px}.ico svg{width:38px;height:38px}
+:focus-visible{outline:3px solid #F2B84B;outline-offset:2px}
+</style></head><body><div id="app"></div><script src="config.js"></script><script src="app.js"></script></body></html>

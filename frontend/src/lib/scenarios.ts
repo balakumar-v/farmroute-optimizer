@@ -1,4 +1,4 @@
-// Demo scenarios: three synthetic ones (one mechanism each) and five built on real Agmarknet mandi data.
+// Demo scenarios (ported verbatim from the legacy app.js; data unchanged).
 import type { ScenarioCategory, Scenario } from "./types";
 
 // ---------- demo scenarios ----------
@@ -6,7 +6,7 @@ import type { ScenarioCategory, Scenario } from "./types";
 // Integrated Logistics Optimization structurally differs from the two
 // baselines -- not just "different random data". The three synthetic ones were tuned and
 // verified by running the actual algorithm code directly (not guessed):
-// results are in docs/ALGORITHM_AND_RESULTS.md (sections 19 to 21).
+// see the project chat history for the harness and results.
 //
 // NOTE (applies to every scenario): the allocation LP (market_demand_nodes
 // in logistics_lib_v2.py) looks up m.capacity_kg[crop]/m.price[crop] for

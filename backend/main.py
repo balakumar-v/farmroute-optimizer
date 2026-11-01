@@ -1,17 +1,18 @@
 """
 main.py
 -------
-FastAPI app for the Farmroute decision-layer backend.
+FastAPI app for the FPO decision-layer course demo backend.
 
 Endpoints:
     POST /farmers            GET /farmers
     POST /vehicles           GET /vehicles
-    POST /markets            GET /markets
+    POST /markets             GET /markets
     POST /plan/compute
     GET  /plan/{plan_id}
-    GET  /plan/{plan_id}/visualization
-    POST /plan/{plan_id}/roads
-    POST /sensors/reading    GET /sensors/readings
+    GET  /plan/{plan_id}/fleet-advice | impact | payout | payout/{farmer_id}
+         | driver-sheet/{vehicle_id} | diff/{old_plan_id}        POST /plan/{plan_id}/quote-check
+    POST /farmers/upload     (csv/xlsx bulk add)
+    POST /sensors/reading
     POST /reset
 
 See README.md for example request/response JSON.
@@ -24,7 +25,7 @@ import json
 import os
 from typing import Optional, List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_conn, init_db
@@ -37,22 +38,29 @@ from logistics_lib_v2 import (
     fresh_capacity,
 )
 from schemas import (
+    LoginIn, QuoteCheckIn,
     FarmerIn, FarmerOut,
     VehicleIn, VehicleOut,
     MarketIn, MarketOut,
     SensorReadingIn, SensorReadingOut,
 )
+import advisor
+import auth
+import farmer_upload
 import roads
 from visualization_adapter import ALGO_KEYS, build_plan_visualization
 
 VEHICLE_TYPES_BY_NAME = {t[0]: t for t in VEHICLE_TYPES}
 
-app = FastAPI(title="FPO Decision Layer API", version="0.1.0")
+app = FastAPI(title="FPO Decision Layer API", version="0.1.0",
+              dependencies=[Depends(auth.admin_guard)])   # default-deny: see auth.py
 
-# The frontend runs on its own origin (the Vite dev server on :5173), which is
-# cross-origin to the API's :8000 from the browser's point of view, so without
-# this the frontend's fetch() calls fail with a CORS error before they reach a
-# route below. Local demo, no auth -- wide open is fine here.
+# The frontend is a static index.html/app.js pair opened either straight
+# from disk (file://) or via a local dev server on some other port than
+# the API's :8000 -- both are cross-origin from the browser's point of
+# view, so without this the frontend's fetch() calls fail silently with
+# a CORS error before they ever reach a route below. Local course demo,
+# no auth -- wide open is fine here.
 # ALLOWED_ORIGINS: comma-separated frontend origins (no trailing slash), e.g.
 # "https://my-app.onrender.com". Unset = "*" (any site), fine for local dev.
 _allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
@@ -94,6 +102,28 @@ def create_farmer(farmer: FarmerIn):
         qty_kg=farmer.qty_kg, ready_hr=farmer.ready_hr, deadline_hr=farmer.deadline_hr,
         needs_refrigeration=needs_refrig,
     )
+
+
+@app.post("/farmers/upload")
+async def upload_farmers(file: UploadFile = File(...), dry_run: bool = False):
+    """Bulk-add farmers from a .csv or .xlsx (columns: lat, lng, crop, qty_kg, ready_hr, deadline_hr, and optional
+    needs_refrigeration). All-or-nothing: any invalid row returns 422 with every error and stores nothing.
+    dry_run=true validates without storing."""
+    data = await file.read(farmer_upload.MAX_BYTES + 1)
+    farmers, errors = farmer_upload.parse_farmers(file.filename or "", data)
+    if errors:
+        raise HTTPException(422, {"message": f"{len(errors)} problem(s) found; nothing was added.", "errors": errors})
+    if not dry_run:
+        with get_conn() as conn:
+            for f in farmers:
+                refrig = f.needs_refrigeration if f.needs_refrigeration is not None \
+                    else CROPS[f.crop]["needs_refrigeration"]
+                conn.execute(
+                    "INSERT INTO farmers (lat, lng, crop, qty_kg, ready_hr, deadline_hr, needs_refrigeration) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (f.lat, f.lng, f.crop, f.qty_kg, f.ready_hr, f.deadline_hr, int(refrig)))
+            conn.commit()
+    return {"farmers": len(farmers), "stored": not dry_run}
 
 
 @app.get("/farmers", response_model=List[FarmerOut])
@@ -487,6 +517,171 @@ def resolve_plan_roads(plan_id: int, algo: str = "integrated_logistics_optimizat
 
 
 # =========================================================================
+# plan advisors (read-only views over a stored plan; see advisor.py)
+# =========================================================================
+
+@app.get("/plan/{plan_id}/fleet-advice")
+def plan_fleet_advice(plan_id: int):
+    """What one extra vehicle of each class is worth to this plan (the solver's LP shadow value)."""
+    plan = get_plan(plan_id)
+    ilo_meta = (plan["realistic_baselines"] or {}).get("ilo_meta")
+    return advisor.fleet_advice(plan["input_snapshot"], plan["integrated_logistics_optimization"], ilo_meta)
+
+
+@app.post("/plan/{plan_id}/quote-check")
+def plan_quote_check(plan_id: int, body: QuoteCheckIn):
+    """A trader's doorstep offer for one farmer vs that farmer's take-home from the planned trip."""
+    plan = get_plan(plan_id)
+    try:
+        return advisor.quote_check(plan, body.farmer_id, body.quote_per_kg)
+    except KeyError:
+        raise HTTPException(404, f"Farmer {body.farmer_id} is not part of plan {plan_id}.")
+
+
+@app.get("/plan/{plan_id}/payout")
+def plan_payout(plan_id: int):
+    """Every farmer's payout statement; the totals add up to the plan's farmer value."""
+    return advisor.payout_statements(get_plan(plan_id))
+
+
+@app.get("/plan/{plan_id}/payout/{farmer_id}")
+def plan_farmer_payout(plan_id: int, farmer_id: int):
+    out = advisor.payout_statements(get_plan(plan_id))
+    st = next((s for s in out["statements"] if s["farmer_id"] == farmer_id), None)
+    if st is None:
+        raise HTTPException(404, f"Farmer {farmer_id} is not part of plan {plan_id}.")
+    return st
+
+
+@app.get("/plan/{plan_id}/diff/{old_plan_id}")
+def plan_diff(plan_id: int, old_plan_id: int):
+    """What changed for whom between an older plan and this one (only changed farmers need a message)."""
+    return advisor.diff_plans(get_plan(old_plan_id), get_plan(plan_id))
+
+
+@app.get("/plan/{plan_id}/driver-sheet/{vehicle_id}")
+def plan_driver_sheet(plan_id: int, vehicle_id: int):
+    """One vehicle's trips in order (stops, planned arrival times, kg to collect, map links) for the driver."""
+    plan = get_plan(plan_id)
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
+        solution = _straight_viz_payload(row, conn)["solutions"]["integrated_logistics_optimization"]
+    try:
+        return advisor.driver_sheet(plan, solution, vehicle_id)
+    except KeyError:
+        raise HTTPException(404, f"Vehicle {vehicle_id} has no trips in plan {plan_id}.")
+
+
+@app.get("/plan/{plan_id}/impact")
+def plan_impact(plan_id: int):
+    """kg moved to mandi, rupees gained vs doing nothing, km and CO2 saved by pooling (assumptions echoed)."""
+    plan = get_plan(plan_id)
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
+        routes = _straight_viz_payload(row, conn)["solutions"]["integrated_logistics_optimization"]["routes"]
+        with roads.distance_context(conn, plan["input_snapshot"]):
+            return advisor.impact(plan, routes)
+
+
+# =========================================================================
+# farmer portal: PINs, publishing, and the farmer's own card (see auth.py)
+# =========================================================================
+
+@app.post("/farmers/pins")
+def issue_pins(response: Response, only_missing: bool = True):
+    """Issue PINs for every farmer (or only those without one). The PINs are returned ONCE here and stored only
+    as hashes; hand them out and do not keep the response. Re-issuing replaces the old PIN and logs that farmer out."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_conn() as conn:
+        ids = [r["id"] for r in conn.execute("SELECT id FROM farmers ORDER BY id").fetchall()]
+        have = {r["farmer_id"] for r in conn.execute("SELECT farmer_id FROM farmer_credentials").fetchall()}
+        out = [{"farmer_id": fid, "pin": auth.set_pin(conn, fid)} for fid in ids if not (only_missing and fid in have)]
+        conn.commit()
+    return {"issued": len(out), "pins": out}
+
+
+@app.post("/farmers/{farmer_id}/pin")
+def issue_pin(farmer_id: int, response: Response):
+    """A fresh PIN for one farmer (also clears a lockout). Returned once."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_conn() as conn:
+        if conn.execute("SELECT 1 FROM farmers WHERE id = %s", (farmer_id,)).fetchone() is None:
+            raise HTTPException(404, f"No farmer with id {farmer_id}")
+        pin = auth.set_pin(conn, farmer_id)
+        conn.commit()
+    return {"farmer_id": farmer_id, "pin": pin}
+
+
+@app.post("/plan/{plan_id}/publish")
+def publish_plan(plan_id: int):
+    """Make this plan the one farmers see. Cards are built now, once; the previous published plan is kept so each
+    farmer's card can say what changed for them. Farmers never see unpublished plans."""
+    plan = get_plan(plan_id)
+    published_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM plan_runs WHERE id = %s", (plan_id,)).fetchone()
+        solution = _straight_viz_payload(row, conn)["solutions"]["integrated_logistics_optimization"]
+        cur = conn.execute("SELECT plan_id, previous_plan_id FROM published_plan WHERE id = 1").fetchone()
+        prev_id = None if cur is None else (cur["plan_id"] if cur["plan_id"] != plan_id else cur["previous_plan_id"])
+        prev_plan = None
+        if prev_id is not None:
+            try:
+                prev_plan = get_plan(prev_id)
+            except HTTPException:
+                prev_id = None
+        cards = advisor.farmer_cards(plan, solution, published_at, prev_plan, os.environ.get("FPO_PHONE") or None)
+        conn.execute(
+            "INSERT INTO published_plan (id, plan_id, previous_plan_id, published_at, cards) VALUES (1, %s, %s, %s, %s) "
+            "ON CONFLICT (id) DO UPDATE SET plan_id = EXCLUDED.plan_id, previous_plan_id = EXCLUDED.previous_plan_id, "
+            "published_at = EXCLUDED.published_at, cards = EXCLUDED.cards",
+            (plan_id, prev_id, published_at, json.dumps(cards)))
+        have = {r["farmer_id"] for r in conn.execute("SELECT farmer_id FROM farmer_credentials").fetchall()}
+        conn.commit()
+    return {"plan_id": plan_id, "previous_plan_id": prev_id, "published_at": published_at, "farmers": len(cards),
+            "farmers_without_pin": sorted(set(cards) - have),
+            "farmers_with_changes": sum(1 for c in cards.values() if c["changed"])}
+
+
+@app.get("/published")
+def get_published():
+    with get_conn() as conn:
+        r = conn.execute("SELECT plan_id, previous_plan_id, published_at, cards FROM published_plan WHERE id = 1").fetchone()
+    if r is None:
+        return {"published": False}
+    return {"published": True, "plan_id": r["plan_id"], "previous_plan_id": r["previous_plan_id"],
+            "published_at": r["published_at"], "farmers": len(json.loads(r["cards"]))}
+
+
+@app.delete("/published")
+def unpublish():
+    with get_conn() as conn:
+        conn.execute("DELETE FROM published_plan WHERE id = 1")
+        conn.commit()
+    return {"published": False}
+
+
+@app.post("/farmer/login")
+def farmer_login(body: LoginIn):
+    token = auth.login(body.farmer_id, body.pin)
+    return {"token": token, "token_type": "bearer", "expires_in": auth.TOKEN_TTL_S}
+
+
+@app.get("/farmer/me")
+def farmer_me(response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    """The logged-in farmer's own card from the published plan. There is deliberately no id parameter: the id
+    comes only from the verified token."""
+    response.headers["Cache-Control"] = "private, no-cache"
+    with get_conn() as conn:
+        r = conn.execute("SELECT cards FROM published_plan WHERE id = 1").fetchone()
+    if r is None:
+        raise HTTPException(404, "No plan has been published yet.")
+    card = json.loads(r["cards"]).get(str(farmer_id))
+    if card is None:
+        raise HTTPException(404, "You are not part of the published plan.")
+    return card
+
+
+# =========================================================================
 # sensors
 # =========================================================================
 
@@ -535,7 +730,8 @@ def reset_data():
     for starting a fresh demo without shelling into the backend to delete
     the database by hand. Resets the id counters too, so a fresh load
     afterwards gets clean IDs starting from 1."""
-    tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets")
+    tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets",
+              "farmer_credentials", "published_plan")
     with get_conn() as conn:
         cleared = {}
         for table in tables:

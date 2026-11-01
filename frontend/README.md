@@ -1,44 +1,22 @@
-# Frontend
-
-React + TypeScript + Vite. The map and simulation engine is MapLibre GL plus deck.gl.
+# Farmroute frontend (React + TypeScript + Vite)
 
 ```bash
+cd frontend
 npm install
-npm run dev          # http://localhost:5173 (backend: see ../backend/README.md)
-npm run build        # typecheck and production build in dist/
+npm run dev          # http://localhost:5173  (backend: cd backend && uvicorn main:app --port 8000)
+npm run build        # typecheck + production build in dist/
 npm test             # vitest (simulation engine)
 npm run gen:api      # optional: typed schema from the running backend's OpenAPI
 ```
 
-## Configuration
-
-- **Backend URL:** the connection chip in the header (saved in the browser), or `VITE_API_BASE` at build time. Default `http://localhost:8000`.
-- **Map tiles:** `src/config.ts`. The default is Esri gray canvas (no key). The map always renders a plain limewash background with a lat/lng grid, so it works offline; street tiles load on top when the internet is available.
+Backend URL: header chip (saved in localStorage) or `VITE_API_BASE` at build time. Map tiles: `src/config.ts`.
 
 ## Layout
+- `src/App.tsx` hash router (`#start|entry|dash|compare|map`), map tab stays mounted to keep simulation state
+- `src/state/store.tsx` context + reducer: tables, plan, stale flag, scenario-run progress, toasts
+- `src/lib/` typed API client, types, constants, scenario data (`scenarios.ts`)
+- `src/views/` Scenarios, Data, Plan, Compare, Map
+- `src/vis/` imperative map/simulation engine (MapLibre + deck.gl), ES modules ported from the old `vis/*.js`; typed surface in `vis/index.ts`. `MapView.tsx` wraps it.
 
-```
-src/
-  App.tsx              hash router (#start|entry|dash|compare|map); the map tab stays mounted to keep simulation state
-  main.tsx             entry point
-  state/store.tsx      context + reducer: tables, plan, stale flag, scenario-run progress, toasts
-  lib/                 typed API client, types, constants, scenario data (scenarios.ts)
-  views/               Scenarios, Data, Plan, Compare, Map
-  components/          Shell, Icon sprite
-  vis/                 imperative map and simulation engine (MapLibre + deck.gl); typed surface in vis/index.ts, wrapped by MapView.tsx
-  styles.css           design tokens and components (see ../docs/DESIGN.md)
-  styles-extra.css     additional component styles
-```
-
-## Scenarios
-
-`src/lib/scenarios.ts` holds the eight demo scenarios: three synthetic and five built on real mandi data. The backend benchmarks and experiments read the same file (`backend/real_data/bihar_preset.py`), so keep its `key: {` layout. To add a real-data preset, see `../backend/real_data/README.md`.
-
-## Interface behaviour
-
-- Scenario runs show a progress bar and step label; a banner with the start command and a Retry button appears when the backend is down.
-- Forms validate inline, results use toasts rather than alerts, and a stale-plan banner appears when data changes after a plan was computed.
-- Tables have skeleton, empty and error states; the pools table is sortable.
-- Map keyboard shortcuts: Space play/pause, ←/→ scrub, 1 to 7 jump to a stage.
-- Speed and reduced-motion settings persist; the default follows the OS reduced-motion setting.
-- Layout works down to 390 px wide.
+## UX changes vs the old frontend
+Scenario run shows a progress bar and step label; backend-down banner with start command + Retry; toasts instead of `alert()`; inline form validation; stale-plan banner when data changes after a plan; skeleton/empty/error table states; empty states offer "Compute from current data"; sortable pools table; map auto-loads the new plan, loading overlay, buttons disabled until a plan exists; keyboard: Space play/pause, ←/→ scrub, 1–7 stages; speed and reduced-motion persisted (default follows OS setting); scenarios grouped by category.
