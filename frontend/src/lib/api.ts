@@ -19,6 +19,14 @@ export interface ApiClient {
   addMarket(m: MarketIn): Promise<Market>;
   computePlan(mode?: PlanMode): Promise<PlanResponse>;
   reset(): Promise<unknown>;
+  issuePins(onlyMissing: boolean): Promise<{ issued: number; pins: { farmer_id: number; pin: string }[] }>;
+  publish(planId: number): Promise<PublishResult>;
+  published(): Promise<{ published: boolean; plan_id?: number; published_at?: string; farmers?: number }>;
+  unpublish(): Promise<unknown>;
+}
+
+export interface PublishResult {
+  plan_id: number; published_at: string; farmers: number; farmers_without_pin: number[]; farmers_with_changes: number;
 }
 
 /** Typed client for the FastAPI backend. `onConn` reports reachability to the UI's connection chip. */
@@ -27,7 +35,17 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     if (!base) throw new ApiError("Set the backend API base URL first.", "network");
     let res: Response;
     try {
-      res = await fetch(base + path, init);
+      const send = () => {
+        const h = new Headers(init?.headers);
+        const t = localStorage.getItem("farmroute.adminToken");
+        if (t) h.set("Authorization", `Bearer ${t}`);
+        return fetch(base + path, { ...init, headers: h });
+      };
+      res = await send();
+      if (res.status === 401) { // the backend has ADMIN_TOKEN set: ask once, remember it on this browser, retry
+        const t = window.prompt("This backend needs the admin token.");
+        if (t) { localStorage.setItem("farmroute.adminToken", t.trim()); res = await send(); }
+      }
       onConn("ok");
     } catch {
       onConn("bad");
@@ -60,5 +78,9 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     addMarket: (m) => post<Market>("/markets", m),
     computePlan: (mode = "returns") => post<PlanResponse>(mode === "returns" ? "/plan/compute" : "/plan/compute?mode=spoilage"),
     reset: () => post("/reset"),
+    issuePins: (onlyMissing) => post(`/farmers/pins?only_missing=${onlyMissing}`),
+    publish: (planId) => post(`/plan/${planId}/publish`),
+    published: () => req("/published"),
+    unpublish: () => req("/published", { method: "DELETE" }),
   };
 }

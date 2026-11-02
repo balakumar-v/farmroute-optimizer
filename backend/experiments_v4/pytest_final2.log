@@ -1,0 +1,84 @@
+F.........FFF........................................................... [ 45%]
+........................................................................ [ 90%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+_______________________ test_scraper_payload_and_columns _______________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fcd1a6360>
+
+    def test_scraper_payload_and_columns(monkeypatch):
+>       from agmarknet import Agmarknet
+E       ModuleNotFoundError: No module named 'agmarknet'
+
+real_data/tests/test_real_data.py:31: ModuleNotFoundError
+____________ test_probe_clamps_to_live_range_and_uses_live_filters _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fbd303f80>
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-7/test_probe_clamps_to_live_rang0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f8fbd33a720>
+
+    def test_probe_clamps_to_live_range_and_uses_live_filters(monkeypatch, tmp_path, capsys):
+>       calls = _mock_server(monkeypatch, live_to="2026-09-29")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+real_data/tests/test_real_data.py:180: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fbd303f80>
+live_to = '2026-09-29'
+
+    def _mock_server(monkeypatch, live_to="2026-09-29"):
+        """Fake API: live filters whose 'both' range ends at live_to; report calls beyond it -> HTTP 400."""
+        import copy
+>       import agmarknet
+E       ModuleNotFoundError: No module named 'agmarknet'
+
+real_data/tests/test_real_data.py:143: ModuleNotFoundError
+__________________ test_failure_prints_status_and_server_body __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fbd3a9190>
+capsys = <_pytest.capture.CaptureFixture object at 0x7f8fcd1a6360>
+
+    def test_failure_prints_status_and_server_body(monkeypatch, capsys):
+>       from agmarknet.exceptions import AgmarknetAPIError
+E       ModuleNotFoundError: No module named 'agmarknet'
+
+real_data/tests/test_real_data.py:190: ModuleNotFoundError
+__________________________ test_diagnose_runs_ladder ___________________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fbcebbe90>
+capsys = <_pytest.capture.CaptureFixture object at 0x7f8fbcebb170>
+
+    def test_diagnose_runs_ladder(monkeypatch, capsys):
+>       _mock_server(monkeypatch, live_to="2026-09-29")
+
+real_data/tests/test_real_data.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8fbcebbe90>
+live_to = '2026-09-29'
+
+    def _mock_server(monkeypatch, live_to="2026-09-29"):
+        """Fake API: live filters whose 'both' range ends at live_to; report calls beyond it -> HTTP 400."""
+        import copy
+>       import agmarknet
+E       ModuleNotFoundError: No module named 'agmarknet'
+
+real_data/tests/test_real_data.py:143: ModuleNotFoundError
+=============================== warnings summary ===============================
+real_data/tests/test_regional_presets.py::test_load_clean_drops_each_class_of_bad_row_and_counts_them
+  /home/claude/farmroute-optimizer-main/backend/real_data/build_regional_presets.py:143: UserWarning: Boolean Series key will be reindexed to match DataFrame index.
+    df, pf, af = df[keep], pf[keep], af[keep]
+
+tests/test_road_planning.py::test_model_is_road_matrix_and_second_plan_reuses_the_cache
+tests/test_road_planning.py::test_replay_uses_exactly_the_distances_the_plan_saw
+  /home/claude/farmroute-optimizer-main/backend/roads.py:526: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    json.dumps(km, separators=(",", ":")), ratio, datetime.datetime.utcnow().isoformat()),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED real_data/tests/test_real_data.py::test_scraper_payload_and_columns - ...
+FAILED real_data/tests/test_real_data.py::test_probe_clamps_to_live_range_and_uses_live_filters
+FAILED real_data/tests/test_real_data.py::test_failure_prints_status_and_server_body
+FAILED real_data/tests/test_real_data.py::test_diagnose_runs_ladder - ModuleN...
+4 failed, 155 passed, 3 warnings in 200.03s (0:03:20)

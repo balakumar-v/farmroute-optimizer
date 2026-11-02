@@ -1,6 +1,6 @@
-# Sensitivity experiments
+# Experiments behind the v3.1 changes (Oct 2026)
 
-Scripts that produced the numbers in `docs/ALGORITHM_AND_RESULTS.md` sections 22 to 25. Run them from `backend/`
+Scripts that produced the numbers in `ALGORITHM_AND_RESULTS_V2.md` sections 22 to 25. Run them from `backend/`
 (`python experiments_v3_1/<script>.py`), except `price_flexibility_regression.py`, which expects to run from
 `backend/real_data/`. All use the synthetic generator (`generate_scenario_v2`), so they test the mechanisms,
 not your region. Several take 3 to 10 minutes (HiGHS solves plus simulator replays); pipe the output to a file.

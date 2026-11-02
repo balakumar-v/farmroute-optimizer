@@ -184,5 +184,5 @@ One corner radius: 2px, on buttons, inputs, tags, bars and panels. Tags are rect
 - Don't surface the realistic baselines (farm-gate, self-haul, neighbour pooling) until the algorithm work is done; product decision.
 
 ## Not canonized (carried defects)
-- The map's raster basemap (Esri gray canvas by default, configurable in frontend/src/config.ts) was not verified in the build sandbox (no internet); only the offline graticule path was exercised.
+- The map's raster basemap (Esri gray canvas by default, configurable in config.js) was not verified in the build sandbox (no internet); only the offline graticule path was exercised.
 - The theater walkthrough keeps its own dark palette literals (`#0d1217`, `#10151c`) rather than theme tokens.

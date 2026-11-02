@@ -1,10 +1,10 @@
-// frontend/src/vis/adapter.js
+// frontend/vis/adapter.js
 // -------------------------------------------------------------------------
 // Thin client-side consumer of GET /plan/{id}/visualization. The real
 // adapter work (pools -> routes/events/farmers/vehicles/markets) happens
 // backend-side in visualization_adapter.py -- this file does NOT contain
 // optimization or routing logic. Its only two jobs:
-//   1. fetch() the endpoint and surface errors with a readable message
+//   1. fetch() the endpoint and surface errors the way app.js's api() does
 //   2. deterministic color assignment, which is a presentation concern and
 //      belongs in the frontend, not the backend adapter.
 //
@@ -25,13 +25,19 @@ import { Vis } from "./namespace.js";
   };
 
   /** GET /plan/{planId}/visualization. Throws Error with a readable message
-   * on failure. */
+   * on failure, same convention app.js's api() uses. */
+  // The backend needs the admin token on every request; api.ts stores it here after the first 401 prompt.
+  const authInit = (init) => {
+    const t = localStorage.getItem("farmroute.adminToken");
+    return t ? Object.assign({}, init, { headers: Object.assign({}, init && init.headers, { Authorization: "Bearer " + t }) }) : init;
+  };
+
   Vis.fetchVisualization = async function (apiBase, planId) {
     if (!apiBase) throw new Error("Set the backend API base URL on the Data entry tab first.");
     if (planId === null || planId === undefined) throw new Error("No plan computed yet.");
     let res;
     try {
-      res = await fetch(`${apiBase}/plan/${planId}/visualization`);
+      res = await fetch(`${apiBase}/plan/${planId}/visualization`, authInit());
     } catch (e) {
       throw new Error(`Could not reach ${apiBase} -- is the backend running? (${e.message})`);
     }
@@ -48,7 +54,7 @@ import { Vis } from "./namespace.js";
   Vis.resolveRoads = async function (apiBase, planId, algo, budgetS) {
     let res;
     try {
-      res = await fetch(`${apiBase}/plan/${planId}/roads?algo=${encodeURIComponent(algo)}&budget_s=${budgetS || 12}`, { method: "POST" });
+      res = await fetch(`${apiBase}/plan/${planId}/roads?algo=${encodeURIComponent(algo)}&budget_s=${budgetS || 12}`, authInit({ method: "POST" }));
     } catch (e) {
       throw new Error(`Could not reach ${apiBase} (${e.message})`);
     }
@@ -60,7 +66,7 @@ import { Vis } from "./namespace.js";
     if (!apiBase) return [];
     const qs = poolId ? `?pool_id=${encodeURIComponent(poolId)}` : "";
     try {
-      const res = await fetch(`${apiBase}/sensors/readings${qs}`);
+      const res = await fetch(`${apiBase}/sensors/readings${qs}`, authInit());
       if (!res.ok) return [];
       return await res.json();
     } catch (e) {

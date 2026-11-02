@@ -1,4 +1,4 @@
-// frontend/src/vis/panels.js
+// frontend/vis/panels.js
 // -------------------------------------------------------------------------
 // Renders the "Why?" details panel (section 11 of the brief), the
 // baseline-vs-optimized comparison table (section 12), and stage blurbs

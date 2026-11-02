@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Primary (now): judges and reviewers evaluating the project (hackathon jury, course evaluators). They have minutes, not hours; they need to understand the problem, see the idea working, and judge whether the numbers are honest. Secondary: recruiters and interviewers reading it as a portfolio piece. Later, if the project continues: operators of farmer producer organisations (FPOs) pooling produce. The UI is viewed on laptops and also on phones.
+Primary (now): professors and course evaluators judging a first-semester "idea thinking" project. They have minutes, not hours; they need to understand the problem, see the idea working, and judge whether the numbers are honest. Secondary: recruiters and interviewers reading it as a portfolio piece. Later, if the project continues: operators of farmer producer organisations (FPOs) pooling produce. The UI is viewed on laptops and also on phones.
 
 ## Product Purpose
 
@@ -20,12 +20,12 @@ The algorithm (ILO, Integrated Logistics Optimization, now v3) pools farmers, re
 
 ## Operating Context
 
-FastAPI + Postgres backend, React + TypeScript + Vite frontend (MapLibre GL and deck.gl from npm). Backend URL defaults to http://localhost:8000. Planning clock is hours from start of day, not clock times. Currency is Indian rupees. The basemap needs internet; without it the map must still work on a plain background.
+FastAPI + SQLite backend, React + TypeScript + Vite frontend (MapLibre GL and deck.gl from npm). Backend URL defaults to http://localhost:8000. Planning clock is hours from start of day, not clock times. Currency is Indian rupees. The basemap needs internet; without it the map must still work on a plain background.
 
 ## Capabilities and Constraints
 
 - Four areas exist today: data entry (farmers, vehicles, markets), recommended plan (ILO result: summary stats and pool cards), comparison (ILO vs Individual Transport vs Proximity Pooling, net return and % produce sold), map and simulation (7 presentation stages, timeline, step-by-step story, details panel, compare mode, 3D, chase cam, fullscreen "theater" walkthrough).
-- Demo scenarios: three synthetic ones, each isolating one mechanism (cold chain, market arbitrage, fleet scarcity), plus five real-data presets (Bihar, Karnataka/Bengaluru, Uttar Pradesh/Aligarh, Maharashtra/Junnar, Madhya Pradesh/Indore), each with real mandi data and synthetic farmers and fleet.
+- Demo scenarios: three synthetic ones, each isolating one mechanism (cold chain, market arbitrage, fleet scarcity), plus one real-data scenario (7 Bihar mandis, Mar 2026, with synthetic farmers and fleet).
 - Fixed vocabularies: 6 crops (tomato, onion, potato, cauliflower, mango, spinach), 7 vehicle types.
 - Honesty rules that the UI must preserve: routes are straight lines, never real roads; per-stop times are a reconstruction; per-market received-kg is shown only when exactly derivable; items are tagged exact / derived / aggregate-only; sensor panel shows real ESP32 data or nothing, never simulated data.
 - Net return and % produce sold must be read together; a high return with low coverage is misleading.
@@ -34,7 +34,7 @@ FastAPI + Postgres backend, React + TypeScript + Vite frontend (MapLibre GL and 
 
 ## Evidence on Hand
 
-Real scenario data in frontend/src/lib/scenarios.ts (Bihar mandis, Dec 2025 - Feb 2026, from Agmarknet via India Data Portal, rebuilt with backend/real_data/*; sourcing and known data problems are in its blurb). The farmers and fleet in that preset are synthetic; no FPO records exist. Four more real-mandi presets (Karnataka/Bengaluru, Uttar Pradesh/Aligarh, Maharashtra/Junnar, Madhya Pradesh/Indore) are built by backend/real_data/build_regional_presets.py from state-wide CSVs; their blurbs list what was cleaned and which counts are assumptions. Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
+Real scenario data in frontend/app.js (Bihar mandis, Dec 2025 - Feb 2026, from Agmarknet via India Data Portal, rebuilt with backend/real_data/*; sourcing and known data problems are in its blurb). The farmers and fleet in that preset are synthetic; no FPO records exist. Four more real-mandi presets (Karnataka/Bengaluru, Uttar Pradesh/Aligarh, Maharashtra/Junnar, Madhya Pradesh/Indore) are built by backend/real_data/build_regional_presets.py from state-wide CSVs; their blurbs list what was cleaned and which counts are assumptions. Backend results from /plan/compute. No testimonials, customers, or deployment claims exist; none may be invented.
 
 ## Product Principles
 

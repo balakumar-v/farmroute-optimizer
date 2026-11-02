@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { FarmerAccess } from "../components/FarmerAccess";
 import { Icon } from "../components/Icon";
 import { BusyButton, PageHead, StaleBanner } from "../components/Shell";
 import { fmt, inr } from "../lib/format";
@@ -176,6 +177,8 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
             <button className="btn btn-secondary" type="button" onClick={() => go("map")}><Icon name="map" />See them on the map</button></div>
           <div className="tablewrap"><PoolsTable pools={pools} /></div>
         </div>
+
+        <FarmerAccess />
 
         <p className="sensor-strip"><strong>Live sensors:</strong> ESP32 readings are received by the backend, but the planner can{"’"}t recompute from them yet. Nothing is simulated here.</p>
       </div>

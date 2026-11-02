@@ -287,7 +287,7 @@ clusters before vehicle assignment ever runs.
 `_refrig_eps_km()` to `algorithms_v2.py`: a widened DBSCAN radius,
 applied *only* to refrigeration-needing farmers (the general population
 keeps the tight `EPS_KM=12` that fixed the sprawling-route regression at
-scale — ALGORITHM_AND_RESULTS.md §7 bug 4 stays intact for
+scale — ALGORITHM_AND_RESULTS_V2.md §7 bug 4 stays intact for
 everyone else), scaled by two distinct scarcity signals and capped at
 3× the base radius:
 
@@ -330,7 +330,7 @@ Proximity Pooling baseline — this is genuine problem-aware intelligence,
 not a bookkeeping fix, and Proximity Pooling is deliberately kept
 geography-only for comparability with the original baseline definition.
 
-Updated numbers are in `ALGORITHM_AND_RESULTS.md` §10 and
+Updated numbers are in `ALGORITHM_AND_RESULTS_V2.md` §10 and
 `milp_vs_ilo_results.csv`; this section is now a closed loop (found via
 MILP → root-caused → fixed → reverified against both the MILP and the
 full-scale benchmark) rather than a diagnosis handed off as future work.
