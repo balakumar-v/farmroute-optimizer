@@ -1,0 +1,5 @@
+# CI / local test dependencies: the API's own requirements plus what the tests import.
+# Used by .github workflow: pip install -r requirements-dev.txt  (run from backend/)
+-r requirements.txt
+-r real_data/requirements-realdata.txt
+pytest>=8
