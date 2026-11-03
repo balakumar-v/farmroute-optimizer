@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { PageHead } from "../components/Shell";
 import { SCENARIOS, SCENARIO_CATEGORIES } from "../lib/scenarios";
-import type { ViewName } from "../lib/types";
+import type { ScenarioAbout, ViewName } from "../lib/types";
 import { useApp } from "../state/store";
 
 export interface ScenarioMeta {
   key: string; name: string; sub: string; num: string | null;
-  farmers: number; vehicles: number; markets: number; real: boolean; blurb: string;
+  farmers: number; vehicles: number; markets: number; real: boolean; blurb: string; about: ScenarioAbout | null;
 }
 
 /** Labels look like "1. Cold chain: refrigeration-aware pooling", "3. Fleet scarcity + incompatible pickup windows"
@@ -30,6 +30,7 @@ export function scenarioMeta(key: string): ScenarioMeta {
     markets: sc.markets.length,
     real: sc.category === "real",
     blurb: sc.blurb || "",
+    about: sc.about ?? null,
   };
 }
 
@@ -99,7 +100,11 @@ export function ScenariosView({ go }: { go: (v: ViewName) => void }) {
                       <span>{state.run.label}</span>
                     </div>
                   )}
-                  <details className="sc-more"><summary>{m.real ? "About the data" : "What this tests"}<Icon name="chevron" /></summary><p>{m.blurb}</p></details>
+                  <details className="sc-more"><summary>{m.real ? "About the data" : "What this tests"}<Icon name="chevron" /></summary>{m.about
+                    ? <dl className="sc-about">{m.about.sections.map((sec) => (
+                        <div key={sec.title} className="sc-about-sec"><dt>{sec.title}</dt><dd><ul>{sec.items.map((it, i) => <li key={i}>{it}</li>)}</ul></dd></div>
+                      ))}</dl>
+                    : <p>{m.blurb}</p>}</details>
                 </article>
               );
             })}

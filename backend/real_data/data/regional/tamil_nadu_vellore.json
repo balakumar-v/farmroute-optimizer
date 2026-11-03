@@ -1,0 +1,444 @@
+{
+ "preset_id": "tamil_nadu_vellore",
+ "config": {
+  "state": "Tamil Nadu",
+  "frm": "2026-01-04",
+  "to": "2026-02-08",
+  "seed": 15,
+  "min_days": 5,
+  "max_mandi_km": 150,
+  "min_absorption_kg": 300,
+  "notes": [
+   "Only 5 days sampled per mandi, all Sundays (4, 18 and 25 Jan, 1 and 8 Feb): each price is a median of at most 5 days",
+   "Most yards are Uzhavar Sandhai (farmers' markets), so prices look retail-like; only Vellore, Tindivanam and Ulundurpettai are APMC wholesale yards",
+   "Only 28 of 179 Tamil Nadu mandis have coordinates (none in Chennai), so the region is capped at 150 km around Vellore",
+   "Thresholds lowered for this preset: 5 days per series (default 15) and 0.3 t/day (default 1 t)"
+  ],
+  "label": "Tamil Nadu mandis around Vellore, Jan-Feb 2026: tomato & onion",
+  "hub": "Vellore Apmc"
+ },
+ "cleaning": {
+  "raw_rows_total": 31040,
+  "rows_in_state_window_supported_crops": 2274,
+  "dropped_price_unit_not_rs_per_quintal_or_kg": 0,
+  "dropped_modal_price_missing_or_nonpositive": 0,
+  "dropped_min_price_above_max_price": 0,
+  "dropped_modal_price_outside_min_max": 0,
+  "arrival_unit_unusable_rows (price kept, arrival ignored: Nos/Bundle...)": 0,
+  "dropped_price_outlier_vs_series_median": 0,
+  "arrival_spike_examples": [],
+  "dropped_arrival_spike_over_20x_series_median": 0,
+  "rows_after_cleaning": 2274
+ },
+ "usable_markets_in_state_window": 18,
+ "markets_dropped_no_or_invalid_coordinates": 131,
+ "markets_dropped_suspect_coordinates": [],
+ "shared_coordinate_warnings": [],
+ "series_dropped_implausible": [],
+ "series_dropped_tiny_capacity": [
+  "Ariyalur(Uzhavar Sandhai) onion: 0.24 t/day",
+  "Ariyalur(Uzhavar Sandhai) potato: 0.06 t/day",
+  "Ariyalur(Uzhavar Sandhai) tomato: 0.17 t/day",
+  "Jeyankondam (Uzhavar Sandhai ) onion: 0.04 t/day",
+  "Jeyankondam (Uzhavar Sandhai ) potato: 0.02 t/day",
+  "Jeyankondam (Uzhavar Sandhai ) tomato: 0.03 t/day",
+  "Sulur(Uzhavar Sandhai ) cauliflower: 0.17 t/day",
+  "Sulur(Uzhavar Sandhai ) onion: 0.23 t/day",
+  "Sulur(Uzhavar Sandhai ) potato: 0.27 t/day",
+  "Vedasanthur(Uzhavar Sandhai ) onion: 0.03 t/day",
+  "Kallakurichi(Uzhavar Sandhai ) cauliflower: 0.06 t/day",
+  "Kallakurichi(Uzhavar Sandhai ) potato: 0.25 t/day",
+  "Sankarapuram(Uzhavar Sandhai ) onion: 0.16 t/day",
+  "Sankarapuram(Uzhavar Sandhai ) potato: 0.16 t/day",
+  "Sankarapuram(Uzhavar Sandhai ) tomato: 0.18 t/day",
+  "Vadaseri Apmc cauliflower: 0.15 t/day",
+  "Mayiladuthurai(Uzhavar Sandhai ) cauliflower: 0.01 t/day",
+  "Mayiladuthurai(Uzhavar Sandhai ) onion: 0.20 t/day",
+  "Mayiladuthurai(Uzhavar Sandhai ) potato: 0.08 t/day",
+  "Mayiladuthurai(Uzhavar Sandhai ) tomato: 0.18 t/day",
+  "Paramathivelur(Uzhavar Sandhai ) cauliflower: 0.10 t/day",
+  "Paramathivelur(Uzhavar Sandhai ) onion: 0.18 t/day",
+  "Tiruchengode Apmc cauliflower: 0.15 t/day",
+  "Ammapet(Uzhavar Sandhai ) cauliflower: 0.04 t/day",
+  "Ammapet(Uzhavar Sandhai ) onion: 0.13 t/day",
+  "Tenkasi(Uzhavar Sandhai ) cauliflower: 0.04 t/day",
+  "Kumbakonam (Uzhavar Sandhai ) cauliflower: 0.17 t/day",
+  "Tiruvarur(Uzhavar Sandhai ) onion: 0.03 t/day",
+  "Tiruvarur(Uzhavar Sandhai ) tomato: 0.22 t/day",
+  "Valangaiman Apmc tomato: 0.08 t/day",
+  "Tiruppur (North) (Uzhavar Sandhai ) cauliflower: 0.20 t/day",
+  "Katpadi (Uzhavar Sandhai ) cauliflower: 0.20 t/day",
+  "Vellore Apmc cauliflower: 0.10 t/day",
+  "Tindivanam Apmc potato: 0.20 t/day",
+  "Ulundurpettai Apmc potato: 0.26 t/day"
+ ],
+ "capacity_imputation": {
+  "placeholder_series": 0,
+  "capacity_raised_to_peer_q1": 0,
+  "peer_q1_kg": {
+   "onion": 200,
+   "potato": 160,
+   "tomato": 180,
+   "cauliflower": 60
+  }
+ },
+ "hub": "Vellore Apmc",
+ "farmer_cluster_centre": [
+  12.983247500000001,
+  79.1977835
+ ],
+ "mix_crops": [
+  "onion",
+  "potato",
+  "tomato"
+ ],
+ "mix_volume_kg": {
+  "onion": 5940.0,
+  "potato": 1650.0,
+  "tomato": 21210.0
+ },
+ "farmers_wanted_by_crop_after_absorption_cap": {
+  "onion": 4,
+  "potato": 1,
+  "tomato": 16
+ },
+ "assumptions": {
+  "min_days": 5,
+  "min_useful_absorption_kg": 300,
+  "n_target": 60,
+  "crop_absorption_share": 0.3,
+  "min_farmers_per_crop": 3,
+  "mean_lot_kg": 375.0,
+  "plausible_price_kg": [
+   2.0,
+   150.0
+  ],
+  "plausible_price_kg_by_crop": {
+   "mango": [
+    5.0,
+    400.0
+   ]
+  },
+  "plausible_max_arrival_kg": {
+   "spinach": 150000,
+   "cauliflower": 500000,
+   "mango": 1000000,
+   "tomato": 2500000,
+   "onion": 6000000,
+   "potato": 3000000
+  },
+  "cluster_radius_km": 18.0,
+  "village_crop_lean": 0.6,
+  "fleet_ratio": 1.5,
+  "seed": 15
+ },
+ "n_farmers": 20,
+ "fleet": {
+  "truck_2t": 1,
+  "reefer_5t": 1,
+  "reefer_2t": 2,
+  "reefer_van": 1
+ },
+ "produce_kg_by_refrigeration": {
+  "True": 6154.1,
+  "False": 1708.5000000000002
+ },
+ "markets": [
+  {
+   "name": "Katpadi (Uzhavar Sandhai )",
+   "district": "Vellore",
+   "state": "Tamil Nadu",
+   "lat": 13.068051,
+   "lng": 79.264442,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 32.0
+   },
+   "capacity_kg": {
+    "onion": 1700.0
+   },
+   "n_days": {
+    "onion": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.4
+   },
+   "capacity_is_placeholder": {
+    "onion": false
+   },
+   "capacity_source": {
+    "onion": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 1700.0
+   }
+  },
+  {
+   "name": "Vellore Apmc",
+   "district": "Vellore",
+   "state": "Tamil Nadu",
+   "lat": 12.898444,
+   "lng": 79.131125,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 27.0,
+    "potato": 27.5,
+    "tomato": 21.0
+   },
+   "capacity_kg": {
+    "onion": 1300.0,
+    "potato": 650.0,
+    "tomato": 3800.0
+   },
+   "n_days": {
+    "onion": 5,
+    "potato": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "potato": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 1.0,
+    "potato": 0.4,
+    "tomato": 0.4
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 1300.0,
+    "potato": 650.0,
+    "tomato": 3800.0
+   }
+  },
+  {
+   "name": "Vaniyampadi(Uzhavar Sandhai )",
+   "district": "Tirupathur",
+   "state": "Tamil Nadu",
+   "lat": 12.655148,
+   "lng": 78.60751,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 30.0,
+    "potato": 30.0,
+    "tomato": 25.0
+   },
+   "capacity_kg": {
+    "onion": 700.0,
+    "potato": 700.0,
+    "tomato": 9080.0
+   },
+   "n_days": {
+    "onion": 5,
+    "potato": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "potato": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.8,
+    "potato": 0.8,
+    "tomato": 0.2
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 700.0,
+    "potato": 700.0,
+    "tomato": 9080.0
+   }
+  },
+  {
+   "name": "Natrampalli(Uzhavar Sandhai )",
+   "district": "Tirupathur",
+   "state": "Tamil Nadu",
+   "lat": 12.4857205,
+   "lng": 78.5668739,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 27.5,
+    "potato": 32.5,
+    "tomato": 22.5
+   },
+   "capacity_kg": {
+    "onion": 550.0,
+    "potato": 300.0,
+    "tomato": 6180.0
+   },
+   "n_days": {
+    "onion": 5,
+    "potato": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "potato": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.6,
+    "potato": 0.6,
+    "tomato": 0.2
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "potato": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "potato": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 550.0,
+    "potato": 300.0,
+    "tomato": 6180.0
+   }
+  },
+  {
+   "name": "Tindivanam Apmc",
+   "district": "Viluppuram",
+   "state": "Tamil Nadu",
+   "lat": 12.244917,
+   "lng": 79.644162,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 27.5,
+    "tomato": 20.0
+   },
+   "capacity_kg": {
+    "onion": 900.0,
+    "tomato": 900.0
+   },
+   "n_days": {
+    "onion": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.4,
+    "tomato": 0.6
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 900.0,
+    "tomato": 900.0
+   }
+  },
+  {
+   "name": "Kallakurichi(Uzhavar Sandhai )",
+   "district": "Kallakurichi",
+   "state": "Tamil Nadu",
+   "lat": 11.738836,
+   "lng": 78.953557,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 35.0,
+    "tomato": 25.0
+   },
+   "capacity_kg": {
+    "onion": 320.0,
+    "tomato": 830.0
+   },
+   "n_days": {
+    "onion": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.4,
+    "tomato": 0.2
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 320.0,
+    "tomato": 830.0
+   }
+  },
+  {
+   "name": "Ulundurpettai Apmc",
+   "district": "Viluppuram",
+   "state": "Tamil Nadu",
+   "lat": 11.692161,
+   "lng": 79.286416,
+   "geocode_source": "dataset",
+   "price": {
+    "onion": 40.0,
+    "tomato": 35.0
+   },
+   "capacity_kg": {
+    "onion": 470.0,
+    "tomato": 420.0
+   },
+   "n_days": {
+    "onion": 5,
+    "tomato": 5
+   },
+   "last_date": {
+    "onion": "2026-02-08",
+    "tomato": "2026-02-08"
+   },
+   "capacity_top_share": {
+    "onion": 0.2,
+    "tomato": 0.4
+   },
+   "capacity_is_placeholder": {
+    "onion": false,
+    "tomato": false
+   },
+   "capacity_source": {
+    "onion": "reported",
+    "tomato": "reported"
+   },
+   "capacity_reported_kg": {
+    "onion": 470.0,
+    "tomato": 420.0
+   }
+  }
+ ]
+}

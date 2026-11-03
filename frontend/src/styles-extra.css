@@ -58,3 +58,12 @@
 .head-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .mode-pick { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
 .mode-pick select { min-height: 40px; }
+
+/* Scenario "About the data" panel: short labelled lists instead of one paragraph */
+.sc-about { margin: 10px 0 0; max-width: 88ch; display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.sc-about-sec { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 4px 16px; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.sc-about dt { font-size: .75rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); padding-top: 2px; }
+.sc-about dd { margin: 0; }
+.sc-about ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.sc-about li { color: var(--ink-2); font-size: .9375rem; line-height: 1.45; text-wrap: pretty; }
+@media (max-width: 640px) { .sc-about-sec { grid-template-columns: minmax(0, 1fr); } }

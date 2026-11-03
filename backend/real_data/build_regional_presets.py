@@ -99,6 +99,14 @@ PRESETS = {
         state="Madhya Pradesh", frm="2026-02-01", to="2026-04-30", seed=14,
         label="Madhya Pradesh mandis around Indore, Feb-Apr 2026: onion, potato, tomato, cauliflower",
         hub="Indore Apmc"),
+    "tamil_nadu_vellore": dict(
+        state="Tamil Nadu", frm="2026-01-04", to="2026-02-08", seed=15, min_days=5, max_mandi_km=150, min_absorption_kg=300,
+        notes=["Only 5 days sampled per mandi, all Sundays (4, 18 and 25 Jan, 1 and 8 Feb): each price is a median of at most 5 days",
+               "Most yards are Uzhavar Sandhai (farmers' markets), so prices look retail-like; only Vellore, Tindivanam and Ulundurpettai are APMC wholesale yards",
+               "Only 28 of 179 Tamil Nadu mandis have coordinates (none in Chennai), so the region is capped at 150 km around Vellore",
+               "Thresholds lowered for this preset: 5 days per series (default 15) and 0.3 t/day (default 1 t)"],
+        label="Tamil Nadu mandis around Vellore, Jan-Feb 2026: tomato & onion",
+        hub="Vellore Apmc"),
 }
 
 
@@ -187,14 +195,14 @@ def drop_implausible_series(markets):
     return dropped, [m for m in markets if m["price"]]
 
 
-def drop_tiny_series(markets):
+def drop_tiny_series(markets, min_kg=MIN_USEFUL_ABSORPTION_KG):
     """After imputation: remove (mandi, crop) series that absorb less than MIN_USEFUL_ABSORPTION_KG per day. The
     farmers would all converge on the nearest mandi and most of the produce could not be sold there, which says more
     about the choice of a trivially small yard than about the algorithms."""
     dropped = []
     for m in markets:
         for c in list(m["price"]):
-            if m["capacity_kg"][c] < MIN_USEFUL_ABSORPTION_KG:
+            if m["capacity_kg"][c] < min_kg:
                 dropped.append(f"{m['name']} {c}: {m['capacity_kg'][c] / 1000:.2f} t/day")
                 for k in ("price", "capacity_kg", "n_days", "last_date", "capacity_top_share", "capacity_is_placeholder",
                           "capacity_source", "capacity_reported_kg"):
@@ -254,7 +262,7 @@ def impute_capacities(markets):
 # ----------------------------------------------------------------------------------------------------------------
 # 3. region: hub -> farmer cluster centre -> nearest mandis -> crop mix
 # ----------------------------------------------------------------------------------------------------------------
-def choose_region(markets, hub_name):
+def choose_region(markets, hub_name, max_km=None):
     hub = next((m for m in markets if m["name"] == hub_name), None)
     if hub is None:
         sys.exit(f"Hub mandi {hub_name!r} is not among the usable markets: "
@@ -262,6 +270,8 @@ def choose_region(markets, hub_name):
     near = [m for m in markets if haversine(hub["lat"], hub["lng"], m["lat"], m["lng"]) <= 60]
     centre = (median(m["lat"] for m in near), median(m["lng"] for m in near))
     ranked = sorted(markets, key=lambda m: haversine(centre[0], centre[1], m["lat"], m["lng"]))
+    if max_km is not None:   # optional per-preset cap so a sparse-coordinate state cannot pull in mandis 500+ km away
+        ranked = [m for m in ranked if haversine(centre[0], centre[1], m["lat"], m["lng"]) <= max_km]
     for k in (8, 9, 10, 11, 12):
         chosen = ranked[:k]
         buyers = Counter(c for m in chosen for c in m["price"])
@@ -375,7 +385,7 @@ def make_blurb(cfg, report, imp_rep, chosen, crops, vol, farmers, comp, prod, ce
         f"Cleaned before use: {cleaned:,} rows dropped (prices outside min/max or 3x off the series median, arrival typos above 20x the median, "
         f"non-positive prices); {len(implausible)} mandi-crop series with implausible units (e.g. bundle prices labelled per quintal) dropped; "
         f"mandis without coordinates ({len(dropped_coords)}) or with suspect ones ({len(bad_coords)}) left out, and {len(tiny)} mandi-crop series "
-        f"absorbing under {MIN_USEFUL_ABSORPTION_KG / 1000:g} t/day removed (too small to be a market for a pickup round). "
+        f"absorbing under {cfg.get('min_absorption_kg', MIN_USEFUL_ABSORPTION_KG) / 1000:g} t/day removed (too small to be a market for a pickup round). "
         f"Capacity is the median reported daily arrival, a proxy and not a limit: {ph} of {n_series} mandi-crop series here repeat one value on "
         f"70%+ of days, and {im} of those were raised to the state's lower-quartile arrival for that crop, which is an assumption. "
         f"SYNTHETIC: {len(farmers)} farmers ({', '.join(f'{c} {n}' for c, n in cc.most_common())}) in villages within {CLUSTER_RADIUS_KM:.0f} km of "
@@ -387,9 +397,47 @@ def make_blurb(cfg, report, imp_rep, chosen, crops, vol, farmers, comp, prod, ce
     return " ".join(parts)
 
 
-def render_block(preset_id, cfg, blurb, farmers, comp, chosen, centre):
+def make_about(cfg, report, imp_rep, chosen, crops, vol, farmers, comp, prod, centre, dropped_coords, bad_coords, implausible, tiny):
+    """The same facts as make_blurb, but as short labelled lists for the frontend's "About the data" panel."""
+    min_kg = cfg.get("min_absorption_kg", MIN_USEFUL_ABSORPTION_KG)
+    names = ", ".join(m["name"].replace(" Apmc", "").replace("(Uzhavar Sandhai )", "").replace("(Uzhavar Sandhai)", "").strip() for m in chosen)
+    cc = Counter(f["crop"] for f in farmers)
+    veh = sum(comp.values())
+    cap = sum({"truck_5t": 5000, "reefer_5t": 5000, "truck_2t": 2000, "reefer_2t": 2000, "van": 1000,
+               "reefer_van": 1000, "mini_pickup": 500}[k] * v for k, v in comp.items())
+    ph = sum(1 for m in chosen for c in m["price"] if m["capacity_is_placeholder"][c])
+    cleaned = (report.get("dropped_modal_price_outside_min_max", 0) + report.get("dropped_price_outlier_vs_series_median", 0)
+               + report.get("dropped_arrival_spike_over_20x_series_median", 0)
+               + report.get("dropped_modal_price_missing_or_nonpositive", 0) + report.get("dropped_min_price_above_max_price", 0))
+    capacity = ["Mandi capacity = median reported daily arrival: a proxy, not a hard limit"]
+    if ph:
+        capacity.append(f"{ph} mandi-crop series repeat one value on 70%+ of days; treat their capacity as an assumption")
+    sections = [
+        {"title": "Real", "items": [
+            f"{len(chosen)} {cfg['state']} mandis: {names}",
+            f"Prices and daily arrivals: Agmarknet via India Data Portal, {cfg['frm']} to {cfg['to']} (median of days)",
+            "Mandi coordinates: the portal's own"]},
+        {"title": "Synthetic", "items": [
+            f"{len(farmers)} farmers ({', '.join(f'{c} {n}' for c, n in cc.most_common())}) in villages within {CLUSTER_RADIUS_KM:.0f} km of ({centre[0]:.2f}, {centre[1]:.2f}); lots 150-600 kg",
+            f"{veh}-vehicle fleet, {cap / 1000:.0f} t = {FLEET_RATIO:g}x the day's {sum(prod.values()) / 1000:.1f} t of produce",
+            "No public farmer or fleet data exists"]},
+        {"title": "Assumptions", "items": capacity + [
+            f"About {N_TARGET} pickups per round, never more than {CROP_ABSORPTION_SHARE:.0%} of a crop's daily absorption by these mandis",
+            "The farm-gate price used in the comparison is assumed"]},
+    ]
+    if cfg.get("notes"):
+        sections.append({"title": "Data caveats", "items": list(cfg["notes"])})
+    sections.append({"title": "Cleaning", "items": [
+        f"{cleaned:,} rows dropped (price or arrival outliers, invalid prices); {len(implausible)} series with implausible units (e.g. bundle prices) dropped",
+        f"{len(dropped_coords)} mandis without coordinates and {len(bad_coords)} with suspect ones left out",
+        f"{len(tiny)} mandi-crop series absorbing under {min_kg / 1000:g} t/day removed (too small for a pickup round)"]})
+    return {"sections": sections}
+
+
+def render_block(preset_id, cfg, blurb, farmers, comp, chosen, centre, about=None):
     q = json.dumps
-    out = [f"  {preset_id}: {{", '    category: "real",', f"    label: {q(cfg['label'])},", f"    blurb: {q(blurb)},", "    farmers: ["]
+    desc = f"    about: {q(about)}," if about else f"    blurb: {q(blurb)},"   # structured panel if given, else the legacy paragraph
+    out = [f"  {preset_id}: {{", '    category: "real",', f"    label: {q(cfg['label'])},", desc, "    farmers: ["]
     for f in farmers:
         out.append(f'      {{ lat: {f["lat"]}, lng: {f["lng"]}, crop: "{f["crop"]}", qty_kg: {f["qty_kg"]}, '
                    f'ready_hr: {f["ready_hr"]}, deadline_hr: {f["deadline_hr"]} }},')
@@ -417,25 +465,28 @@ def build_preset(preset_id, cfg, csv_path, out_dir=REGIONAL_DIR, hub=None):
     out_dir.mkdir(parents=True, exist_ok=True)
     df, report = load_clean(csv_path, cfg["state"], cfg["frm"], cfg["to"])
     emb_all = brm.embedded_coords(df)
-    markets, dropped = brm.build(df, {}, min_days=MIN_DAYS)
+    min_days = cfg.get("min_days", MIN_DAYS)   # a preset may lower it when its CSV samples few days (e.g. tamil_nadu: 5 days per mandi)
+    markets, dropped = brm.build(df, {}, min_days=min_days)
     implausible, markets = drop_implausible_series(markets)
     bad = coordinate_outliers(markets)
     markets = [m for m in markets if m["name"] not in bad]
     warns = brm.shared_coordinate_warnings(markets)
     imp_rep = impute_capacities(markets)
-    tiny, markets = drop_tiny_series(markets)
-    hub_m, centre, chosen, crops = choose_region(markets, hub or cfg["hub"])
+    min_kg = cfg.get("min_absorption_kg", MIN_USEFUL_ABSORPTION_KG)   # a preset may lower it for small farmers-market yards
+    tiny, markets = drop_tiny_series(markets, min_kg)
+    hub_m, centre, chosen, crops = choose_region(markets, hub or cfg["hub"], cfg.get("max_mandi_km"))
     farmers, vol, wanted = make_farmers(centre, chosen, crops, cfg["seed"])
     comp, prod = fleet_composition(farmers)
     blurb = make_blurb(cfg, report, imp_rep, chosen, crops, vol, farmers, comp, prod, centre, dropped, bad, implausible, tiny)
-    block = render_block(preset_id, cfg, blurb, farmers, comp, chosen, centre)
+    about = make_about(cfg, report, imp_rep, chosen, crops, vol, farmers, comp, prod, centre, dropped, bad, implausible, tiny)
+    block = render_block(preset_id, cfg, blurb, farmers, comp, chosen, centre, about=about)
     record = {"preset_id": preset_id, "config": cfg, "cleaning": report, "usable_markets_in_state_window": len(markets),
               "markets_dropped_no_or_invalid_coordinates": len(dropped), "markets_dropped_suspect_coordinates": bad,
               "shared_coordinate_warnings": warns, "series_dropped_implausible": implausible,
               "series_dropped_tiny_capacity": tiny,
               "capacity_imputation": imp_rep, "hub": hub_m["name"],
               "farmer_cluster_centre": centre, "mix_crops": crops, "mix_volume_kg": vol, "farmers_wanted_by_crop_after_absorption_cap": wanted,
-              "assumptions": {"min_days": MIN_DAYS, "min_useful_absorption_kg": MIN_USEFUL_ABSORPTION_KG, "n_target": N_TARGET, "crop_absorption_share": CROP_ABSORPTION_SHARE,
+              "assumptions": {"min_days": min_days, "min_useful_absorption_kg": min_kg, "n_target": N_TARGET, "crop_absorption_share": CROP_ABSORPTION_SHARE,
                               "min_farmers_per_crop": MIN_FARMERS_PER_CROP, "mean_lot_kg": MEAN_LOT_KG,
                               "plausible_price_kg": PLAUSIBLE_PRICE_KG, "plausible_price_kg_by_crop": PLAUSIBLE_PRICE_KG_BY_CROP, "plausible_max_arrival_kg": PLAUSIBLE_MAX_ARRIVAL_KG, "cluster_radius_km": CLUSTER_RADIUS_KM,
                               "village_crop_lean": VILLAGE_CROP_LEAN, "fleet_ratio": FLEET_RATIO, "seed": cfg["seed"]},

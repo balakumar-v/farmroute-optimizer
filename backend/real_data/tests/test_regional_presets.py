@@ -147,3 +147,29 @@ def test_coordinate_outliers_flag_a_mandi_far_from_its_districts_other_mandis():
     ms = [dict(_mkt(f"N{i}", "onion", 10, 5000), lat=12.0 + 0.1 * i, lng=77.0) for i in range(3)]
     ms.append(dict(_mkt("Far", "onion", 10, 5000), lat=18.0, lng=77.0))
     assert brp.coordinate_outliers(ms) == ["Far"]
+
+
+# ---------------------------------------------------------------- per-preset options (SYNTHETIC FIXTURES)
+def test_tiny_series_threshold_can_be_lowered_per_preset():
+    ms = [_mkt("Small", "onion", 10.0, 500), _mkt("Fine", "onion", 10.0, 5000)]
+    brp.impute_capacities(ms)
+    dropped, kept = brp.drop_tiny_series(ms, min_kg=300)
+    assert [m["name"] for m in kept] == ["Small", "Fine"] and dropped == []
+
+
+def test_choose_region_can_cap_the_distance_so_far_mandis_are_not_pulled_in():
+    ms = [dict(_mkt(f"N{i}", "onion", 10, 5000), lat=12.0 + 0.01 * i, lng=77.0) for i in range(3)]
+    ms.append(dict(_mkt("Far", "onion", 10, 5000), lat=8.0, lng=77.0))          # ~440 km away
+    _hub, _centre, chosen, _crops = brp.choose_region(ms, "N0", max_km=150)
+    assert "Far" not in [m["name"] for m in chosen]
+    _hub, _centre, chosen, _crops = brp.choose_region(ms, "N0")
+    assert "Far" in [m["name"] for m in chosen]
+
+
+def test_render_block_emits_structured_about_or_falls_back_to_blurb():
+    cfg = {"label": "L"}
+    about = {"sections": [{"title": "Real", "items": ["a"]}]}
+    with_about = brp.render_block("x", cfg, "BLURB", [], {}, [], (0, 0), about=about)
+    assert "about:" in with_about and "blurb:" not in with_about
+    legacy = brp.render_block("x", cfg, "BLURB", [], {}, [], (0, 0))
+    assert "blurb:" in legacy and "about:" not in legacy

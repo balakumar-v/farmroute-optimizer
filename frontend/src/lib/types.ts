@@ -43,10 +43,14 @@ export interface MarketIn {
 export interface Market extends MarketIn { id: number }
 
 export interface ScenarioCategory { id: string; label: string }
+/** Short labelled lists shown in a preset's expandable panel (e.g. Real / Synthetic / Assumptions). */
+export interface ScenarioAbout { sections: { title: string; items: string[] }[] }
 export interface Scenario {
   label: string;
   category: string;
+  /** Legacy one-paragraph description; used only when `about` is absent. */
   blurb?: string;
+  about?: ScenarioAbout;
   farmers: FarmerIn[];
   vehicles: VehicleIn[];
   markets: MarketIn[];
