@@ -100,13 +100,15 @@ PRESETS = {
         label="Madhya Pradesh mandis around Indore, Feb-Apr 2026: onion, potato, tomato, cauliflower",
         hub="Indore Apmc"),
     "tamil_nadu_vellore": dict(
-        state="Tamil Nadu", frm="2026-01-04", to="2026-02-08", seed=15, min_days=5, max_mandi_km=150, min_absorption_kg=300,
-        notes=["Only 5 days sampled per mandi, all Sundays (4, 18 and 25 Jan, 1 and 8 Feb): each price is a median of at most 5 days",
-               "Most yards are Uzhavar Sandhai (farmers' markets), so prices look retail-like; only Vellore, Tindivanam and Ulundurpettai are APMC wholesale yards",
-               "Only 28 of 179 Tamil Nadu mandis have coordinates (none in Chennai), so the region is capped at 150 km around Vellore",
-               "Thresholds lowered for this preset: 5 days per series (default 15) and 0.3 t/day (default 1 t)"],
-        label="Tamil Nadu mandis around Vellore, Jan-Feb 2026: tomato & onion",
-        hub="Vellore Apmc"),
+        state="Tamil Nadu", frm="2026-01-04", to="2026-02-08", seed=15, min_days=5, min_absorption_kg=300, max_mandi_km=150,
+        label="Tamil Nadu mandis around Vellore, Jan-Feb 2026: tomato, onion, potato",
+        hub="Vellore Apmc",
+        coords=[("Vellore", "Thirupathur Apmc", 12.4955, 78.5730, "approximate town centre, not from the portal"),
+                ("Vellore", "Gudiyatham(Uzhavar Sandhai )", 12.9540, 78.8710, "approximate town centre, not from the portal")],
+        notes=["Two files merged: Vellore district has daily data (~36 days per mandi in this window); other districts have only 5 sampled days (all Sundays)",
+               "Thirupathur and Gudiyatham coordinates are approximate town centres added by hand (a few km uncertain)",
+               "Most yards are Uzhavar Sandhai (farmers' markets), so prices look retail-like; only Vellore, Thirupathur, Tindivanam and Ulundurpettai are APMC wholesale yards",
+               "Tamil Nadu yards are small (0.3-9 t/day per crop), so the farmer count is capped well below the other presets; thresholds lowered to 5 days and 0.3 t/day"]),
 }
 
 
@@ -466,7 +468,9 @@ def build_preset(preset_id, cfg, csv_path, out_dir=REGIONAL_DIR, hub=None):
     df, report = load_clean(csv_path, cfg["state"], cfg["frm"], cfg["to"])
     emb_all = brm.embedded_coords(df)
     min_days = cfg.get("min_days", MIN_DAYS)   # a preset may lower it when its CSV samples few days (e.g. tamil_nadu: 5 days per mandi)
-    markets, dropped = brm.build(df, {}, min_days=min_days)
+    # Manual coordinates for mandis the portal left blank (per preset, visible in PRESETS): (district, market, lat, lng, source)
+    manual = {(cfg["state"], d_, m_): (la, ln, src) for d_, m_, la, ln, src in cfg.get("coords", [])}
+    markets, dropped = brm.build(df, manual, min_days=min_days)
     implausible, markets = drop_implausible_series(markets)
     bad = coordinate_outliers(markets)
     markets = [m for m in markets if m["name"] not in bad]
