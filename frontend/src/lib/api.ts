@@ -1,3 +1,4 @@
+import type { PublishedCards } from "./printCards";
 import type {
   ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, Vehicle, VehicleIn,
 } from "./types";
@@ -23,6 +24,7 @@ export interface ApiClient {
   publish(planId: number): Promise<PublishResult>;
   published(): Promise<{ published: boolean; plan_id?: number; published_at?: string; farmers?: number }>;
   unpublish(): Promise<unknown>;
+  publishedCards(): Promise<PublishedCards>;
 }
 
 export interface PublishResult {
@@ -82,5 +84,6 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     publish: (planId) => post(`/plan/${planId}/publish`),
     published: () => req("/published"),
     unpublish: () => req("/published", { method: "DELETE" }),
+    publishedCards: () => req<PublishedCards>("/published/cards"),
   };
 }

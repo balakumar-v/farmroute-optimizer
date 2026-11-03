@@ -652,6 +652,21 @@ def get_published():
             "published_at": r["published_at"], "farmers": len(json.loads(r["cards"]))}
 
 
+@app.get("/published/cards")
+def get_published_cards(response: Response):
+    """Every published farmer card, for the admin console's printable cards (farmers without a phone). Admin-only
+    like the rest of the admin routes; farmers never reach it (they only get their own card from /farmer/me).
+    Cards hold no PINs."""
+    response.headers["Cache-Control"] = "no-store"
+    with get_conn() as conn:
+        r = conn.execute("SELECT plan_id, published_at, cards FROM published_plan WHERE id = 1").fetchone()
+    if r is None:
+        raise HTTPException(404, "No plan has been published yet.")
+    cards = json.loads(r["cards"])
+    return {"plan_id": r["plan_id"], "published_at": r["published_at"],
+            "cards": [cards[k] for k in sorted(cards, key=int)]}
+
+
 @app.delete("/published")
 def unpublish():
     with get_conn() as conn:

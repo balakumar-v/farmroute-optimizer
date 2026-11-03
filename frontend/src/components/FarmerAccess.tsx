@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { PublishResult } from "../lib/api";
 import { useApp } from "../state/store";
 import { BusyButton } from "./Shell";
+import { buildPrintHtml, openPrintWindow, parseIds, writePrintWindow, type PerPage } from "../lib/printCards";
+import { PRINT_LANGS, type PrintLang } from "../lib/printStrings";
 
 type Pins = { farmer_id: number; pin: string }[];
 
@@ -14,6 +16,9 @@ export function FarmerAccess() {
   const [err, setErr] = useState("");
   const [pins, setPins] = useState<Pins | null>(null);
   const [pub, setPub] = useState<PublishResult | null>(null);
+  const [pLang, setPLang] = useState<PrintLang>("en");
+  const [pPer, setPPer] = useState<PerPage>(4);
+  const [pIds, setPIds] = useState("");
   const [live, setLive] = useState<{ published: boolean; plan_id?: number; published_at?: string } | null>(null);
 
   const run = async (name: string, fn: () => Promise<void>) => {
@@ -26,6 +31,21 @@ export function FarmerAccess() {
   const issue = (onlyMissing: boolean) => {
     if (!onlyMissing && !window.confirm("This gives EVERY farmer a new PIN and logs them all out. Continue?")) return;
     void run("pins", async () => setPins((await api.issuePins(onlyMissing)).pins));
+  };
+  // Printable cards for farmers without a phone: opens a print view; "Save as PDF" in the print dialog gives the PDF.
+  const printCards = () => {
+    let ids: Set<number> | null;
+    try { ids = parseIds(pIds); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); return; }
+    const w = openPrintWindow();   // must open inside the click, before any await, or pop-up blockers stop it
+    if (!w) { setErr("The browser blocked the print window. Allow pop-ups for this site and try again."); return; }
+    void run("print", async () => {
+      try {
+        const data = await api.publishedCards();
+        const { html, count } = buildPrintHtml(data, pLang, pPer, ids);
+        if (count === 0) { w.close(); throw new Error("No published card matches those farmer IDs."); }
+        writePrintWindow(w, html);
+      } catch (e) { w.close(); throw e; }
+    });
   };
   const text = () => (pins ?? []).map((p) => `${p.farmer_id}\t${p.pin}`).join("\n");
   const download = () => {
@@ -50,6 +70,18 @@ export function FarmerAccess() {
           onClick={() => void run("publish", async () => { setPub(await api.publish(planId!)); setLive(await api.published()); })} />
         {live?.published && <button className="btn btn-secondary" type="button" disabled={busy !== ""}
           onClick={() => void run("unpublish", async () => { await api.unpublish(); setPub(null); setLive(await api.published()); })}>Hide from farmers</button>}
+      </div>
+
+      <div className="sec-head" style={{ marginTop: 16 }}><h3>Printed cards (farmers without a phone)</h3></div>
+      <p className="hint">Makes one card per farmer from the published plan, in the language you pick. Cards contain no PIN. Reprint if you publish a new plan.</p>
+      <div className="head-actions" style={{ flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+        <label>Language<select value={pLang} onChange={(e) => setPLang(e.target.value as PrintLang)}>
+          {PRINT_LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}</select></label>
+        <label>Cards per page<select value={pPer} onChange={(e) => setPPer(Number(e.target.value) as PerPage)}>
+          <option value={4}>4 (A6 size, cut lines)</option><option value={1}>1 (large print)</option></select></label>
+        <label>Farmer IDs (blank = all)<input value={pIds} onChange={(e) => setPIds(e.target.value)} placeholder="e.g. 3, 8-12, 20" /></label>
+        <BusyButton busy={busy === "print"} busyLabel="Preparing…" label="Print / Save as PDF" className="btn btn-secondary"
+          disabled={!live?.published || (busy !== "" && busy !== "print")} onClick={printCards} />
       </div>
 
       {pub && (
