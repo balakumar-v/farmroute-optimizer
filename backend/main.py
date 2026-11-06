@@ -14,6 +14,8 @@ Endpoints:
     POST /farmers/upload     (csv/xlsx bulk add)
     POST /sensors/reading
     POST /reset
+    GET/DELETE /farmers/phones   DELETE /farmers/{id}/phone   (admin: phone numbers)
+    /farmer/phone[/start|/verify]  (farmer: register a number by code)
 
 See README.md for example request/response JSON.
 """
@@ -25,7 +27,7 @@ import json
 import os
 from typing import Optional, List
 
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import get_conn, init_db
@@ -38,7 +40,7 @@ from logistics_lib_v2 import (
     fresh_capacity,
 )
 from schemas import (
-    LoginIn, QuoteCheckIn,
+    LoginIn, PhoneStartIn, PhoneVerifyIn, QuoteCheckIn,
     FarmerIn, FarmerOut,
     VehicleIn, VehicleOut,
     MarketIn, MarketOut,
@@ -47,6 +49,8 @@ from schemas import (
 import advisor
 import auth
 import farmer_upload
+import notify
+import phones
 import roads
 from visualization_adapter import ALGO_KEYS, build_plan_visualization
 
@@ -613,7 +617,7 @@ def issue_pin(farmer_id: int, response: Response):
 
 
 @app.post("/plan/{plan_id}/publish")
-def publish_plan(plan_id: int):
+def publish_plan(plan_id: int, background: BackgroundTasks):
     """Make this plan the one farmers see. Cards are built now, once; the previous published plan is kept so each
     farmer's card can say what changed for them. Farmers never see unpublished plans."""
     plan = get_plan(plan_id)
@@ -637,9 +641,17 @@ def publish_plan(plan_id: int):
             (plan_id, prev_id, published_at, json.dumps(cards)))
         have = {r["farmer_id"] for r in conn.execute("SELECT farmer_id FROM farmer_credentials").fetchall()}
         conn.commit()
+    # SMS / WhatsApp: farmers with a verified number whose card changed (everyone with a number when nothing was
+    # published before). Sent after this response, so a slow or failing provider never holds up or breaks publishing.
+    targets = phones.plan_targets(cards, only_changed=cur is not None)
+    background.add_task(phones.send_batch, targets, plan_id)
+    prov = notify.describe_providers()
     return {"plan_id": plan_id, "previous_plan_id": prev_id, "published_at": published_at, "farmers": len(cards),
             "farmers_without_pin": sorted(set(cards) - have),
-            "farmers_with_changes": sum(1 for c in cards.values() if c["changed"])}
+            "farmers_with_changes": sum(1 for c in cards.values() if c["changed"]),
+            "phone_updates": {"farmers_messaged": len(targets), "sms": prov["sms"]["provider"],
+                              "whatsapp": prov["whatsapp"]["provider"],
+                              "dry_run": not (prov["sms"]["live"] or prov["whatsapp"]["live"])}}
 
 
 @app.get("/published")
@@ -693,7 +705,61 @@ def farmer_me(response: Response, farmer_id: int = Depends(auth.current_farmer))
     card = json.loads(r["cards"]).get(str(farmer_id))
     if card is None:
         raise HTTPException(404, "You are not part of the published plan.")
+    card["phone"] = phones.status(farmer_id)       # lets the app ask for a number only when there is none
     return card
+
+
+@app.get("/farmer/phone")
+def farmer_phone(response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    response.headers["Cache-Control"] = "no-store"
+    return phones.status(farmer_id)
+
+
+@app.post("/farmer/phone/start")
+def farmer_phone_start(body: PhoneStartIn, response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    """Texts a 6-digit code to the number. Nothing is stored against the farmer until /farmer/phone/verify."""
+    response.headers["Cache-Control"] = "no-store"
+    return phones.start(farmer_id, body.phone, body.lang)
+
+
+@app.post("/farmer/phone/verify")
+def farmer_phone_verify(body: PhoneVerifyIn, background: BackgroundTasks, response: Response,
+                        farmer_id: int = Depends(auth.current_farmer)):
+    """Stores the number if the code is right, then sends the farmer their current plan once."""
+    response.headers["Cache-Control"] = "no-store"
+    st = phones.verify(farmer_id, body.code)
+    background.add_task(phones.send_welcome, farmer_id)
+    return st
+
+
+@app.delete("/farmer/phone")
+def farmer_phone_remove(response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    """The farmer stops SMS / WhatsApp updates: their number is deleted."""
+    response.headers["Cache-Control"] = "no-store"
+    phones.remove(farmer_id)
+    return phones.status(farmer_id)
+
+
+# ---- admin side of phone numbers (not under /farmer/, so the admin token is required)
+@app.get("/farmers/phones")
+def admin_phones(response: Response):
+    """Who has a number (masked), how sending is configured, the last messages. Full numbers are never returned."""
+    response.headers["Cache-Control"] = "no-store"
+    return phones.summary()
+
+
+@app.delete("/farmers/phones")
+def admin_reset_phones(confirm: bool = False):
+    """Clears EVERY stored phone number. Farmers are asked for theirs again the next time they open the app.
+    Needs ?confirm=true so a stray request cannot do it."""
+    if not confirm:
+        raise HTTPException(400, "Add ?confirm=true to clear every stored phone number.")
+    return {"cleared": phones.reset_all()}
+
+
+@app.delete("/farmers/{farmer_id}/phone")
+def admin_clear_phone(farmer_id: int):
+    return {"cleared": phones.remove(farmer_id)}
 
 
 # =========================================================================
@@ -746,7 +812,7 @@ def reset_data():
     the database by hand. Resets the id counters too, so a fresh load
     afterwards gets clean IDs starting from 1."""
     tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets",
-              "farmer_credentials", "published_plan")
+              "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log")
     with get_conn() as conn:
         cleared = {}
         for table in tables:

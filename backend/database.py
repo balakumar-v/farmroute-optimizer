@@ -108,6 +108,39 @@ CREATE TABLE IF NOT EXISTS published_plan (
     published_at TEXT NOT NULL,
     cards TEXT NOT NULL      -- JSON: {farmer_id: card}
 );
+
+-- Farmer phone numbers for SMS / WhatsApp updates. A number is stored only after the farmer typed back a code sent to it.
+CREATE TABLE IF NOT EXISTS farmer_phones (
+    farmer_id INTEGER PRIMARY KEY,
+    phone TEXT NOT NULL,                  -- E.164, e.g. +919876543210
+    lang TEXT NOT NULL DEFAULT 'en',      -- language of the messages (en, te, hi, ta)
+    verified_at DOUBLE PRECISION NOT NULL
+);
+
+-- One pending code per farmer. Only a keyed digest of the code is kept.
+CREATE TABLE IF NOT EXISTS phone_otps (
+    farmer_id INTEGER PRIMARY KEY,
+    phone TEXT NOT NULL,
+    lang TEXT NOT NULL DEFAULT 'en',
+    digest TEXT NOT NULL,
+    expires_at DOUBLE PRECISION NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    sent_at DOUBLE PRECISION NOT NULL,
+    window_start DOUBLE PRECISION NOT NULL,   -- start of the current hour for the send limit
+    send_count INTEGER NOT NULL DEFAULT 1
+);
+
+-- Every SMS / WhatsApp attempt (no phone numbers and no message text are stored here).
+CREATE TABLE IF NOT EXISTS notification_log (
+    id BIGSERIAL PRIMARY KEY,
+    farmer_id INTEGER NOT NULL,
+    channel TEXT NOT NULL,                -- sms | whatsapp
+    kind TEXT NOT NULL,                   -- otp | update | changed | welcome
+    ok BOOLEAN NOT NULL,
+    detail TEXT NOT NULL,
+    plan_id INTEGER,
+    created_at DOUBLE PRECISION NOT NULL
+);
 """
 
 

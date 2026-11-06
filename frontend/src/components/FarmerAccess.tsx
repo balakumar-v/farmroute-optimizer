@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PublishResult } from "../lib/api";
+import type { PhoneSummary, PublishResult } from "../lib/api";
 import { useApp } from "../state/store";
 import { BusyButton } from "./Shell";
 import { buildPrintHtml, openPrintWindow, parseIds, writePrintWindow, type PerPage } from "../lib/printCards";
@@ -20,13 +20,22 @@ export function FarmerAccess() {
   const [pPer, setPPer] = useState<PerPage>(4);
   const [pIds, setPIds] = useState("");
   const [live, setLive] = useState<{ published: boolean; plan_id?: number; published_at?: string } | null>(null);
+  const [ph, setPh] = useState<PhoneSummary | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+  const [cleared, setCleared] = useState<number | null>(null);
 
   const run = async (name: string, fn: () => Promise<void>) => {
     setBusy(name); setErr("");
     try { await fn(); } catch (e) { setErr(e instanceof Error ? e.message : String(e)); } finally { setBusy(""); }
   };
   const refresh = () => run("status", async () => setLive(await api.published()));
-  useEffect(() => { void refresh(); }, [state.apiBase]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const loadPhones = () => run("phones", async () => setPh(await api.phones()));
+  useEffect(() => { void refresh(); void loadPhones(); }, [state.apiBase]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // Wipes every stored number. Farmers are asked for theirs again next time they open the app.
+  const resetPhones = () => run("resetPhones", async () => {
+    const r = await api.resetPhones();
+    setCleared(r.cleared); setConfirmText(""); setPh(await api.phones());
+  });
 
   const issue = (onlyMissing: boolean) => {
     if (!onlyMissing && !window.confirm("This gives EVERY farmer a new PIN and logs them all out. Continue?")) return;
@@ -67,7 +76,7 @@ export function FarmerAccess() {
         <BusyButton busy={busy === "pins"} busyLabel="Issuing…" label="Issue PINs (farmers without one)" className="btn btn-secondary" onClick={() => issue(true)} />
         <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => issue(false)}>Re-issue for everyone</button>
         <BusyButton busy={busy === "publish"} busyLabel="Publishing…" label={planId ? `Publish plan ${planId} to farmers` : "Publish plan to farmers"} disabled={!planId}
-          onClick={() => void run("publish", async () => { setPub(await api.publish(planId!)); setLive(await api.published()); })} />
+          onClick={() => void run("publish", async () => { setPub(await api.publish(planId!)); setLive(await api.published()); setTimeout(() => void api.phones().then(setPh).catch(() => undefined), 3000); })} />
         {live?.published && <button className="btn btn-secondary" type="button" disabled={busy !== ""}
           onClick={() => void run("unpublish", async () => { await api.unpublish(); setPub(null); setLive(await api.published()); })}>Hide from farmers</button>}
       </div>
@@ -84,12 +93,53 @@ export function FarmerAccess() {
           disabled={!live?.published || (busy !== "" && busy !== "print")} onClick={printCards} />
       </div>
 
+
+      <div className="sec-head" style={{ marginTop: 16 }}><h3>Phone numbers (SMS and WhatsApp updates)</h3></div>
+      <p className="hint">
+        Farmers add their own number in the farmer app and confirm it with a code sent by SMS. When you publish a plan, farmers with a
+        number whose plan changed get an SMS and a WhatsApp message (everyone with a number on the first publish). Numbers are shown masked.
+      </p>
+      {ph && (["sms", "whatsapp"] as const).map((ch) => ph.providers[ch].problem
+        ? <div className="note warn" role="alert" key={ch}><span><strong>{ch === "sms" ? "SMS" : "WhatsApp"}:</strong> {ph.providers[ch].provider} {ph.providers[ch].problem}. Messages will fail until this is fixed.</span></div> : null)}
+      {ph && !ph.providers.sms.live && !ph.providers.whatsapp.live && !ph.providers.sms.problem && !ph.providers.whatsapp.problem && (
+        <div className="note" role="status"><span>Dry-run mode: messages are written to the server log, not sent. Set <code>SMS_PROVIDER</code> and <code>WHATSAPP_PROVIDER</code> on the backend to send for real.</span></div>
+      )}
+      <p className="hint">
+        {ph === null ? "Checking…" : <><strong>{ph.registered}</strong> of {ph.farmers} farmers have a number.
+          {cleared !== null && ` Last reset cleared ${cleared}.`}</>}
+      </p>
+      <div className="head-actions" style={{ flexWrap: "wrap", gap: 8, alignItems: "flex-end" }}>
+        <label>Type RESET to clear every number
+          <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder="RESET" autoComplete="off" /></label>
+        <BusyButton busy={busy === "resetPhones"} busyLabel="Clearing…" label="Reset all phone numbers" className="btn btn-secondary"
+          disabled={confirmText.trim() !== "RESET" || !ph || ph.registered === 0 || (busy !== "" && busy !== "resetPhones")} onClick={resetPhones} />
+        <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => void loadPhones()}>Refresh</button>
+      </div>
+      <p className="hint">Resetting deletes all stored numbers. Farmers will be asked for their number again the next time they open the app, and get no messages until they confirm it.</p>
+
+      {ph && ph.rows.length > 0 && (
+        <div className="tablewrap" style={{ maxHeight: 260, overflow: "auto" }}><table className="data"><thead><tr><th>Farmer ID</th><th>Number</th><th>Language</th><th>Confirmed</th><th /></tr></thead>
+          <tbody>{ph.rows.map((r) => <tr key={r.farmer_id}><td>{r.farmer_id}</td><td style={{ fontVariantNumeric: "tabular-nums" }}>{r.masked}</td><td>{r.lang}</td>
+            <td>{new Date(r.verified_at * 1000).toLocaleString()}</td>
+            <td><button className="btn btn-secondary" type="button" disabled={busy !== ""}
+              onClick={() => void run("clearOne", async () => { await api.clearPhone(r.farmer_id); setPh(await api.phones()); })}>Clear</button></td></tr>)}</tbody></table></div>
+      )}
+      {ph && ph.recent.length > 0 && (<>
+        <div className="sec-head" style={{ marginTop: 12 }}><h3>Recent messages</h3></div>
+        <div className="tablewrap" style={{ maxHeight: 220, overflow: "auto" }}><table className="data"><thead><tr><th>Time</th><th>Farmer</th><th>Channel</th><th>Kind</th><th>Result</th></tr></thead>
+          <tbody>{ph.recent.map((m, i) => <tr key={i}><td>{new Date(m.created_at * 1000).toLocaleTimeString()}</td><td>{m.farmer_id}</td><td>{m.channel}</td><td>{m.kind}</td>
+            <td>{m.ok ? m.detail : <strong>{m.detail}</strong>}</td></tr>)}</tbody></table></div>
+      </>)}
+
       {pub && (
         <div className="note" role="status"><span>
           Published plan {pub.plan_id} to {pub.farmers} farmers. {pub.farmers_with_changes > 0 && `${pub.farmers_with_changes} will see a "something changed" banner. `}
           {pub.farmers_without_pin.length > 0
             ? <strong>{pub.farmers_without_pin.length} farmers have no PIN yet and cannot log in (IDs: {pub.farmers_without_pin.join(", ")}).</strong>
             : "Every farmer has a PIN."}
+          {pub.phone_updates && (pub.phone_updates.farmers_messaged > 0
+            ? ` ${pub.phone_updates.farmers_messaged} farmer${pub.phone_updates.farmers_messaged === 1 ? "" : "s"} with a phone number ${pub.phone_updates.dry_run ? "would get" : "are getting"} an SMS and a WhatsApp update${pub.phone_updates.dry_run ? " (dry run: logged, nothing sent)" : ""}.`
+            : " No SMS or WhatsApp updates to send: nobody with a number has a changed plan.")}
         </span></div>
       )}
 

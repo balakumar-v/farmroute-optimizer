@@ -134,3 +134,13 @@ class LoginIn(BaseModel):
     """Farmer login: the farmer's ID and the 6-digit PIN their FPO gave them."""
     farmer_id: int
     pin: str = Field(pattern=r"^\d{6}$")
+
+
+class PhoneStartIn(BaseModel):
+    """Farmer app: the number to text a code to, and the language to write messages in."""
+    phone: str = Field(min_length=5, max_length=24)
+    lang: str = Field(default="en", max_length=5)
+
+
+class PhoneVerifyIn(BaseModel):
+    code: str = Field(pattern=r"^\d{6}$")

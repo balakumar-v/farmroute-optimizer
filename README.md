@@ -82,6 +82,10 @@ Backend environment variables:
 | `ROAD_PLANNING` | `off` to plan on straight lines without a road matrix | `auto` |
 | `ROAD_MATRIX_MAX_POINTS` | Largest scenario (farmers + mandis) that gets a road matrix | 200 |
 | `FARMROUTE_ROAD_CIRCUITY` | Fixed road-km / straight-km factor when road lookups are off | 1.0 |
+| `SMS_PROVIDER` | How SMS goes out: `dry` (log only), `twilio` or `msg91`. Needs that provider's credentials (see `backend/notify.py`). | `dry` |
+| `WHATSAPP_PROVIDER` | How WhatsApp goes out: `dry`, `meta` (WhatsApp Cloud API) or `twilio`. | `dry` |
+| `DEFAULT_COUNTRY_CODE` | Digits added to phone numbers typed without a country code | `91` |
+| `NOTIFY_DEMO_SHOW_OTP` | `on` returns the SMS code in the API response while `SMS_PROVIDER=dry`, so a demo can be completed without sending SMS. Never use with real farmers. | `off` |
 
 Set `ALLOWED_ORIGINS`, `ADMIN_TOKEN` and `FARMROUTE_SECRET` in production: the defaults accept requests from any site and leave the admin routes open.
 

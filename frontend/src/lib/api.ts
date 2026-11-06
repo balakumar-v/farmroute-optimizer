@@ -25,10 +25,23 @@ export interface ApiClient {
   published(): Promise<{ published: boolean; plan_id?: number; published_at?: string; farmers?: number }>;
   unpublish(): Promise<unknown>;
   publishedCards(): Promise<PublishedCards>;
+  phones(): Promise<PhoneSummary>;
+  resetPhones(): Promise<{ cleared: number }>;
+  clearPhone(farmerId: number): Promise<{ cleared: number }>;
+}
+
+/** Farmer phone numbers for SMS / WhatsApp updates. Numbers arrive masked; full numbers never reach the console. */
+export interface PhoneSummary {
+  farmers: number;
+  registered: number;
+  providers: Record<"sms" | "whatsapp", { provider: string; live: boolean; problem: string | null }>;
+  rows: { farmer_id: number; masked: string; lang: string; verified_at: number }[];
+  recent: { farmer_id: number; channel: string; kind: string; ok: boolean; detail: string; plan_id: number | null; created_at: number }[];
 }
 
 export interface PublishResult {
   plan_id: number; published_at: string; farmers: number; farmers_without_pin: number[]; farmers_with_changes: number;
+  phone_updates?: { farmers_messaged: number; sms: string; whatsapp: string; dry_run: boolean };
 }
 
 /** Typed client for the FastAPI backend. `onConn` reports reachability to the UI's connection chip. */
@@ -85,5 +98,8 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     published: () => req("/published"),
     unpublish: () => req("/published", { method: "DELETE" }),
     publishedCards: () => req<PublishedCards>("/published/cards"),
+    phones: () => req<PhoneSummary>("/farmers/phones"),
+    resetPhones: () => req<{ cleared: number }>("/farmers/phones?confirm=true", { method: "DELETE" }),
+    clearPhone: (id) => req<{ cleared: number }>(`/farmers/${id}/phone`, { method: "DELETE" }),
   };
 }

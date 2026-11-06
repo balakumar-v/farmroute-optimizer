@@ -265,6 +265,18 @@ The sections above cover farmers, vehicles, markets, plans and sensors. Also ava
 `GET /plan/{id}/driver-sheet/{vehicle_id}`. `POST /plan/compute` also takes `road_distances`, `road_circuity`,
 `mode` and `max_value_sacrifice`.
 
+### Phone numbers, SMS and WhatsApp
+Farmer routes (farmer token): `GET /farmer/phone`, `POST /farmer/phone/start` (`{phone, lang}`: texts a 6-digit code),
+`POST /farmer/phone/verify` (`{code}`: stores the number, then sends the current plan once), `DELETE /farmer/phone`
+(stop updates). `GET /farmer/me` carries `phone: {registered, masked}`.
+Admin routes: `GET /farmers/phones` (counts, masked numbers, provider status, recent sends), `DELETE /farmers/phones?confirm=true`
+(clear every stored number), `DELETE /farmers/{id}/phone`. `POST /reset` clears the phone tables too.
+`POST /plan/{id}/publish` now also returns `phone_updates` and, after responding, sends one SMS and one WhatsApp message to each
+farmer with a number whose card changed (everyone with a number if nothing was published before).
+Code: `notify.py` (numbers, codes, message text in en/te/hi/ta, providers, no database) and `phones.py` (database side).
+Codes expire in 10 minutes, allow 5 guesses, one request per minute and 5 per hour per farmer. Tables: `farmer_phones`,
+`phone_otps`, `notification_log`. A browser cannot read a SIM number, so the number is typed and confirmed by code.
+
 
 ## Known simplifications (inherited, not re-litigated here)
 

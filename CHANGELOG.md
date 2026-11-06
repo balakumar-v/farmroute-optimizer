@@ -1,5 +1,14 @@
 # Changelog
 
+## SMS and WhatsApp updates, phone numbers (Nov 2026)
+Farmers add a phone number in the farmer app, confirm it with an SMS code, and then get their plan updates by SMS and WhatsApp. The admin console can clear every stored number (type-to-confirm) or one farmer's.
+- Number capture: typed and confirmed by a 6-digit code, because a web page cannot read the SIM number or open a "choose your number" picker (only a native Android app can). Codes: 10 minutes, 5 guesses, one per minute and 5 per hour per farmer, stored only as a keyed digest.
+- Sending: `backend/notify.py` (stdlib only). `SMS_PROVIDER` / `WHATSAPP_PROVIDER` default to `dry`, which logs instead of sending, so everything works with no account. Adapters for Twilio, MSG91 and the WhatsApp Cloud API are written from the providers' API descriptions and are NOT yet run against the live services.
+- When: on publish, farmers with a number whose card changed (everyone with a number if nothing was published before), after the publish response so providers cannot slow or break it; plus the current plan once when a farmer confirms a number. Messages are one line in en, te, hi or ta (the language the farmer had selected).
+- Admin: phone section in Farmer access (masked numbers, per-farmer clear, reset all, provider status, recent sends). `DELETE /farmers/phones?confirm=true`.
+- Tables `farmer_phones`, `phone_otps`, `notification_log` are created on start (`CREATE TABLE IF NOT EXISTS`); `POST /reset` clears them.
+- Tests: `backend/tests/test_phones.py` (pure tests need no database; the API tests need `DATABASE_URL`).
+
 ## Spoilage-first mode (Oct 2026)
 A second, selectable aim for the optimizer. `POST /plan/compute?mode=spoilage[&max_value_sacrifice=0.10]` (and the "Optimise for" selector on the Plan tab) returns the plan with the least produce spoiled in transit whose farmer value is within `max_value_sacrifice` of the normal net-return plan. The default (`mode=returns`) is unchanged to the last digit.
 - Minimising spoilage alone is degenerate (haul nothing and nothing spoils), so it is a trade-off: `run_ilo_v3_spoilage_first` runs ILO v3 at several `spoil_weight` values (extra charge per rupee of spoiled produce, applied in `_eval_trip` scoring and in plan ranking), then picks the lowest-spoilage plan inside the value budget. `ilo_meta["spoilage_first"]["frontier"]` lists every run.
