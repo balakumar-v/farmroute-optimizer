@@ -62,7 +62,7 @@ function views() {
   if (S.view === "phone" || S.view === "otp") { const ph = S.view === "phone", err = S.err ? `<div class="err" role="alert">${esc(S.err)}</div>` : "";
    return `<div class="body"><div class="row"><span class="note">Farmroute</span>${langBar()}</div><div class="ico" style="margin-top:12px">${ic("phone")}</div><h1 class="mid" style="font-size:32px;margin:6px 0 0">${t(ph ? "phT" : "otT")}</h1><span class="note" style="font-size:17px">${ph ? t("phB") : t("otB", { n: esc(S.masked || "") })}</span>
    ${ph ? `<label>${t("phL")}<input id="ph" type="tel" inputmode="tel" autocomplete="tel" placeholder="98765 43210" style="letter-spacing:.05em" value="${esc(S.ph || "")}"></label><span class="note">${t("phHint")}</span>`
-        : `<label>${t("otL")}<input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••"></label>`}
+        : `<label>${t("otL")}<input id="otp" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="••••••"></label>${S.demo ? `<div class="note" role="status">Demo mode, no SMS sent. Code: <strong>${esc(S.demo)}</strong></div>` : ""}`}
    ${err}<div class="col" style="margin-top:auto;gap:12px">${ph ? btn("phSend", t("phSend"), "green") + btn("phSkip", t("phSkip"), "line") : btn("phVerify", t("otOk"), "green") + btn("phSend", t("otAgain"), "line") + btn("phChg", t("otChg"), "line")}</div></div>`; }
   // card
   const st = c.status, tr = c.trip, hd = st === "hauled" ? "" : st === "unserved" ? " warn" : "";
@@ -189,7 +189,7 @@ async function phSend() {   // asks the server to text a code; nothing is stored
   if (v.replace(/\D/g, "").length < 8) { S.err = t("phBad"); return render(); }
   try {
     const r = await authed("/farmer/phone/start", { method: "POST", body: JSON.stringify({ phone: v, lang: S.lang }) });
-    if (r.ok) { S.masked = (await r.json()).to; S.view = "otp"; return render(); }
+    if (r.ok) { const j = await r.json(); S.masked = j.to; S.demo = j.demo_otp || ""; S.view = "otp"; return render(); }
     if (r.status === 401) ex(); else S.err = r.status === 422 ? t("phBad") : r.status === 429 ? t("phWait") : t("phFail");
   } catch { S.err = t("net"); }
   render();
