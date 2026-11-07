@@ -95,8 +95,19 @@ def test_spoilage_shock_widens_the_distribution_and_restores_rates():
 
 def test_spoilage_params_context_changes_and_restores_the_model():
     base = L.spoilage_fraction("tomato", False, 4.0)
+    cooled = L.spoilage_fraction("tomato", True, 4.0)
     with L.spoilage_params(rate_scale=2.0, unrefrig_mult=6.0, cap=0.9):
-        assert L.spoilage_fraction("tomato", False, 4.0) == pytest.approx(0.9)       # 0.02*2*6*4 = 0.96 -> cap 0.9
-        assert L.spoilage_fraction("tomato", True, 4.0) == pytest.approx(0.16)
+        assert L.spoilage_fraction("tomato", True, 4.0) == pytest.approx(cooled * 2)
+        assert L.spoilage_fraction("tomato", False, 4.0) == pytest.approx(cooled * 2 * 6.0)   # one multiplier for every crop
+        assert L.spoilage_fraction("spinach", False, 1000.0) == pytest.approx(0.9)             # cap
     assert L.spoilage_fraction("tomato", False, 4.0) == pytest.approx(base)
-    assert L.SPOIL_UNREFRIG_MULT == 3.0 and L.SPOIL_CAP == 0.6
+    assert L.SPOIL_UNREFRIG_MULT == 3.0 and L.SPOIL_CAP == 0.6 and L._UNREFRIG_OVERRIDE is None
+
+
+def test_per_crop_uncooled_rates_match_the_report():
+    # uncooled / cooled weight loss per hour: tomato 0.05/0.013 %, spinach 0.75/0.03 %, cauliflower 0.15/0.03 %, mango 0.07/0.015 %
+    for crop, unc, cool in [("tomato", .0005, .00013), ("spinach", .0075, .0003), ("cauliflower", .0015, .0003), ("mango", .0007, .00015)]:
+        assert L.spoilage_fraction(crop, False, 1.0) == pytest.approx(unc)
+        assert L.spoilage_fraction(crop, True, 1.0) == pytest.approx(cool)
+    assert L.spoilage_fraction("onion", False, 1.0) == L.spoilage_fraction("onion", True, 1.0)   # needs no refrigeration
+    assert L.spoilage_fraction("spinach", False, 1e6) == L.SPOIL_CAP

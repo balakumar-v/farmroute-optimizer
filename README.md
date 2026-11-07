@@ -27,13 +27,15 @@ Bihar preset (real mandi prices, 34 synthetic farmers, 8 vehicles, 8 mandis), de
 
 ILO is 42% ahead of Proximity Pooling and 54% ahead of Individual Transport. The baselines sell little at a market because the nearest buying mandi is a median 44 km (potato) and 51 km (onion) away, so their rules rarely trigger a haul. The size of the lead depends on the assumed discount: against the best of all baselines in this project, ILO leads by 12% at a 5% discount and by 54% at 40% (`ALGORITHM_AND_RESULTS_V2.md`, section 20).
 
-Not every scenario is a win. On the synthetic Cold chain scenario ILO and Proximity Pooling tie (₹56,190 against ₹56,113). With spoilage counted from pickup, the refrigeration effect is small at those distances, and the scenario's blurb says so. Treat all of these as single runs on synthetic farmers.
+Not every scenario is a win. On the synthetic Cold chain scenario ILO and Proximity Pooling tie (₹59,099 against ₹58,473 behavioural and ₹59,099 rational). With spoilage counted from pickup, the refrigeration effect is small at those distances, and the scenario's blurb says so. Treat all of these as single runs on synthetic farmers.
 
 ## Live demo
 
 https://farmroute-optimizer-frontend.onrender.com/
 
-The frontend is hosted on Render and the database is Neon Postgres. A free Render service sleeps when idle, so the first request after a pause can take a while to wake up.
+Farmer app (installable PWA): https://farmroute-web.onrender.com
+
+The admin console and the farmer app are hosted on Render and the database is Neon Postgres. A free Render service sleeps when idle, so the first request after a pause can take a while to wake up.
 
 ## Quick start
 
@@ -64,7 +66,8 @@ The backend URL defaults to `http://localhost:8000`; change it from the connecti
 |---|---|---|
 | Database | Neon Postgres | Use the connection string as `DATABASE_URL`. The code disables prepared statements, so Neon's pooled endpoint works. |
 | Backend | A Render web service, root directory `backend/` | Build `pip install -r requirements.txt`; start `uvicorn main:app --host 0.0.0.0 --port $PORT` |
-| Frontend | Render static site, root directory `frontend/` | Build `npm ci && npm run build`; publish `dist`; set `VITE_API_BASE` to the backend's public URL |
+| Admin console | Render static site, root directory `frontend/` | Build `npm ci && npm run build`; publish `dist`; set `VITE_API_BASE` to the backend's public URL |
+| Farmer app | Render static site, root directory `farmer-app/` | No build; publish `.`; set `FARMER_API` in `farmer-app/config.js`; add `/sw.js` header `Cache-Control: no-cache` (see `farmer-app/README.md`) |
 
 Backend environment variables:
 
@@ -79,31 +82,34 @@ Backend environment variables:
 | `ROUTING_PROVIDER` | `osrm`, `ors`, or `off` to skip road lookups | `ors` if `ORS_API_KEY` is set, else `osrm` |
 | `ORS_API_KEY` | OpenRouteService key | unset |
 | `OSRM_BASE_URL` | Self-hosted or alternative OSRM server | the public demo server |
+| `ROUTING_PROFILE` | Routing profile: OpenRouteService `driving-car` or `driving-hgv`; OSRM `driving` | provider default |
+| `ROUTING_USER_AGENT` | User-Agent sent to the routing servers | `farmroute-optimizer/1.0 (student project)` |
 | `ROAD_PLANNING` | `off` to plan on straight lines without a road matrix | `auto` |
 | `ROAD_MATRIX_MAX_POINTS` | Largest scenario (farmers + mandis) that gets a road matrix | 200 |
 | `FARMROUTE_ROAD_CIRCUITY` | Fixed road-km / straight-km factor when road lookups are off | 1.0 |
 | `SMS_PROVIDER` | How SMS goes out: `dry` (log only), `twilio` or `msg91`. Needs that provider's credentials (see `backend/notify.py`). | `dry` |
 | `WHATSAPP_PROVIDER` | How WhatsApp goes out: `dry`, `meta` (WhatsApp Cloud API) or `twilio`. | `dry` |
 | `DEFAULT_COUNTRY_CODE` | Digits added to phone numbers typed without a country code | `91` |
+| Provider credentials | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_SMS_FROM`, `TWILIO_WHATSAPP_FROM`; `MSG91_AUTH_KEY`, `MSG91_OTP_TEMPLATE_ID`, `MSG91_UPDATE_TEMPLATE_ID`, `MSG91_VAR`; `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_ID`, `WHATSAPP_TEMPLATE`, `WHATSAPP_API_VERSION`. Which ones apply depends on the provider chosen; a missing one is shown in the admin console and fails sends, it does not stop the server. | none |
 | `NOTIFY_DEMO_SHOW_OTP` | `on` returns the SMS code in the API response while `SMS_PROVIDER=dry`, so a demo can be completed without sending SMS (the farmer app then shows the code on the code screen). Never use with real farmers. | `off` |
 
-Set `ALLOWED_ORIGINS`, `ADMIN_TOKEN` and `FARMROUTE_SECRET` in production: the defaults accept requests from any site and leave the admin routes open.
+Set `ALLOWED_ORIGINS` (include the farmer app's origin), `ADMIN_TOKEN` and `FARMROUTE_SECRET` in production: the defaults accept requests from any site and leave the admin routes open.
 
-The current frontend is the admin console and does not send an `ADMIN_TOKEN` yet, so setting it on a deployment that serves that frontend will make the console's requests fail with 401 until a token field is added to it.
+When the backend has `ADMIN_TOKEN` set, the admin console asks for it the first time a request is refused with 401, keeps it in that browser (`localStorage`, key `farmroute.adminToken`) and retries. Experimental `ILO_*` switches (for example `ILO_ENRICH`, `ILO_COLGEN`) exist for benchmarking and are off by default; they are not deployment settings.
 
 ## The app
 
 | Tab | What it shows |
 |---|---|
-| Scenarios | Eight ready-made scenarios. One click loads the data, computes the plan and opens the map. |
+| Scenarios | Nine ready-made scenarios. One click loads the data, computes the plan and opens the map. |
 | Data | The farmers, vehicles and markets the optimizer sees. Add rows by hand. |
-| Plan | The ILO plan as a ledger: net return, produce not hauled and sold at the farm gate, farmer value, harvest sold, spoilage, and one row per pool. If ILO found nothing better than a simpler plan, the page says which plan it recommends instead. |
+| Plan | The ILO plan as a ledger: net return, produce not hauled and sold at the farm gate, farmer value, harvest sold, spoilage, and one row per pool. If ILO found nothing better than a simpler plan, the page says which plan it recommends instead. Under it, **Farmer access**: publish the plan to farmers, issue PINs, print cards for farmers without a phone, and manage farmers' phone numbers (see below). |
 | Compare | ILO against two behavioural baselines, with farmer value and produce sold side by side, a delta against ILO, and a full breakdown table. |
 | Map | The plan on a map: 7 presentation stages, a playable timeline, a step-by-step story, details for anything you select, compare mode, 3D, chase camera, and a full-screen walkthrough. Farmers who sell at the farm gate are slate; farmers who wanted a truck and got none are red. |
 
 ### Scenarios
 
-Three synthetic scenarios, each built to isolate one mechanism, and five built on real mandi data.
+Three synthetic scenarios, each built to isolate one mechanism, and six built on real mandi data.
 
 | Scenario | Farmers / vehicles / mandis | What it isolates |
 |---|---|---|
@@ -115,8 +121,19 @@ Three synthetic scenarios, each built to isolate one mechanism, and five built o
 | Uttar Pradesh, around Aligarh, Nov 2025 to Jan 2026 | 59 / 15 / 8 | Potato, onion, tomato, cauliflower, spinach |
 | Maharashtra, around Junnar (Pune), Feb to Apr 2026 | 60 / 14 / 8 | Onion, tomato, potato, cauliflower, spinach |
 | Madhya Pradesh, around Indore, Feb to Apr 2026 | 57 / 13 / 11 | Onion, potato, tomato, cauliflower |
+| Tamil Nadu, around Vellore, Jan to Feb 2026 | 27 / 6 / 8 | Tomato, onion, potato. Small yards, so fewer farmers; most yards are farmers' markets (Uzhavar Sandhai) with retail-like prices |
 
 In the real-data scenarios the mandi locations, prices and daily arrivals come from Agmarknet via the India Data Portal. The farmers and the fleet are synthetic, because no farmer-level data exists. Each scenario's "About the data" note lists what was cleaned and which counts are assumptions.
+
+## Farmer app, phone numbers and messages
+
+Farmers do not use the admin console. They use `farmer-app/`, a phone-first installable site (PWA) in English, Telugu, Hindi and Tamil with read-aloud:
+
+- Log in with the farmer ID and PIN the FPO issued. The operator publishes one plan; each farmer sees only their own card (truck time, where the produce goes, an honest payout estimate).
+- Farmers without a phone get a printed card: in **Farmer access** the operator picks a language and prints cards (browser "Save as PDF" gives a file).
+- **SMS and WhatsApp updates.** After login a farmer with no stored number is offered to add one. A web page cannot read the SIM number, so the farmer types it, gets a 6-digit code by SMS, and types the code back; only then is it stored. When the operator publishes a plan, each farmer with a number whose card changed gets one SMS and one WhatsApp message (everyone with a number on the first publish), and a farmer who confirms a number later gets the current plan once. The farmer can delete their number from the card; the operator can clear one farmer's number or every number (type-to-confirm) in **Farmer access**, after which farmers are asked again.
+- Sending is **off by default**: `SMS_PROVIDER` and `WHATSAPP_PROVIDER` are `dry`, which logs messages on the server instead of sending. Twilio, MSG91 (SMS) and the Meta WhatsApp Cloud API have adapters in `backend/notify.py`, written from the providers' API descriptions and not yet run against the live services. Messages are sent after the publish response, so a provider failure never blocks publishing; each attempt is listed under "Recent messages" (no numbers or text are stored in that log).
+- Limits: codes expire in 10 minutes, allow 5 wrong guesses, and can be requested once a minute and 5 times an hour per farmer. The message language is fixed when the number is registered. India SMS to real farmers needs DLT-registered templates and WhatsApp needs approved templates; see `backend/notify.py`.
 
 ## How the optimizer works
 
@@ -149,7 +166,7 @@ What these showed (synthetic scenarios, few seeds; `ALGORITHM_AND_RESULTS_V2.md`
 - Farm-gate discount: assuming 20% to 30% and using the live-quote rule had a worst-case regret of 8% to 11% across true discounts of 5% to 35%. Without the rule, assuming 30% lost money when the true discount was 5%.
 - Trip structure: multi-mandi trips and the top-3 mandi cut are not worth building; mixed-crop trips add about 0 to 5% and are noisy. Mandi capacity is the lever: it binds in 3 of 5 presets, and tripling it adds 15% to 39% (section 24). Capacity is a weak input, so report capacity sensitivity with any gain.
 - Soft capacity (section 25): scoring with a soft mandi capacity (volume up to 3x a normal day at falling prices) instead of a hard cap raises reported gain by 7% to 26% in 8 of 10 cases. Planning with it is not reliably better than ignoring price impact (6 of 10 cases better, 4 worse by up to 10%), so use it for scoring and sensitivity, not planning.
-- Spoilage: ILO beat every baseline under every spoilage variant tried (lead 4% to 9%), but doubling the hourly spoilage rate cut the gain by 25% and changed about half of the hauled farmers; the refrigeration multiplier mattered less (3 -> 6: -12%). The per-crop hourly rates are the parameter worth measuring.
+- Spoilage (earlier, with the old assumed rates): ILO beat every baseline under every spoilage variant tried (lead 4% to 9%), but doubling the hourly spoilage rate cut the gain by 25% and changed about half of the hauled farmers; the refrigeration multiplier mattered less (3 -> 6: -12%). The per-crop hourly rates are the parameter worth measuring. **Update, Nov 2026:** tomato, spinach, cauliflower and mango now use rates from a literature review of weight loss (below), with a per-crop uncooled multiplier. With them, on 100 synthetic farmers (18 scenarios per rate set) ILO's lead over the best baseline rose from +2.5% to +5.6% on average (range +2.6% to +13.1%), because lower spoilage makes longer hauls and pooling pay. The Bihar example above is unchanged (it grows onion and potato only).
 - Monte Carlo (100 draws, travel +-20%, readiness delays up to about 1 h, prices +-8%): the plan kept about 88% of its nominal gain on average and about 49% in the worst 5% of draws; it never lost money overall. Withholding trips with `p_beat` below 0.7 to 0.9 lowered both the mean and the 5th percentile, so it is off.
 
 The guarantee is narrow: returned value is at least the best baseline, measured with the prices and accounting the planner was given. It says nothing about real farmers, and it is only as good as the farm-gate price input.
@@ -179,6 +196,9 @@ backend/
                              payout statements, plan diff, driver sheet
   farmer_upload.py           csv/xlsx farmer-list parsing and validation
   auth.py                    admin token, farmer PIN login, signed tokens, lockout
+  phones.py                  farmer phone numbers: code check, storage, who gets a message on publish
+  notify.py                  phone-number parsing, codes, message text (en/te/hi/ta), SMS and
+                             WhatsApp providers (dry-run by default); no database, easy to test
   roads.py                   road distances (OSRM / OpenRouteService), matrix and route-geometry cache
   price_impact.py            volume-dependent mandi price model and eta estimator (off by default)
   stress.py                  Monte Carlo replay of a finished plan; withhold_fragile()
@@ -192,14 +212,15 @@ backend/
   benchmark_ilo_v3.py        ILO v3 against every baseline, many scenarios
   benchmark_*.py             other scale and comparison benchmarks
   experiments_v3_1/, experiments_v4/   scripts behind the reported numbers (v3.1 has its own README)
-  tests/                     dispatch, baselines, ILO v3, roads, advisors, upload, visualization
+  tests/                     dispatch, baselines, ILO v3, roads, advisors, upload, auth, phones, visualization
   real_data/                 Agmarknet pipeline, regional preset builder, data (own README)
 farmer-app/                  the farmers' installable PWA (own README); no build step
 frontend/                    React + TypeScript + Vite admin console (own README)
-  src/                       views, state, API client, scenario data (lib/scenarios.ts), map engine (vis/)
+  src/                       views, state, API client, scenario data (lib/scenarios.ts), map engine (vis/),
+                             Farmer access panel (components/FarmerAccess.tsx), printed cards (lib/printCards.ts)
   index.html, package.json, vite.config.ts
   app.js, style.css, vis/, vendor/, config.js   the pre-React frontend; no longer loaded by index.html
-```
+.github/workflows/ci.yml     CI: backend tests, and frontend build and tests, on every push
 EXTENDING.md                 where to plug in new views, prices, objectives, constraints and presets
 ALGORITHM_AND_RESULTS_V2.md  design history, benchmarks, assumptions (sections 19 to 21 cover v3 and the presets, 22 to 25 cover v3.1)
 MILP_GROUND_TRUTH.md         exact-benchmark method and results
@@ -228,28 +249,33 @@ Full request and response shapes are in `backend/README.md`.
 | `GET /plan/{id}/diff/{old_plan_id}` | Which farmers a re-plan changed, and why |
 | `GET /plan/{id}/driver-sheet/{vehicle_id}` | One vehicle's trips in order, with planned times, kg and map links |
 | `POST /sensors/reading`, `GET /sensors/readings` | Store ESP32 temperature and humidity readings |
-| `POST /reset` | Clear all data |
+| `POST /reset` | Clear all data (including phone numbers and the message log) |
 | `POST /farmers/pins`, `POST /farmers/{id}/pin` | Issue farmer PINs (shown once, stored hashed). `pins` issues for everyone without one; `?only_missing=false` re-issues for all |
-| `POST /plan/{id}/publish`, `GET /published`, `DELETE /published` | Choose the one plan farmers can see (or hide it) |
+| `POST /plan/{id}/publish`, `GET /published`, `GET /published/cards`, `DELETE /published` | Choose the one plan farmers can see (or hide it), and read the published cards. Publishing also reports `phone_updates` and sends the SMS / WhatsApp messages afterwards |
 | `POST /farmer/login` | Farmer ID + 6-digit PIN, returns a 12-hour token |
-| `GET /farmer/me` | The logged-in farmer's own card from the published plan (farmer token only) |
+| `GET /farmer/me` | The logged-in farmer's own card from the published plan, with `phone: {registered, masked}` (farmer token only) |
+| `GET /farmer/phone`, `POST /farmer/phone/start`, `POST /farmer/phone/verify`, `DELETE /farmer/phone` | The farmer's own number: status, text a code, confirm it, delete it (farmer token only) |
+| `GET /farmers/phones` | Admin: counts, masked numbers, SMS / WhatsApp provider status, recent sends. Full numbers are never returned |
+| `DELETE /farmers/phones?confirm=true`, `DELETE /farmers/{id}/phone` | Admin: clear every stored number (needs `confirm=true`), or one farmer's |
 
 `POST /plan/compute` options:
 - `road_distances` (default `true`): plan on measured road distances between every farmer and mandi (OpenStreetMap via OSRM, cached in the database). If road data is unavailable it falls back to straight lines. The distance model used is stored with the plan as `distance_model`.
 - `road_circuity=1.3`: plan and score with road distance = 1.3 x straight line instead (400 outside 1 to 3).
 - `mode` = `returns` (default, maximise farmer value) or `spoilage` (least spoiled produce within `max_value_sacrifice`, default 0.10, of the best returns plan; slower).
 
-`/plan/compute` returns `integrated_logistics_optimization`, `individual_transport` and `proximity_pooling`, each with `pools` and a `summary` that includes `net_return_incl_farmgate`, plus `distance_model` and `realistic_baselines` as above. Crops: `tomato`, `onion`, `potato`, `cauliflower`, `mango`, `spinach`. Vehicle types: `mini_pickup`, `van`, `reefer_van`, `truck_2t`, `reefer_2t`, `truck_5t`, `reefer_5t`. ### Roles and access
+`/plan/compute` returns `integrated_logistics_optimization`, `individual_transport` and `proximity_pooling`, each with `pools` and a `summary` that includes `net_return_incl_farmgate`, plus `distance_model` and `realistic_baselines` as above. Crops: `tomato`, `onion`, `potato`, `cauliflower`, `mango`, `spinach`. Vehicle types: `mini_pickup`, `van`, `reefer_van`, `truck_2t`, `reefer_2t`, `truck_5t`, `reefer_5t`.
+
+### Roles and access
 
 | Who | Gets in with | Can use |
 |---|---|---|
 | Admin (operator) | `ADMIN_TOKEN` as a bearer token | every route except the `/farmer/` ones |
-| Farmer | farmer ID + PIN, then a signed token | `GET /farmer/me` only, which returns that farmer's card and nothing else |
+| Farmer | farmer ID + PIN, then a signed token | `/farmer/me` and `/farmer/phone*` only: that farmer's own card and own phone number, nothing else |
 | Anyone | nothing | `/docs`, `/openapi.json`, `POST /farmer/login` |
 
 Admin access is default-deny: any route outside `/farmer/` requires the token, including ones added later. If `ADMIN_TOKEN` is not set the admin routes stay open (local development) and the farmer routes return 503, so farmers cannot be reached on an open backend by accident. Setting `ADMIN_AUTH=off` makes that choice on purpose; see the warning in the env table. A farmer's token cannot call any admin route, and the admin token is not accepted as a farmer token.
 
-Farmers only see a plan an operator has published. Publishing builds one card per farmer holding only that farmer's own crop, quantity, status, payout lines and trip details (no other farmer's id, and no trip revenue or cost). Re-publishing marks which farmers' cards changed and why. PINs are stored as salted scrypt hashes, five wrong PINs lock that farmer for 15 minutes, and issuing a new PIN logs out the old sessions.
+Farmers only see a plan an operator has published. Publishing builds one card per farmer holding only that farmer's own crop, quantity, status, payout lines and trip details (no other farmer's id, and no trip revenue or cost). Re-publishing marks which farmers' cards changed and why. Phone numbers are stored as typed-and-confirmed E.164 strings, and only masked forms (`+91******3210`) are returned to the admin console or the farmer app. PINs are stored as salted scrypt hashes, five wrong PINs lock that farmer for 15 minutes, and issuing a new PIN logs out the old sessions.
 
 Limits: someone who knows a farmer ID can lock that farmer out for 15 minutes (an admin issuing a new PIN clears it); there is no per-IP rate limit because behind Render's proxy all callers share one address; there is one shared admin token, not per-operator accounts. Do not put real farmer details on a deployment before `ADMIN_TOKEN` is set.
 
@@ -261,6 +287,7 @@ Limits: someone who knows a farmer ID can lock that farmer out for 15 minutes (a
 - Dropped, not guessed: mandis with no coordinates (Maharashtra 5, Madhya Pradesh 27), implausible price or arrival units, and mandi-crop series absorbing under 1 t per day.
 - Plans use measured road distances when OSRM is reachable, and straight lines otherwise (`distance_model` says which). The map draws real-road geometry once it has been fetched and straight lines until then. There is no depot data.
 - Per-stop times are reconstructed with the algorithm's own timing constants, not replayed from its internals.
+- Phone numbers, when farmers add them, are the farmers' own; SMS and WhatsApp are not sent until you configure a provider (default `dry`).
 - Sensor readings are stored only. The planner cannot yet recompute spoilage from live readings, and the UI never simulates sensor data.
 
 ## Map tiles
@@ -271,29 +298,30 @@ The map always renders a limewash background with a lat/lng grid, so it works of
 
 ```bash
 cd backend
-pip install pytest
+pip install -r requirements-dev.txt
 export DATABASE_URL=postgresql://...   # the endpoint tests need a Postgres; without it they are skipped
-python3 -m pytest tests                # 178 tests; the full run takes about five minutes
+python3 -m pytest tests                # the full run takes several minutes; CI runs it on every push
 
 python3 verify_setup.py                # endpoint sanity check against your DATABASE_URL (it ends by resetting the data)
 
 python3 benchmark_ilo_v3.py grid      # win/tie/loss map across scenarios
 python3 benchmark_ilo_v3.py robust    # planner assumes 20% discount, truth differs
+python3 benchmark_ilo_v3.py margin    # planner margin sweep
 python3 benchmark_ilo_v3.py bihar     # the Bihar preset
 ```
 
-Use a throwaway database for tests: the endpoint tests call `POST /reset`, which empties every table. Road lookups need internet access; without it plans fall back to straight lines and the tests still pass.
+The phone-number tests in `tests/test_phones.py` that need no database (number parsing, codes, message text, provider requests, who is messaged) run anywhere; its API tests need `DATABASE_URL`. Use a throwaway database for tests: the endpoint tests call `POST /reset`, which empties every table. Road lookups need internet access; without it plans fall back to straight lines and the tests still pass.
 
 `python3 -m pytest real_data/tests` additionally needs `pip install -r real_data/requirements-realdata.txt`; without it those tests fail on a missing `agmarknet` module. The API does not need it.
 
-Frontend: `cd frontend && npm test` (simulation engine) and `npm run build` (typecheck plus production build).
+Frontend: `cd frontend && npm test` (simulation engine) and `npm run build` (typecheck plus production build). `.github/workflows/ci.yml` runs both halves on every push.
 
 ## Real-data pipeline
 
-The India Data Portal's Agmarknet export is a bulk CSV you download by hand (the Agmarknet site itself is captcha-protected). The repo includes the five state CSVs used here under `backend/real_data/data/raw/`, about 15 MB of data in all.
+The India Data Portal's Agmarknet export is a bulk CSV you download by hand (the Agmarknet site itself is captcha-protected). The repo includes the CSVs for Bihar and four other states (Karnataka, Uttar Pradesh, Maharashtra, Madhya Pradesh) under `backend/real_data/data/raw/`, about 15 MB of data in all. The Tamil Nadu preset's source CSVs are not included, so that preset can be used but not rebuilt from this repository.
 
 ```bash
-# regional preset (any of the four non-Bihar states)
+# regional preset (any of the five non-Bihar presets; Tamil Nadu needs its own CSV)
 python3 real_data/build_regional_presets.py --list
 python3 real_data/build_regional_presets.py --preset karnataka_bengaluru --csv <state csv>
 ```
@@ -306,11 +334,13 @@ This writes a `.js` block of preset data to adapt into `SCENARIOS` in `frontend/
 - All farmers and the fleet are synthetic, and ILO's lead depends on the assumed farm-gate discount and on a few high-priced mandis (Sheohar in Bihar). Price response to extra volume is modelled only if `price_impact` is switched on (default off); its elasticities are lower bounds, and fixed-price numbers overstate gains by roughly 17% at those values.
 - Distances are measured road km (OSRM, cached) when reachable, else straight-line km times a circuity factor, at a constant 32 km/h for time. The public OSRM demo server is rate-limited and has no uptime guarantee, so a deployment that must not fall back should host its own (`OSRM_BASE_URL`). Road km do not capture road quality, so travel time is still approximate.
 - In the fleet model a vehicle is busy for the pickup leg plus turnaround; the delivery leg does not occupy it (inherited from the simulator).
-- Spoilage is still a linear, uncalibrated model with a binary refrigeration switch; its hourly rates move results a lot (section 23) and should be measured. Trips are single-mandi and single-crop for consolidation. The plan covers one day with no carry-over.
+- Spoilage is a linear model with a per-crop uncooled/cooled switch. Tomato, spinach, cauliflower and mango use working rates from a literature review of hourly postharvest WEIGHT loss (uncooled / cooled per hour: tomato 0.05% / 0.013%, spinach 0.75% / 0.03%, cauliflower 0.15% / 0.03%, mango 0.07% / 0.015%). Onion and potato (0.8% and 0.5% per hour) have no source and are probably far too high. Weight loss is not rejection or quality loss, which are not modelled. A reefer is treated as pre-cooled load; one that holds temperature without removing field heat sits between the two rates. Spoilage is counted only from pickup, not while produce waits at the farm. Trips are single-mandi and single-crop for consolidation. The plan covers one day with no carry-over.
 - Mandi capacity is a hard cap by default, built from median daily arrivals (some Bihar values are reporting defaults); it binds in 3 of 5 presets and the cap assumption moves reported gain by 7% to 26% (sections 24 and 25). A soft cap exists (`PriceImpact.soft`), but planning with it is not yet reliable.
 - The Monte Carlo shock sizes and the farm-gate discount scenarios are judgement calls, not calibrated.
 - v3.1 results come from 2 to 6 synthetic seeds per setting. Treat the percentages as indications.
 - In the regional presets the farmer cluster is centred on a mandi hub, so hauling pays far more often than in Bihar. Do not read the lead sizes across presets as a statement about the regions.
 - Six Bihar mandi-crop capacities are reporting defaults, not measurements. Madhya Pradesh lost 27 mandis to missing coordinates, which thins its mandi set.
 - MILP ground truth only scales to about 5 to 7 farmers.
-- No Docker image or CI yet. Deployment is by hand on Render and Neon (see Deployment). The admin routes are open unless `ADMIN_TOKEN` is set; the admin console frontend has no login field for it yet.
+- No Docker image yet. CI (GitHub Actions) runs the tests and the frontend build; deployment is by hand on Render and Neon (see Deployment). The admin routes are open unless `ADMIN_TOKEN` is set.
+- SMS and WhatsApp: the Twilio, MSG91 and Meta adapters have not been run against the live services, and the database-backed phone tests in `tests/test_phones.py` were written without a Postgres available, so run them once against a throwaway database. The Telugu, Hindi and Tamil strings (app and messages) are machine-written and need a native-speaker review.
+- The farmer app shows a demo code on screen when `NOTIFY_DEMO_SHOW_OTP=on` with `SMS_PROVIDER=dry`; never leave that on with real farmers.

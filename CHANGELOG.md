@@ -1,5 +1,13 @@
 # Changelog
 
+## Spoilage rates from the weight-loss review (Nov 2026)
+- `CROPS` in `logistics_lib_v2.py`: `base_spoil_per_hr` is now the COOLED hourly weight loss and each refrigeration-needing crop has its own `unrefrig_mult` (tomato 3.8x, spinach 25x, cauliflower 5x, mango 4.7x) instead of one global 3x. New rates (cooled): tomato 0.013%, spinach 0.03%, cauliflower 0.03%, mango 0.015% per hour; uncooled 0.05%, 0.75%, 0.15%, 0.07%. Old rates were 1.4% to 3.5% per hour. Onion and potato are unchanged (no source) and likely too high.
+- `SPOIL_UNREFRIG_MULT` (3.0) is now only the fallback for a crop with no multiplier; `spoilage_params(unrefrig_mult=...)` still forces one multiplier on every crop.
+- Effect (synthetic, 100 farmers, 18 scenarios): ILO's average lead over the best baseline +2.5% -> +5.6%. Cold chain demo: ILO 59,099, tied with rational Neighbour pooling, +1.1% over behavioural. Bihar example unchanged.
+- Plans can now send one trip to two mandis more often, so `advisor.driver_sheet` gives each dropoff its own kg only when the plan recorded it (else `null`; one dropoff still gets the full load). The sheet test was loosened accordingly.
+- Results in `ALGORITHM_AND_RESULTS_V2.md` sections 20 to 23 were produced with the OLD rates and are not re-run, except the comparison in section 24.
+- Not done: a separate quality/rejection-loss parameter.
+
 ## SMS and WhatsApp updates, phone numbers (Nov 2026)
 Farmers add a phone number in the farmer app, confirm it with an SMS code, and then get their plan updates by SMS and WhatsApp. The admin console can clear every stored number (type-to-confirm) or one farmer's.
 - Number capture: typed and confirmed by a 6-digit code, because a web page cannot read the SIM number or open a "choose your number" picker (only a native Android app can). Codes: 10 minutes, 5 guesses, one per minute and 5 per hour per farmer, stored only as a keyed digest.
@@ -7,6 +15,7 @@ Farmers add a phone number in the farmer app, confirm it with an SMS code, and t
 - When: on publish, farmers with a number whose card changed (everyone with a number if nothing was published before), after the publish response so providers cannot slow or break it; plus the current plan once when a farmer confirms a number. Messages are one line in en, te, hi or ta (the language the farmer had selected).
 - Admin: phone section in Farmer access (masked numbers, per-farmer clear, reset all, provider status, recent sends). `DELETE /farmers/phones?confirm=true`.
 - Tables `farmer_phones`, `phone_otps`, `notification_log` are created on start (`CREATE TABLE IF NOT EXISTS`); `POST /reset` clears them.
+- README refreshed against the code: ninth scenario (Tamil Nadu, Vellore), farmer-app and phone-number sections, missing routes, env vars and files, a fixed layout block, and stale notes removed (CI exists; the admin console does ask for the token).
 - Tests: `backend/tests/test_phones.py` (pure tests need no database; the API tests need `DATABASE_URL`).
 
 ## Spoilage-first mode (Oct 2026)

@@ -357,6 +357,8 @@ def driver_sheet(plan, solution, vehicle_id):
         eta = {("farmer", e["locationId"]): e["timestamp"] for e in ev if e["type"] == "arrive_farmer"}
         eta.update({("market", e["locationId"]): e["timestamp"] for e in ev if e["type"] == "arrive_market"})
         kg = {e["locationId"]: e["loadChangeKg"] for e in ev if e["type"] == "pickup"}
+        dropped = {e["locationId"]: -e["loadChangeKg"] for e in ev if e["type"] == "delivery" and "loadChangeKg" in e}
+        n_drops = sum(1 for st in r["stops"] if st["type"] == "market")
         stops, load = [], 0.0
         for i, st in enumerate(r["stops"], start=1):
             t = eta.get((st["type"], st["id"]))
@@ -366,8 +368,8 @@ def driver_sheet(plan, solution, vehicle_id):
             if st["type"] == "farmer":
                 row.update(crop=farmers[st["id"]]["crop"], kg=kg.get(st["id"], farmers[st["id"]]["qty_kg"]))
                 load += row["kg"]
-            else:
-                row.update(kg=load)
+            else:                      # several mandis on one trip: per-mandi kg only if the plan recorded it, else None (never a guess)
+                row.update(kg=dropped.get(st["id"], load if n_drops == 1 else None))
             stops.append(row)
         wp = "|".join(f"{s['lat']:.6f},{s['lng']:.6f}" for s in stops[:-1])
         last = stops[-1]

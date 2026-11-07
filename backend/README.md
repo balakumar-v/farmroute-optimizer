@@ -244,6 +244,12 @@ at 1 again. For starting over between demos.
 | `visualization_adapter.py` | Reshapes a stored plan run into the Map & simulation tab's frontend-facing schema. Pure consumer of the algorithm output — no optimization logic |
 | `verify_setup.py` | Exercises every endpoint via `TestClient`; run after `pip install -r requirements.txt` |
 | `verify_visualization.py` | Exercises `GET /plan/{id}/visualization` and `GET /sensors/readings` against a realistic multi-vehicle scenario, including multi-trip vehicle-reuse and served/unserved-farmer edge cases |
+| `auth.py` | Admin token, farmer PIN login, signed farmer tokens, lockout |
+| `phones.py` | Farmer phone numbers: code check, storage, clearing, who is messaged when a plan is published |
+| `notify.py` | Phone-number parsing, one-time codes, message text (en/te/hi/ta) and the SMS / WhatsApp providers (dry-run by default). Standard library only, no database |
+| `baselines_v3.py` | Behavioural and rational baselines and farm-gate pricing |
+| `ilo_v3_ext.py` | Column-generation and local-search extension used by ILO v3 (off by default) |
+| `tests/`, `real_data/` | Test suite; Agmarknet pipeline, regional preset builder and its data (own README) |
 | `ilo_v3.py` | ILO v3 planner: candidates, fleet-aware set partition, repair and value-gain sharing, break-even, discount stress, optional Monte Carlo |
 | `price_impact.py` | `PriceImpact` volume-dependent price model and `estimate_price_flexibility()` (off by default) |
 | `stress.py` | `monte_carlo_stress()` and `withhold_fragile()` for a finished plan |

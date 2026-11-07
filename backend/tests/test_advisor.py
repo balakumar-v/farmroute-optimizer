@@ -172,10 +172,15 @@ def test_driver_sheet_lists_every_trip_in_order_with_consistent_weights(plan):
         starts = [t["dispatch_hr"] for t in sheet["trips"]]
         assert starts == sorted(starts)
         for t in sheet["trips"]:
-            assert t["stops"][-1]["type"] == "dropoff" and all(s["type"] == "pickup" for s in t["stops"][:-1])
+            kinds = [s["type"] for s in t["stops"]]
+            n_pick = kinds.count("pickup")
+            assert n_pick >= 1 and kinds == ["pickup"] * n_pick + ["dropoff"] * (len(kinds) - n_pick) and len(kinds) > n_pick
             etas = [s["eta_hr"] for s in t["stops"]]
             assert None not in etas and etas == sorted(etas) and etas[0] >= t["dispatch_hr"]
-            assert t["stops"][-1]["kg"] == pytest.approx(sum(s["kg"] for s in t["stops"][:-1]))
+            picks = [s["kg"] for s in t["stops"] if s["type"] == "pickup"]
+            drops = [s["kg"] for s in t["stops"] if s["type"] == "dropoff"]
+            if len(drops) == 1:                      # one mandi: gets everything picked up. Several: kg per mandi is not recorded
+                assert drops[0] == pytest.approx(sum(picks), abs=0.05)
             assert t["route_link"].startswith("https://www.google.com/maps/dir/")
 
 

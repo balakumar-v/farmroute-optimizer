@@ -43,13 +43,20 @@ STOP_OVERHEAD_HR = 0.15
 TURNAROUND_HR = 1.0
 WORKDAY_END_HR = 14.0  # vehicles won't start a fresh trip after this
 
+# base_spoil_per_hr = fraction of weight lost per hour in COOLED transit (a pre-cooled load in a refrigerated vehicle,
+# or any vehicle for crops that need no refrigeration). unrefrig_mult = how many times faster the same crop loses
+# weight uncooled (refrigeration-needing crops only; other crops fall back to SPOIL_UNREFRIG_MULT).
+# tomato, spinach, cauliflower, mango: working values from a literature review of hourly postharvest WEIGHT loss
+#   (@meks, 7 Nov 2026): uncooled/cooled per hour = tomato 0.05%/0.013%, spinach 0.75%/0.03%, cauliflower
+#   0.15%/0.03%, mango 0.07%/0.015%. Weight loss only: rejection and quality loss are NOT included.
+# onion, potato: no source -- unchanged from the earlier assumption and probably far too high. Replace when measured.
 CROPS = {
-    "tomato":      {"needs_refrigeration": True,  "base_spoil_per_hr": 0.020},
+    "tomato":      {"needs_refrigeration": True,  "base_spoil_per_hr": 0.00013, "unrefrig_mult": 0.0005 / 0.00013},
     "onion":       {"needs_refrigeration": False, "base_spoil_per_hr": 0.008},
     "potato":      {"needs_refrigeration": False, "base_spoil_per_hr": 0.005},
-    "cauliflower": {"needs_refrigeration": True,  "base_spoil_per_hr": 0.018},
-    "mango":       {"needs_refrigeration": True,  "base_spoil_per_hr": 0.014},
-    "spinach":     {"needs_refrigeration": True,  "base_spoil_per_hr": 0.035},
+    "cauliflower": {"needs_refrigeration": True,  "base_spoil_per_hr": 0.0003,  "unrefrig_mult": 5.0},
+    "mango":       {"needs_refrigeration": True,  "base_spoil_per_hr": 0.00015, "unrefrig_mult": 0.0007 / 0.00015},
+    "spinach":     {"needs_refrigeration": True,  "base_spoil_per_hr": 0.0003,  "unrefrig_mult": 25.0},
 }
 
 # (name, capacity_kg, refrigerated, fixed_cost_inr, per_km_cost_inr)
@@ -221,28 +228,31 @@ def haversine(lat1, lng1, lat2, lng2):
     return d if d is not None else m.ratio * crow_km(lat1, lng1, lat2, lng2)
 
 
-# Spoilage model parameters. Uncalibrated assumptions (see ALGORITHM_AND_RESULTS_V2.md section 23): a per-crop linear
-# loss rate per hour, tripled for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%.
+# Spoilage model parameters: a per-crop linear weight-loss rate per hour (see CROPS for sources), multiplied by the
+# crop's own unrefrig_mult for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%.
+# SPOIL_UNREFRIG_MULT is the fallback for a crop with no unrefrig_mult of its own.
 SPOIL_UNREFRIG_MULT = 3.0
 SPOIL_CAP = 0.6
+_UNREFRIG_OVERRIDE = None      # set only inside spoilage_params(unrefrig_mult=...): one multiplier for every crop
 
 
 @contextlib.contextmanager
 def spoilage_params(rate_scale=1.0, unrefrig_mult=None, cap=None):
     """Temporarily change the spoilage model: every crop's hourly rate x rate_scale, the unrefrigerated multiplier,
     and the loss cap. Used for sensitivity tests; restores everything on exit."""
-    global SPOIL_UNREFRIG_MULT, SPOIL_CAP
+    global SPOIL_UNREFRIG_MULT, SPOIL_CAP, _UNREFRIG_OVERRIDE
     saved = (SPOIL_UNREFRIG_MULT, SPOIL_CAP, {c: v["base_spoil_per_hr"] for c, v in CROPS.items()})
     try:
         for v in CROPS.values():
             v["base_spoil_per_hr"] *= rate_scale
         if unrefrig_mult is not None:
-            SPOIL_UNREFRIG_MULT = float(unrefrig_mult)
+            SPOIL_UNREFRIG_MULT = _UNREFRIG_OVERRIDE = float(unrefrig_mult)
         if cap is not None:
             SPOIL_CAP = float(cap)
         yield
     finally:
         SPOIL_UNREFRIG_MULT, SPOIL_CAP = saved[0], saved[1]
+        _UNREFRIG_OVERRIDE = None
         for c, r in saved[2].items():
             CROPS[c]["base_spoil_per_hr"] = r
 
@@ -251,7 +261,7 @@ def spoilage_fraction(crop, vehicle_refrigerated, transit_hours):
     info = CROPS[crop]
     rate = info["base_spoil_per_hr"]
     if info["needs_refrigeration"] and not vehicle_refrigerated:
-        rate *= SPOIL_UNREFRIG_MULT
+        rate *= _UNREFRIG_OVERRIDE or info.get("unrefrig_mult", SPOIL_UNREFRIG_MULT)
     return min(rate * transit_hours, SPOIL_CAP)
 
 
