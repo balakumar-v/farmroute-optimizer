@@ -97,6 +97,17 @@ Set `ALLOWED_ORIGINS` (include the farmer app's origin), `ADMIN_TOKEN` and `FARM
 
 When the backend has `ADMIN_TOKEN` set, the admin console asks for it the first time a request is refused with 401, keeps it in that browser (`localStorage`, key `farmroute.adminToken`) and retries. Experimental `ILO_*` switches (for example `ILO_ENRICH`, `ILO_COLGEN`) exist for benchmarking and are off by default; they are not deployment settings.
 
+### Farmer change requests
+
+A farmer who has a published plan can ask the FPO for a different quantity, ready time or deadline from the farmer app (round chat button, bottom right). The farmer's plan never changes by itself:
+
+1. The farmer types a message ("100 kg less, ready 2 hours later") or, if the language model is off or unreachable, fills a small form. A small model on OpenRouter turns the message into a JSON change request (field, `set`/`shift`/`scale`, number). It does not write SQL, does no arithmetic and never sees an id, phone number or location; it sees only that farmer's own three current values, fetched by a fixed query.
+2. The backend validates the JSON (Pydantic), works out the new absolute values and checks them (quantity above 0 and under `CHANGE_MAX_QTY_KG`, ready before deadline, and so on). The farmer sees the result in plain numbers, built by code, and taps Confirm. Only then does it become a pending request.
+3. In the console's **Requests** tab the operator sees the request next to what the farmer wrote, previews it (a re-plan with the change applied in memory, listing every farmer it would move and how many of them did not ask) and approves or rejects. Approving one or several requests recomputes once, saves the new values and publishes, so only farmers whose card changed are messaged. It is refused with 409 if the published plan changed since the preview, or if a farmer's details changed since they asked.
+4. The farmer sees the answer under "Your requests" in the app, and the new card.
+
+Rules: one live request per farmer (a newer one replaces the older), drafts expire after an hour and pending requests after `CHANGE_REQUEST_TTL_H`, the operator can close requests (`PUT /change-window`) when dispatch starts, and the farmer id always comes from the token. Settings are in `backend/.env.example`; without `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` the form is used. Code: `backend/change_requests.py`, `backend/chat_llm.py`, tests in `backend/tests/test_change_requests.py`, `frontend/src/views/RequestsView.tsx`, `farmer-app/app.js`.
+
 ## The app
 
 | Tab | What it shows |
@@ -104,6 +115,7 @@ When the backend has `ADMIN_TOKEN` set, the admin console asks for it the first 
 | Scenarios | Nine ready-made scenarios. One click loads the data, computes the plan and opens the map. |
 | Data | The farmers, vehicles and markets the optimizer sees. Add rows by hand. |
 | Plan | The ILO plan as a ledger: net return, produce not hauled and sold at the farm gate, farmer value, harvest sold, spoilage, and one row per pool. If ILO found nothing better than a simpler plan, the page says which plan it recommends instead. Under it, **Farmer access**: publish the plan to farmers, issue PINs, print cards for farmers without a phone, and manage farmers' phone numbers (see below). |
+| Requests | Change requests from farmers (a new quantity or time): what they wrote, what it means, a preview of who a re-plan would move, then approve or reject. |
 | Compare | ILO against two behavioural baselines, with farmer value and produce sold side by side, a delta against ILO, and a full breakdown table. |
 | Map | The plan on a map: 7 presentation stages, a playable timeline, a step-by-step story, details for anything you select, compare mode, 3D, chase camera, and a full-screen walkthrough. Farmers who sell at the farm gate are slate; farmers who wanted a truck and got none are red. |
 
@@ -257,6 +269,8 @@ Full request and response shapes are in `backend/README.md`.
 | `GET /farmer/phone`, `POST /farmer/phone/start`, `POST /farmer/phone/verify`, `DELETE /farmer/phone` | The farmer's own number: status, text a code, confirm it, delete it (farmer token only) |
 | `GET /farmers/phones` | Admin: counts, masked numbers, SMS / WhatsApp provider status, recent sends. Full numbers are never returned |
 | `DELETE /farmers/phones?confirm=true`, `DELETE /farmers/{id}/phone` | Admin: clear every stored number (needs `confirm=true`), or one farmer's |
+| `POST /farmer/chat`, `POST /farmer/requests/{id}/confirm`, `.../withdraw`, `GET /farmer/requests` | Farmer asks for a change: what the server understood (nothing changes yet), confirm or withdraw, and that farmer's own requests (farmer token only) |
+| `GET /change-requests`, `POST /change-requests/preview`, `.../approve`, `.../{id}/reject`, `GET/PUT /change-window` | Operator: review, preview, approve (one recompute and publish) or reject farmer change requests; open or close requests |
 
 `POST /plan/compute` options:
 - `road_distances` (default `true`): plan on measured road distances between every farmer and mandi (OpenStreetMap via OSRM, cached in the database). If road data is unavailable it falls back to straight lines. The distance model used is stored with the plan as `distance_model`.
@@ -270,7 +284,7 @@ Full request and response shapes are in `backend/README.md`.
 | Who | Gets in with | Can use |
 |---|---|---|
 | Admin (operator) | `ADMIN_TOKEN` as a bearer token | every route except the `/farmer/` ones |
-| Farmer | farmer ID + PIN, then a signed token | `/farmer/me` and `/farmer/phone*` only: that farmer's own card and own phone number, nothing else |
+| Farmer | farmer ID + PIN, then a signed token | `/farmer/` routes only: their own card, phone number and change requests, nothing of any other farmer's |
 | Anyone | nothing | `/docs`, `/openapi.json`, `POST /farmer/login` |
 
 Admin access is default-deny: any route outside `/farmer/` requires the token, including ones added later. If `ADMIN_TOKEN` is not set the admin routes stay open (local development) and the farmer routes return 503, so farmers cannot be reached on an open backend by accident. Setting `ADMIN_AUTH=off` makes that choice on purpose; see the warning in the env table. A farmer's token cannot call any admin route, and the admin token is not accepted as a farmer token.
@@ -341,6 +355,7 @@ This writes a `.js` block of preset data to adapt into `SCENARIOS` in `frontend/
 - In the regional presets the farmer cluster is centred on a mandi hub, so hauling pays far more often than in Bihar. Do not read the lead sizes across presets as a statement about the regions.
 - Six Bihar mandi-crop capacities are reporting defaults, not measurements. Madhya Pradesh lost 27 mandis to missing coordinates, which thins its mandi set.
 - MILP ground truth only scales to about 5 to 7 farmers.
+- Farmer change requests: the OpenRouter path has been run only against a mocked client, so pick a model and test it on your farmers' languages before relying on it. Times are plan hours (hour 0 is 00:00), there is no 'tomorrow'. Cancelling participation is not supported yet. The chat rate limit is per process and in memory. Every preview adds an unpublished row to `plan_runs`. The Telugu, Hindi and Tamil strings are machine-written and need a native review.
 - No Docker image yet. CI (GitHub Actions) runs the tests and the frontend build; deployment is by hand on Render and Neon (see Deployment). The admin routes are open unless `ADMIN_TOKEN` is set.
 - SMS and WhatsApp: the Twilio, MSG91 and Meta adapters have not been run against the live services, and the database-backed phone tests in `tests/test_phones.py` were written without a Postgres available, so run them once against a throwaway database. The Telugu, Hindi and Tamil strings (app and messages) are machine-written and need a native-speaker review.
 - The farmer app shows a demo code on screen when `NOTIFY_DEMO_SHOW_OTP=on` with `SMS_PROVIDER=dry`; never leave that on with real farmers.

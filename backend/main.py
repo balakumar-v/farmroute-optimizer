@@ -16,6 +16,9 @@ Endpoints:
     POST /reset
     GET/DELETE /farmers/phones   DELETE /farmers/{id}/phone   (admin: phone numbers)
     /farmer/phone[/start|/verify]  (farmer: register a number by code)
+    POST /farmer/chat   POST /farmer/requests/{id}/confirm|withdraw   GET /farmer/requests   (farmer: change requests)
+    GET /change-requests   POST /change-requests/preview|approve   POST /change-requests/{id}/reject
+    GET/PUT /change-window                                           (admin: decide change requests)
 
 See README.md for example request/response JSON.
 """
@@ -27,8 +30,9 @@ import json
 import os
 from typing import Optional, List
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from database import get_conn, init_db
 from logistics_lib_v2 import (
@@ -48,10 +52,13 @@ from schemas import (
 )
 import advisor
 import auth
+import change_requests
+import chat_llm
 import farmer_upload
 import notify
 import phones
 import roads
+from change_requests import ApproveIn, ChangeError, ChatIn, IdsIn, RejectIn, WindowIn
 from visualization_adapter import ALGO_KEYS, build_plan_visualization
 
 VEHICLE_TYPES_BY_NAME = {t[0]: t for t in VEHICLE_TYPES}
@@ -246,12 +253,16 @@ def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = T
 
 
 def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
-                       max_value_sacrifice: float = 0.10):
+                       max_value_sacrifice: float = 0.10, farmer_overrides: Optional[dict] = None):
+    """`farmer_overrides` ({farmer_id: {column: value}}) plans as if those farmer values were already saved, without
+    writing them: used to preview and apply farmer change requests. The farmers table is not touched here."""
     with get_conn() as conn:
         farmer_rows = conn.execute("SELECT * FROM farmers ORDER BY id").fetchall()
         vehicle_rows = conn.execute("SELECT * FROM vehicles ORDER BY id").fetchall()
         market_rows = conn.execute("SELECT * FROM markets ORDER BY id").fetchall()
 
+    if farmer_overrides:
+        farmer_rows = [{**r, **farmer_overrides.get(r["id"], {})} for r in farmer_rows]
     if not farmer_rows:
         raise HTTPException(400, "No farmers in the database yet -- add some via POST /farmers first.")
     if not vehicle_rows:
@@ -763,6 +774,183 @@ def admin_clear_phone(farmer_id: int):
 
 
 # =========================================================================
+# farmer change requests (see change_requests.py): chat in, admin decides, plan recomputed
+# =========================================================================
+
+@app.exception_handler(change_requests.RequestNotFound)
+def _request_not_found(request: Request, exc: change_requests.RequestNotFound):
+    msg = exc.args[0] if exc.args and isinstance(exc.args[0], str) else "No such request."
+    return JSONResponse({"detail": msg}, status_code=404)
+
+
+@app.exception_handler(change_requests.RequestConflict)
+def _request_conflict(request: Request, exc: change_requests.RequestConflict):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
+
+
+@app.post("/farmer/chat")
+def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
+    """The farmer's message (or the form fallback) -> what we understood, to confirm. Always one of `status`:
+    confirm (a draft was saved: show `changes`, then POST /farmer/requests/{request_id}/confirm), clarify (the
+    LLM needs one more fact), invalid (the numbers do not make a sensible plan), llm_unavailable (use the form).
+    The farmer id is the token's, never the body's or the LLM's. Nothing here changes any plan."""
+    with get_conn() as conn:
+        if not change_requests.window_open(conn):
+            raise HTTPException(409, "Changes are closed right now. Please call your FPO.")
+        if change_requests.published_plan_id(conn) is None:
+            raise HTTPException(409, "No plan has been published yet, so there is nothing to change.")
+        current = change_requests.fetch_current(conn, farmer_id)
+    if current is None:
+        raise HTTPException(404, "You are not part of this plan.")
+    if not change_requests.rate_limit_ok(farmer_id):
+        raise HTTPException(429, "Too many messages. Please wait a while, or call your FPO.",
+                            headers={"Retry-After": "3600"})
+    if body.structured is not None:
+        parse, raw = body.structured, "[form]"
+    else:
+        try:
+            parse, raw = chat_llm.parse_message(body.message, current), body.message
+        except chat_llm.LLMUnavailable:
+            return {"status": "llm_unavailable",
+                    "message": "I could not read that right now. Please use the form instead."}
+    if not parse.changes:
+        return {"status": "clarify", "code": "llm" if parse.clarify else "empty", "message": parse.clarify or
+                "I can only help change your quantity, ready time or deadline. What would you like to change?"}
+    try:
+        proposed = change_requests.resolve(parse, current)
+    except ChangeError as e:
+        return {"status": "invalid", "code": e.code, "params": e.params, "message": str(e)}
+    with get_conn() as conn:
+        request_id = change_requests.create_draft(conn, farmer_id, raw, parse, current, proposed)
+        conn.commit()
+    return {"status": "confirm", "request_id": request_id, "changes": change_requests.change_lines(current, proposed),
+            "summary": change_requests.summary(current, proposed)}
+
+
+@app.post("/farmer/requests/{request_id}/confirm")
+def farmer_confirm_request(request_id: int, farmer_id: int = Depends(auth.current_farmer)):
+    with get_conn() as conn:
+        if not change_requests.window_open(conn):
+            raise HTTPException(409, "Changes are closed right now. Please call your FPO.")
+        out = change_requests.confirm(conn, farmer_id, request_id)
+        conn.commit()
+    return out
+
+
+@app.post("/farmer/requests/{request_id}/withdraw")
+def farmer_withdraw_request(request_id: int, farmer_id: int = Depends(auth.current_farmer)):
+    with get_conn() as conn:
+        out = change_requests.withdraw(conn, farmer_id, request_id)
+        conn.commit()
+    return out
+
+
+@app.get("/farmer/requests")
+def farmer_requests(response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    """This farmer's own latest requests and where each stands."""
+    response.headers["Cache-Control"] = "private, no-cache"
+    with get_conn() as conn:
+        out = change_requests.list_for_farmer(conn, farmer_id)
+        conn.commit()
+    return {"requests": out}
+
+
+def _replan_options(plan: dict) -> dict:
+    """compute options that plan the way `plan` was planned (mode, and how distance was measured), so a preview
+    differs from the published plan only by the farmer change, not by a different setting."""
+    meta = (plan.get("realistic_baselines") or {}).get("ilo_meta") or {}
+    model = (plan.get("input_snapshot") or {}).get("distance_model") or {}
+    opts = {"mode": meta["mode"] if meta.get("mode") in ("returns", "spoilage") else "returns"}
+    if isinstance(meta.get("max_value_sacrifice"), (int, float)):
+        opts["max_value_sacrifice"] = meta["max_value_sacrifice"]
+    if model.get("type") == "circuity" and model.get("source") == "manual":
+        opts["road_circuity"] = model["k"]
+    elif "switched off" in (model.get("note") or ""):
+        opts["road_distances"] = False
+    return opts
+
+
+def _published_id_or_409(conn) -> int:
+    pid = change_requests.published_plan_id(conn)
+    if pid is None:
+        raise HTTPException(409, "No plan has been published yet.")
+    return pid
+
+
+@app.get("/change-requests")
+def list_change_requests(status: str = "pending"):
+    if status not in change_requests.STATUSES:
+        raise HTTPException(400, f"status must be one of {list(change_requests.STATUSES)}")
+    with get_conn() as conn:
+        out = change_requests.list_by_status(conn, status)
+        info = {"window_open": change_requests.window_open(conn),
+                "published_plan_id": change_requests.published_plan_id(conn)}
+        conn.commit()
+    return {"requests": out, **info}
+
+
+@app.post("/change-requests/preview")
+def preview_change_requests(body: IdsIn):
+    """What the published plan would become if these requests were approved. Computes a new, unpublished plan with
+    the farmers' new values applied in memory; no farmer row and no published plan changes. `collateral` lists
+    farmers who did not ask for anything but are moved anyway."""
+    with get_conn() as conn:
+        rows = change_requests.load_pending(conn, body.ids)
+        base_id = _published_id_or_409(conn)
+    base = get_plan(base_id)
+    overrides = change_requests.overrides_of(rows)
+    plan = _compute_plan_impl(**_replan_options(base), farmer_overrides=overrides)
+    diff = advisor.diff_plans(base, get_plan(plan["id"]))
+    collateral = [c for c in diff["changed"] if c["farmer_id"] not in overrides]
+    return {"base_plan_id": base_id, "preview_plan_id": plan["id"], "requested_farmer_ids": sorted(overrides),
+            "diff": diff, "collateral_count": len(collateral)}
+
+
+@app.post("/change-requests/approve")
+def approve_change_requests(body: ApproveIn, background: BackgroundTasks):
+    """Approve one or several requests with one recompute and one publish. Refused (409) if the published plan is
+    no longer `base_plan_id`. Order: compute with the new values, then in one transaction save them and mark the
+    requests approved, then publish (which messages only the farmers whose card changed). If publish fails after
+    the save, publishing the returned plan_id again finishes the job."""
+    with get_conn() as conn:
+        rows = change_requests.load_pending(conn, body.ids)
+        if _published_id_or_409(conn) != body.base_plan_id:
+            raise change_requests.RequestConflict(
+                "The published plan changed since you previewed. Preview again before approving.")
+    base = get_plan(body.base_plan_id)
+    plan = _compute_plan_impl(**_replan_options(base), farmer_overrides=change_requests.overrides_of(rows))
+    with get_conn() as conn:
+        change_requests.apply_approved(conn, rows, plan["id"], body.base_plan_id)
+        conn.commit()
+    published = publish_plan(plan["id"], background)
+    diff = advisor.diff_plans(base, get_plan(plan["id"]))
+    return {"approved": sorted(r["id"] for r in rows), "plan_id": plan["id"], "published": published,
+            "farmers_changed": diff["farmers_changed"]}
+
+
+@app.post("/change-requests/{request_id}/reject")
+def reject_change_request(request_id: int, body: RejectIn):
+    with get_conn() as conn:
+        change_requests.reject(conn, request_id, body.reason_code)
+        conn.commit()
+    return {"id": request_id, "status": "rejected", "reason_code": body.reason_code}
+
+
+@app.get("/change-window")
+def get_change_window():
+    with get_conn() as conn:
+        return {"is_open": change_requests.window_open(conn)}
+
+
+@app.put("/change-window")
+def put_change_window(body: WindowIn):
+    with get_conn() as conn:
+        change_requests.set_window(conn, body.is_open)
+        conn.commit()
+    return {"is_open": body.is_open}
+
+
+# =========================================================================
 # sensors
 # =========================================================================
 
@@ -812,7 +1000,8 @@ def reset_data():
     the database by hand. Resets the id counters too, so a fresh load
     afterwards gets clean IDs starting from 1."""
     tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets",
-              "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log")
+              "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log",
+              "change_requests", "change_window")
     with get_conn() as conn:
         cleared = {}
         for table in tables:

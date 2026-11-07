@@ -71,6 +71,8 @@ export interface Actions {
   setPlanMode(mode: PlanMode): void;
   runScenario(key: string): Promise<boolean>;
   resetAll(): Promise<void>;
+  /** The backend's farmers changed behind our back (e.g. an approved change request): reload them and mark the plan on screen out of date. */
+  dataChanged(): Promise<void>;
   toast(kind: Toast["kind"], text: string): void;
   dismissToast(id: number): void;
 }
@@ -191,6 +193,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toast("err", msg(e));
       }
     },
+
+    async dataChanged() { await loadTables(); markStale(); },
 
     toast,
     dismissToast(id) { dispatch({ type: "untoast", id }); },

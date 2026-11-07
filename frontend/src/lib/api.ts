@@ -28,7 +28,32 @@ export interface ApiClient {
   phones(): Promise<PhoneSummary>;
   resetPhones(): Promise<{ cleared: number }>;
   clearPhone(farmerId: number): Promise<{ cleared: number }>;
+  changeRequests(status: ChangeStatus): Promise<ChangeList>;
+  previewChanges(ids: number[]): Promise<ChangePreview>;
+  approveChanges(ids: number[], basePlanId: number): Promise<ChangeApproval>;
+  rejectChange(id: number, reason: ChangeReason): Promise<unknown>;
+  changeWindow(isOpen: boolean): Promise<{ is_open: boolean }>;
 }
+
+/** Farmer change requests (see backend/change_requests.py). A farmer asks for a new quantity or time; the admin decides. */
+export type ChangeStatus = "draft" | "pending" | "approved" | "rejected" | "superseded" | "expired" | "withdrawn";
+export type ChangeReason = "too_late" | "not_possible" | "capacity" | "other";
+export interface ChangeLine { field: "qty_kg" | "ready_hr" | "deadline_hr"; label: string; from: string; to: string }
+export interface ChangeRequest {
+  id: number; farmer_id: number; crop: string | null; status: ChangeStatus;
+  raw_text: string;                       // what the farmer typed, or "[form]"; untrusted: show as plain text
+  changes: ChangeLine[]; reason_code: ChangeReason | null; applied_plan_id: number | null;
+  created_at: number; decided_at: number | null;
+}
+export interface ChangeList { requests: ChangeRequest[]; window_open: boolean; published_plan_id: number | null }
+export interface PlanDiff {
+  farmers_changed: number; farmers_unchanged: number; farmers_only_in_old: number[]; farmers_only_in_new: number[];
+  changed: { farmer_id: number; why: string[]; payout_change_inr: number }[];
+}
+export interface ChangePreview {
+  base_plan_id: number; preview_plan_id: number; requested_farmer_ids: number[]; diff: PlanDiff; collateral_count: number;
+}
+export interface ChangeApproval { approved: number[]; plan_id: number; published: PublishResult; farmers_changed: number }
 
 /** Farmer phone numbers for SMS / WhatsApp updates. Numbers arrive masked; full numbers never reach the console. */
 export interface PhoneSummary {
@@ -101,5 +126,12 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     phones: () => req<PhoneSummary>("/farmers/phones"),
     resetPhones: () => req<{ cleared: number }>("/farmers/phones?confirm=true", { method: "DELETE" }),
     clearPhone: (id) => req<{ cleared: number }>(`/farmers/${id}/phone`, { method: "DELETE" }),
+    changeRequests: (status) => req<ChangeList>(`/change-requests?status=${status}`),
+    previewChanges: (ids) => post<ChangePreview>("/change-requests/preview", { ids }),
+    approveChanges: (ids, basePlanId) => post<ChangeApproval>("/change-requests/approve", { ids, base_plan_id: basePlanId }),
+    rejectChange: (id, reason) => post(`/change-requests/${id}/reject`, { reason_code: reason }),
+    changeWindow: (isOpen) => req<{ is_open: boolean }>("/change-window", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_open: isOpen }),
+    }),
   };
 }

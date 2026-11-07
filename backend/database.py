@@ -141,6 +141,34 @@ CREATE TABLE IF NOT EXISTS notification_log (
     plan_id INTEGER,
     created_at DOUBLE PRECISION NOT NULL
 );
+
+-- Farmer change requests (see change_requests.py). A farmer's chat message becomes a 'draft'; the farmer's tap on
+-- Confirm makes it 'pending'; the admin then approves or rejects it. Nothing here touches the farmers table until
+-- the admin approves. JSON columns follow the rest of this file (TEXT holding JSON).
+CREATE TABLE IF NOT EXISTS change_requests (
+    id BIGSERIAL PRIMARY KEY,
+    farmer_id INTEGER NOT NULL,
+    raw_text TEXT NOT NULL,        -- what the farmer typed ('[form]' when they used the form instead)
+    parsed TEXT NOT NULL,          -- JSON: the validated ChangeParse (what the LLM / form said)
+    current TEXT NOT NULL,         -- JSON: the farmer's qty_kg / ready_hr / deadline_hr when the request was made
+    proposed TEXT NOT NULL,        -- JSON: the new absolute values, only the fields that change
+    status TEXT NOT NULL,          -- draft | pending | approved | rejected | superseded | expired | withdrawn
+    reason_code TEXT,              -- set when rejected
+    applied_plan_id INTEGER,       -- the plan that applied it, when approved
+    created_at DOUBLE PRECISION NOT NULL,
+    decided_at DOUBLE PRECISION,
+    decided_by TEXT
+);
+-- One live draft and one pending request per farmer: a newer one replaces the older.
+CREATE UNIQUE INDEX IF NOT EXISTS change_requests_one_pending ON change_requests (farmer_id) WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS change_requests_one_draft ON change_requests (farmer_id) WHERE status = 'draft';
+
+-- Whether farmers may send change requests right now (the admin closes it when dispatch starts). A single row
+-- (id = 1); no row means open.
+CREATE TABLE IF NOT EXISTS change_window (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    is_open BOOLEAN NOT NULL
+);
 """
 
 

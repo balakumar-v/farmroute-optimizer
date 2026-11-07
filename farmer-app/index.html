@@ -21,6 +21,7 @@ button,input{font:inherit}button{cursor:pointer}svg{width:22px;height:22px;strok
 .step{display:flex;gap:16px}.dot{width:40px;height:40px;border-radius:50%;border:2.5px solid #1E4D3A;color:#1E4D3A;display:flex;align-items:center;justify-content:center;flex:none;font-weight:800}.dot.f{background:#1E4D3A;color:#fff}
 .ln{width:3px;flex:1;background:#BFD0C6}.sc{display:flex;flex-direction:column;align-items:center}
 .slip{background:#F2F6F3;border-radius:14px;padding:4px 16px 16px}.slip .row{padding:12px 0;border-bottom:1px solid #D5DED8}
+select{font:inherit;min-height:56px;border:2px solid #7C8F84;border-radius:12px;padding:0 10px;font-size:19px;width:100%;background:#fff;color:inherit}
 input{min-height:56px;border:2px solid #7C8F84;border-radius:12px;padding:0 14px;font-size:22px;letter-spacing:.15em;width:100%}
 label{display:flex;flex-direction:column;gap:6px;font-weight:600}.err{color:#9B2C1F;font-weight:600}
 .ico{width:72px;height:72px;border-radius:50%;background:#E4EEE8;color:#1E4D3A;display:flex;align-items:center;justify-content:center;margin-top:40px}.ico svg{width:38px;height:38px}
@@ -39,4 +40,7 @@ body{background:#E9EFEB}
 .card.two .foot [data-act=slip]{order:1}.card.two .foot .note{order:2}.card.two .foot [data-act=logout]{order:3}
 }
 :focus-visible{outline:3px solid #F2B84B;outline-offset:2px}
-</style></head><body><div id="app"></div><div id="sp" role="status" aria-live="polite" hidden></div><script src="config.js"></script><script src="app.js"></script></body></html>
+#fab{position:fixed;right:max(16px,calc((100vw - 480px)/2 + 16px));bottom:calc(16px + env(safe-area-inset-bottom));width:64px;height:64px;border-radius:50%;border:0;background:#F2B84B;color:#14231B;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(20,35,27,.3);z-index:9}
+#fab[hidden]{display:none}#fab svg{width:30px;height:30px;stroke-width:2}
+body.hasfab #app{padding-bottom:88px}
+</style></head><body><div id="app"></div><button id="fab" type="button" data-act="chat" hidden></button><div id="sp" role="status" aria-live="polite" hidden></div><script src="config.js"></script><script src="app.js"></script></body></html>

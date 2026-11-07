@@ -8,6 +8,7 @@ import { CompareView } from "./views/CompareView";
 import { DataView } from "./views/DataView";
 import { MapView } from "./views/MapView";
 import { PlanView } from "./views/PlanView";
+import { RequestsView } from "./views/RequestsView";
 import { ScenariosView } from "./views/ScenariosView";
 
 const NAMES = VIEWS.map((v) => v.id) as readonly string[];
@@ -51,6 +52,7 @@ function Shell() {
         {view === "start" && <section id="view-start" className="view active"><ScenariosView go={go} /></section>}
         {view === "entry" && <section id="view-entry" className="view active"><DataView /></section>}
         {view === "dash" && <section id="view-dash" className="view active"><PlanView go={go} /></section>}
+        {view === "requests" && <section id="view-requests" className="view active"><RequestsView /></section>}
         {view === "compare" && <section id="view-compare" className="view active"><CompareView go={go} /></section>}
         {/* The map keeps its simulation state across tab switches, so it stays mounted once opened. */}
         {mapSeen && <section id="view-map" className={"view" + (view === "map" ? " active" : "")}><MapView visible={view === "map"} go={go} /></section>}

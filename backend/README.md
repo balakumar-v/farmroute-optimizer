@@ -283,6 +283,11 @@ Code: `notify.py` (numbers, codes, message text in en/te/hi/ta, providers, no da
 Codes expire in 10 minutes, allow 5 guesses, one request per minute and 5 per hour per farmer. Tables: `farmer_phones`,
 `phone_otps`, `notification_log`. A browser cannot read a SIM number, so the number is typed and confirmed by code.
 
+### Farmer change requests
+Farmer routes (farmer token): `POST /farmer/chat` (`{message}` for the language model or `{structured: {changes: [...]}}` for the form fallback; replies with `status` `confirm`, `clarify`, `invalid` (with `code` and `params`) or `llm_unavailable`), `POST /farmer/requests/{id}/confirm`, `POST /farmer/requests/{id}/withdraw`, `GET /farmer/requests`.
+Admin routes: `GET /change-requests?status=`, `POST /change-requests/preview` (`{ids}`; plans with the changes applied in memory and returns the diff), `POST /change-requests/approve` (`{ids, base_plan_id}`; 409 if the published plan moved), `POST /change-requests/{id}/reject` (`{reason_code}`), `GET` and `PUT /change-window` (`{is_open}`).
+`_compute_plan_impl` takes `farmer_overrides` to plan as if new farmer values were already saved. Env: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (no default), `OPENROUTER_TIMEOUT_S`, `CHANGE_MAX_QTY_KG`, `CHANGE_MAX_HOUR`, `CHANGE_REQUEST_TTL_H`, `CHAT_RATE_PER_HOUR`. Tables: `change_requests`, `change_window` (both cleared by `POST /reset`).
+
 
 ## Known simplifications (inherited, not re-litigated here)
 
