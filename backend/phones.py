@@ -2,8 +2,8 @@
 phones.py -- farmers' phone numbers and the SMS / WhatsApp updates sent to them (database side; the pure parts
 are in notify.py).
 
-How a number gets stored: a logged-in farmer types it (the browser cannot read the SIM number), we send a 6-digit
-code (OTP_CHANNEL: SMS, WhatsApp or both), they type the code back, and only then is the number stored against their farmer id. Nothing here can set a
+How a number gets stored: a logged-in farmer types it (the browser cannot read the SIM number), we text a 6-digit
+code, they type the code back, and only then is the number stored against their farmer id. Nothing here can set a
 number for a farmer who has not proved they hold it. Codes expire in 10 minutes, allow 5 guesses, are stored only
 as a keyed digest, and can be requested once a minute and five times an hour per farmer.
 
@@ -79,27 +79,36 @@ def start(farmer_id: int, raw_phone: str, lang: str) -> dict:
             (farmer_id, phone, lang, notify.otp_digest(farmer_id, phone, code, auth._key()), now + notify.OTP_TTL_S,
              now, window, count))
         conn.commit()
-    # The code goes out over OTP_CHANNEL: sms (default), whatsapp, or both. It counts as sent if any channel accepted it.
-    providers = [notify.get_provider(ch) for ch in notify.otp_channels()]
-    text = notify.compose_otp_message(code, lang)
+
+    channels = notify.otp_channels()
     any_ok = False
-    for provider in providers:
+    all_live = True
+    channel_details = {}
+
+    for ch in channels:
+        provider = notify.get_provider(ch)
+        all_live = all_live and provider.live
         try:
-            ok, detail = provider.send(phone, text, lang, "otp", code=code)
-        except Exception as e:                     # network failure: same answer to the farmer as a refusal
+            ok, detail = provider.send(phone, notify.compose_otp_message(code, lang), lang, "otp")
+        except Exception as e:
             ok, detail = False, f"{type(e).__name__}: {e}"
         any_ok = any_ok or ok
-        with get_conn() as conn:
-            _log(conn, farmer_id, provider.channel, "otp", ok, detail)
-            conn.commit()
-        if not ok:
-            log.error("OTP send failed for farmer %s on %s: %s", farmer_id, provider.channel, detail)
+        detail_str = f"[{provider.name}] {detail}" if not detail.startswith(f"[{provider.name}]") else detail
+        channel_details[ch] = (ok, detail_str)
+        try:
+            with get_conn() as conn:
+                _log(conn, farmer_id, provider.channel, "otp", ok, detail_str)
+                conn.commit()
+        except Exception:
+            log.exception("could not write OTP notification log for channel %s", ch)
+
     if not any_ok:
+        log.error("OTP send failed on all channels for farmer %s: %s", farmer_id, channel_details)
         raise HTTPException(502, "We could not send the code. Please try again later or ask your FPO.")
-    out = {"sent": True, "to": notify.mask_phone(phone), "channels": [p.channel for p in providers],
-           "resend_after_s": RESEND_S, "expires_in_s": notify.OTP_TTL_S}
-    if not any(p.live for p in providers) and demo_show_otp():
-        out["demo_otp"] = code                     # only with NOTIFY_DEMO_SHOW_OTP=on AND every OTP provider dry: demos only
+
+    out = {"sent": True, "to": notify.mask_phone(phone), "resend_after_s": RESEND_S, "expires_in_s": notify.OTP_TTL_S}
+    if not all_live and demo_show_otp():
+        out["demo_otp"] = code                     # only with NOTIFY_DEMO_SHOW_OTP=on AND non-live provider: demos, never real use
     return out
 
 
@@ -154,10 +163,18 @@ def summary(recent: int = 15) -> dict:
         rows = conn.execute("SELECT farmer_id, phone, lang, verified_at FROM farmer_phones ORDER BY farmer_id").fetchall()
         log_rows = conn.execute("SELECT farmer_id, channel, kind, ok, detail, plan_id, created_at FROM notification_log "
                                 "ORDER BY id DESC LIMIT %s", (recent,)).fetchall()
+        phone_map = {r["farmer_id"]: notify.mask_phone(r["phone"]) for r in rows}
+    enriched_recent = []
+    for r in log_rows:
+        item = dict(r)
+        item["masked"] = phone_map.get(item["farmer_id"])
+        m = re.match(r"^\[([a-zA-Z0-9_\-]+)\]\s*(.*)", item.get("detail", ""))
+        item["provider"] = m.group(1) if m else item.get("channel")
+        enriched_recent.append(item)
     return {"farmers": farmers, "registered": len(rows), "providers": notify.describe_providers(),
             "rows": [{"farmer_id": r["farmer_id"], "masked": notify.mask_phone(r["phone"]), "lang": r["lang"],
                       "verified_at": r["verified_at"]} for r in rows],
-            "recent": [dict(r) for r in log_rows]}
+            "recent": enriched_recent}
 
 
 # ---------------------------------------------------------------- sending plan updates
@@ -199,10 +216,11 @@ def send_batch(targets: list, plan_id=None) -> dict:
                 ok, detail = provider.send(phone, text, lang, kind)
             except Exception as e:
                 ok, detail = False, f"{type(e).__name__}: {e}"
-            sent, failed = sent + ok, failed + (not ok)
+            sent, failed = sent + int(ok), failed + int(not ok)
+            detail_str = f"[{provider.name}] {detail}" if not detail.startswith(f"[{provider.name}]") else detail
             try:
                 with get_conn() as conn:
-                    _log(conn, farmer_id, provider.channel, kind, ok, detail, plan_id)
+                    _log(conn, farmer_id, provider.channel, kind, ok, detail_str, plan_id)
                     conn.commit()
             except Exception:
                 log.exception("could not write notification log")
@@ -211,12 +229,30 @@ def send_batch(targets: list, plan_id=None) -> dict:
 
 
 def send_welcome(farmer_id: int) -> None:
-    """Right after a farmer verifies a number: the plan that is published now, once. Silent if none is published."""
+    """Right after a farmer verifies a number: the plan that is published now, once. If none is published, sends a
+    welcome message to both SMS and WhatsApp."""
     with get_conn() as conn:
         pub = conn.execute("SELECT plan_id, cards FROM published_plan WHERE id = 1").fetchone()
         ph = conn.execute("SELECT farmer_id, phone, lang FROM farmer_phones WHERE farmer_id = %s", (farmer_id,)).fetchone()
-    if pub is None or ph is None:
+    if ph is None:
         return
-    card = json.loads(pub["cards"]).get(str(farmer_id))
-    if card is not None:
-        send_batch([(farmer_id, ph["phone"], ph["lang"], card, "welcome")], pub["plan_id"])
+    if pub is not None:
+        card = json.loads(pub["cards"]).get(str(farmer_id))
+        if card is not None:
+            send_batch([(farmer_id, ph["phone"], ph["lang"], card, "welcome")], pub["plan_id"])
+            return
+    # Standalone welcome message when no plan is published yet
+    sms, wa = notify.get_provider("sms"), notify.get_provider("whatsapp")
+    welcome_text = "Farmroute: " + notify._MSG.get(ph["lang"], notify._MSG["en"])["welcome"].strip()
+    for provider in (sms, wa):
+        try:
+            ok, detail = provider.send(ph["phone"], welcome_text, ph["lang"], "welcome")
+        except Exception as e:
+            ok, detail = False, f"{type(e).__name__}: {e}"
+        detail_str = f"[{provider.name}] {detail}" if not detail.startswith(f"[{provider.name}]") else detail
+        try:
+            with get_conn() as conn:
+                _log(conn, farmer_id, provider.channel, "welcome", ok, detail_str)
+                conn.commit()
+        except Exception:
+            log.exception("could not write welcome notification log")

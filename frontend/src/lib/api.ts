@@ -36,7 +36,7 @@ export interface PhoneSummary {
   registered: number;
   providers: Record<"sms" | "whatsapp", { provider: string; live: boolean; problem: string | null }>;
   rows: { farmer_id: number; masked: string; lang: string; verified_at: number }[];
-  recent: { farmer_id: number; channel: string; kind: string; ok: boolean; detail: string; plan_id: number | null; created_at: number }[];
+  recent: { farmer_id: number; channel: string; kind: string; ok: boolean; detail: string; plan_id: number | null; created_at: number; provider?: string; masked?: string | null }[];
 }
 
 export interface PublishResult {

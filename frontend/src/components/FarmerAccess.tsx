@@ -96,7 +96,7 @@ export function FarmerAccess() {
 
       <div className="sec-head" style={{ marginTop: 16 }}><h3>Phone numbers (SMS and WhatsApp updates)</h3></div>
       <p className="hint">
-        Farmers add their own number in the farmer app and confirm it with a code sent by WhatsApp or SMS (backend setting OTP_CHANNEL). When you publish a plan, farmers with a
+        Farmers add their own number in the farmer app and confirm it with a code sent by SMS. When you publish a plan, farmers with a
         number whose plan changed get an SMS and a WhatsApp message (everyone with a number on the first publish). Numbers are shown masked.
       </p>
       {ph && (["sms", "whatsapp"] as const).map((ch) => ph.providers[ch].problem
@@ -125,10 +125,53 @@ export function FarmerAccess() {
               onClick={() => void run("clearOne", async () => { await api.clearPhone(r.farmer_id); setPh(await api.phones()); })}>Clear</button></td></tr>)}</tbody></table></div>
       )}
       {ph && ph.recent.length > 0 && (<>
-        <div className="sec-head" style={{ marginTop: 12 }}><h3>Recent messages</h3></div>
-        <div className="tablewrap" style={{ maxHeight: 220, overflow: "auto" }}><table className="data"><thead><tr><th>Time</th><th>Farmer</th><th>Channel</th><th>Kind</th><th>Result</th></tr></thead>
-          <tbody>{ph.recent.map((m, i) => <tr key={i}><td>{new Date(m.created_at * 1000).toLocaleTimeString()}</td><td>{m.farmer_id}</td><td>{m.channel}</td><td>{m.kind}</td>
-            <td>{m.ok ? m.detail : <strong>{m.detail}</strong>}</td></tr>)}</tbody></table></div>
+        <div className="sec-head" style={{ marginTop: 12 }}><h3>Recent messages (SMS & WhatsApp notifications)</h3></div>
+        <div className="tablewrap" style={{ maxHeight: 240, overflow: "auto" }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Farmer</th>
+                <th>Number</th>
+                <th>Channel</th>
+                <th>Provider</th>
+                <th>Kind</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ph.recent.map((m, i) => (
+                <tr key={i}>
+                  <td>{new Date(m.created_at * 1000).toLocaleTimeString()}</td>
+                  <td>Farmer {m.farmer_id}</td>
+                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{m.masked || "-"}</td>
+                  <td>
+                    <span style={{
+                      display: "inline-block",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                      fontSize: "0.85em",
+                      fontWeight: 600,
+                      backgroundColor: m.channel === "whatsapp" ? "#e8f5e9" : "#e3f2fd",
+                      color: m.channel === "whatsapp" ? "#1b5e20" : "#0d47a1"
+                    }}>
+                      {m.channel === "whatsapp" ? "WhatsApp" : "SMS"}
+                    </span>
+                  </td>
+                  <td><code>{m.provider || m.channel}</code></td>
+                  <td>{m.kind}</td>
+                  <td>
+                    {m.ok ? (
+                      <span style={{ color: "#2e7d32" }}>✓ {m.detail}</span>
+                    ) : (
+                      <span style={{ color: "#c62828" }}>✗ <strong>{m.detail}</strong></span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </>)}
 
       {pub && (

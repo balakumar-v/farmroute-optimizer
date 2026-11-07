@@ -142,41 +142,6 @@ def test_meta_whatsapp_uses_a_template_in_the_farmers_language(monkeypatch):
     assert body["template"]["components"][0]["parameters"][0]["text"] == "line one"
 
 
-def test_meta_otp_uses_the_authentication_template_with_code_in_body_and_button(monkeypatch):
-    fake = _Fake()
-    monkeypatch.setattr(notify, "_http", fake)
-    env = {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "123"}
-    p = notify.get_provider("whatsapp", env)
-    assert p.send("+919876543210", "123456 is your code", "en", "otp", code="123456")[0]
-    body = json.loads(fake.calls[0][2])
-    assert body["type"] == "template" and body["template"]["name"] == "farmroute_otp"
-    body_c, button_c = body["template"]["components"]
-    assert body_c["parameters"][0]["text"] == "123456"
-    assert button_c == {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": "123456"}]}
-    # no button on the template -> only the body component
-    p2 = notify.get_provider("whatsapp", {**env, "WHATSAPP_OTP_BUTTON": "off", "WHATSAPP_OTP_TEMPLATE": "my_otp"})
-    p2.send("+919876543210", "x", "en", "otp", code="654321")
-    b2 = json.loads(fake.calls[1][2])
-    assert b2["template"]["name"] == "my_otp" and len(b2["template"]["components"]) == 1
-
-
-def test_meta_text_mode_sends_plain_text(monkeypatch):
-    fake = _Fake()
-    monkeypatch.setattr(notify, "_http", fake)
-    p = notify.get_provider("whatsapp", {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "123",
-                                         "WHATSAPP_MODE": "text"})
-    assert p.send("+919876543210", "plan text", "en", "update")[0]
-    body = json.loads(fake.calls[0][2])
-    assert body["type"] == "text" and body["text"]["body"] == "plan text" and body["to"] == "919876543210"
-
-
-def test_otp_channel_setting():
-    assert notify.otp_channels({}) == ["sms"]
-    assert notify.otp_channels({"OTP_CHANNEL": "WhatsApp"}) == ["whatsapp"]
-    assert notify.otp_channels({"OTP_CHANNEL": "both"}) == ["sms", "whatsapp"]
-    assert notify.otp_channels({"OTP_CHANNEL": "nonsense"}) == ["sms"]
-
-
 def test_msg91_picks_the_otp_or_update_template(monkeypatch):
     fake = _Fake()
     monkeypatch.setattr(notify, "_http", fake)
@@ -189,10 +154,236 @@ def test_msg91_picks_the_otp_or_update_template(monkeypatch):
 
 
 def test_provider_errors_come_back_as_a_reason_not_an_exception(monkeypatch):
-    monkeypatch.setattr(notify, "_http", _Fake(401, '{"error":"bad token"}'))
+    monkeypatch.setattr(notify, "_http", _Fake(401, '{"error":{"code":190,"message":"bad token"}}'))
     p = notify.get_provider("whatsapp", {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "1"})
     ok, why = p.send("+919876543210", "x")
     assert not ok and "meta 401" in why and "bad token" in why
+
+
+def test_otp_channels_configuration():
+    assert notify.otp_channels({}) == ["sms", "whatsapp"]
+    assert notify.otp_channels({"OTP_CHANNEL": "both"}) == ["sms", "whatsapp"]
+    assert notify.otp_channels({"OTP_CHANNEL": "sms"}) == ["sms"]
+    assert notify.otp_channels({"OTP_CHANNEL": "whatsapp"}) == ["whatsapp"]
+    assert notify.otp_channels({"OTP_CHANNEL": "wa"}) == ["whatsapp"]
+
+
+def test_meta_whatsapp_otp_authentication_template_and_copy_code_button(monkeypatch):
+    fake = _Fake()
+    monkeypatch.setattr(notify, "_http", fake)
+    env = {
+        "WHATSAPP_PROVIDER": "meta",
+        "WHATSAPP_TOKEN": "meta-tok",
+        "WHATSAPP_PHONE_ID": "98765",
+        "WHATSAPP_OTP_TEMPLATE": "farmroute_otp",
+        "WHATSAPP_OTP_BUTTON": "copy_code",
+    }
+    p = notify.get_provider("whatsapp", env)
+    otp_msg = notify.compose_otp_message("123456", "en")
+    ok, detail = p.send("+919876543210", otp_msg, "en", "otp")
+    assert ok
+    url, headers, data = fake.calls[0]
+    assert url == "https://graph.facebook.com/v20.0/98765/messages"
+    body = json.loads(data)
+    assert body["template"]["name"] == "farmroute_otp"
+    assert body["template"]["language"]["code"] == "en"
+    # Parameter is the 6-digit code, not the full message sentence
+    assert body["template"]["components"][0]["parameters"][0]["text"] == "123456"
+    # Copy code button parameter is also the 6-digit code
+    assert body["template"]["components"][1]["parameters"][0]["text"] == "123456"
+    assert body["template"]["components"][1]["sub_type"] == "url"
+
+    # Button turned off
+    fake.calls.clear()
+    env["WHATSAPP_OTP_BUTTON"] = "off"
+    p2 = notify.get_provider("whatsapp", env)
+    p2.send("+919876543210", otp_msg, "en", "otp")
+    body2 = json.loads(fake.calls[0][2])
+    assert len(body2["template"]["components"]) == 1
+    assert body2["template"]["components"][0]["type"] == "body"
+
+    # hello_world template for connectivity test
+    fake.calls.clear()
+    env_hw = {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "meta-tok", "WHATSAPP_PHONE_ID": "98765",
+              "WHATSAPP_TEMPLATE": "hello_world"}
+    p_hw = notify.get_provider("whatsapp", env_hw)
+    p_hw.send("+919876543210", "hello", "ta", "update")
+    body_hw = json.loads(fake.calls[0][2])
+    assert body_hw["template"]["name"] == "hello_world"
+    assert body_hw["template"]["language"]["code"] == "en_US"
+    assert "components" not in body_hw["template"]
+
+
+def test_meta_whatsapp_detailed_error_and_accepted_id(monkeypatch):
+    # Success response with message ID
+    monkeypatch.setattr(notify, "_http", _Fake(200, json.dumps({
+        "messaging_product": "whatsapp",
+        "contacts": [{"input": "919876543210", "wa_id": "919876543210"}],
+        "messages": [{"id": "wamid.HBgLMTIzNDU2"}]
+    })))
+    p = notify.get_provider("whatsapp", {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "1"})
+    ok, detail = p.send("+919876543210", "update text", "en", "update")
+    assert ok and "accepted (message id: wamid.HBgLMTIzNDU2)" in detail
+
+    # Meta OAuth expired error
+    monkeypatch.setattr(notify, "_http", _Fake(401, json.dumps({
+        "error": {"code": 190, "message": "Invalid OAuth access token - Cannot parse access token"}
+    })))
+    ok, detail = p.send("+919876543210", "update text", "en", "update")
+    assert not ok and "meta 401 [code 190]" in detail and "Invalid OAuth" in detail
+
+    # Meta template not found error
+    monkeypatch.setattr(notify, "_http", _Fake(400, json.dumps({
+        "error": {"code": 132000, "message": "Template does not exist"}
+    })))
+    ok, detail = p.send("+919876543210", "update text", "en", "update")
+    assert not ok and "meta 400 [code 132000]" in detail and "Template does not exist" in detail
+
+
+def test_twilio_response_parsing_and_error(monkeypatch):
+    # Twilio 201 accepted
+    monkeypatch.setattr(notify, "_http", _Fake(201, json.dumps({
+        "sid": "SMabcdef123456", "status": "queued"
+    })))
+    env = {"SMS_PROVIDER": "twilio", "TWILIO_ACCOUNT_SID": "AC1", "TWILIO_AUTH_TOKEN": "tok", "TWILIO_SMS_FROM": "+1234"}
+    p = notify.get_provider("sms", env)
+    ok, detail = p.send("+919876543210", "msg")
+    assert ok and "accepted (queued, sid: SMabcdef123456)" in detail
+
+    # Twilio 400 error
+    monkeypatch.setattr(notify, "_http", _Fake(400, json.dumps({
+        "code": 21211, "message": "The 'To' number is not a valid phone number."
+    })))
+    ok, detail = p.send("+919876543210", "msg")
+    assert not ok and "twilio 400 [code 21211]" in detail and "not a valid phone number" in detail
+
+
+def test_msg91_response_parsing_success_and_error_types(monkeypatch):
+    env = {"SMS_PROVIDER": "msg91", "MSG91_AUTH_KEY": "k", "MSG91_OTP_TEMPLATE_ID": "t1", "MSG91_UPDATE_TEMPLATE_ID": "t2"}
+    p = notify.get_provider("sms", env)
+
+    # MSG91 HTTP 200 but error type
+    monkeypatch.setattr(notify, "_http", _Fake(200, json.dumps({
+        "type": "error", "message": "Invalid mobile number"
+    })))
+    ok, detail = p.send("+919876543210", "msg")
+    assert not ok and "msg91 error: Invalid mobile number" in detail
+
+    # MSG91 success with request_id
+    monkeypatch.setattr(notify, "_http", _Fake(200, json.dumps({
+        "type": "success", "request_id": "req_998877"
+    })))
+    ok, detail = p.send("+919876543210", "msg")
+    assert ok and "accepted (msg91 request_id: req_998877)" in detail
+
+
+def test_send_batch_both_channels_recorded_independently(monkeypatch):
+    import phones
+    logged = []
+
+    def fake_log(conn, farmer_id, channel, kind, ok, detail, plan_id=None):
+        logged.append({"farmer_id": farmer_id, "channel": channel, "kind": kind, "ok": ok, "detail": detail})
+
+    class FakeConn:
+        def execute(self, *a, **k): return self
+        def commit(self): pass
+        def close(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(phones, "get_conn", lambda: FakeConn())
+    monkeypatch.setattr(phones, "_log", fake_log)
+
+    # Scenario 1: Both SMS and WhatsApp succeed
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: (
+        notify.DryRun("sms") if ch == "sms" else notify.DryRun("whatsapp")
+    ))
+    res = phones.send_batch([(1, "+919876543210", "en", _card(), "update")], plan_id=10)
+    assert res == {"sent": 2, "failed": 0}
+    assert len(logged) == 2
+    assert {l["channel"] for l in logged} == {"sms", "whatsapp"}
+    assert all(l["ok"] for l in logged)
+
+    # Scenario 2: SMS succeeds, WhatsApp fails
+    logged.clear()
+    class FailingProvider:
+        def __init__(self, channel, name, err): self.channel, self.name, self.live, self.err = channel, name, True, err
+        def send(self, *a, **k): return False, self.err
+
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: (
+        notify.DryRun("sms") if ch == "sms" else FailingProvider("whatsapp", "meta", "meta 401 [code 190]: bad token")
+    ))
+    res = phones.send_batch([(2, "+919876543211", "en", _card(), "update")], plan_id=10)
+    assert res == {"sent": 1, "failed": 1}
+    sms_log = next(l for l in logged if l["channel"] == "sms")
+    wa_log = next(l for l in logged if l["channel"] == "whatsapp")
+    assert sms_log["ok"] is True
+    assert wa_log["ok"] is False and "bad token" in wa_log["detail"] and "[meta]" in wa_log["detail"]
+
+    # Scenario 3: WhatsApp succeeds, SMS fails
+    logged.clear()
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: (
+        FailingProvider("sms", "twilio", "twilio 400 [code 21211]: bad number") if ch == "sms" else notify.DryRun("whatsapp")
+    ))
+    res = phones.send_batch([(3, "+919876543212", "en", _card(), "update")], plan_id=10)
+    assert res == {"sent": 1, "failed": 1}
+    sms_log = next(l for l in logged if l["channel"] == "sms")
+    wa_log = next(l for l in logged if l["channel"] == "whatsapp")
+    assert sms_log["ok"] is False and "bad number" in sms_log["detail"]
+    assert wa_log["ok"] is True
+
+
+def test_phones_start_dual_channel_behavior(monkeypatch):
+    import phones
+    logged = []
+
+    class FakeConn:
+        def execute(self, *a, **k): return self
+        def fetchone(self): return None
+        def commit(self): pass
+        def close(self): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    monkeypatch.setattr(phones, "get_conn", lambda: FakeConn())
+    monkeypatch.setattr(phones, "_log", lambda conn, fid, ch, kind, ok, det: logged.append((ch, ok, det)))
+
+    class FakeProv:
+        def __init__(self, ch, ok=True, det="ok"): self.channel, self.name, self.live, self.ok, self.det = ch, "mock", True, ok, det
+        def send(self, *a, **k): return self.ok, self.det
+
+    # Both succeed
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: FakeProv(ch, True, "delivered"))
+    logged.clear()
+    r = phones.start(10, "+919876543210", "en")
+    assert r["sent"] is True
+    assert {l[0] for l in logged} == {"sms", "whatsapp"}
+    assert all(l[1] is True for l in logged)
+
+    # SMS succeeds, WhatsApp fails -> start still returns sent=True, both logged
+    logged.clear()
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: FakeProv(ch, ch == "sms", "err" if ch == "whatsapp" else "ok"))
+    r2 = phones.start(11, "+919876543211", "en")
+    assert r2["sent"] is True
+    assert len(logged) == 2
+    assert next(l for l in logged if l[0] == "sms")[1] is True
+    assert next(l for l in logged if l[0] == "whatsapp")[1] is False
+
+    # WhatsApp succeeds, SMS fails -> start still returns sent=True, both logged
+    logged.clear()
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: FakeProv(ch, ch == "whatsapp", "err" if ch == "sms" else "ok"))
+    r3 = phones.start(12, "+919876543212", "en")
+    assert r3["sent"] is True
+    assert len(logged) == 2
+    assert next(l for l in logged if l[0] == "whatsapp")[1] is True
+    assert next(l for l in logged if l[0] == "sms")[1] is False
+
+    # Both fail -> raises 502
+    logged.clear()
+    monkeypatch.setattr(notify, "get_provider", lambda ch, env=None: FakeProv(ch, False, "failure"))
+    with pytest.raises(phones.HTTPException) as exc:
+        phones.start(13, "+919876543213", "en")
+    assert exc.value.status_code == 502
 
 
 # ---------------------------------------------------------------- pure: who gets messaged on publish

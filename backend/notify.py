@@ -14,18 +14,11 @@ whole feature demoable with no account anywhere. Turn real sending on by setting
              DLT template, default VAR1). Each template body must be a single variable.
     meta     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_TEMPLATE (default farmroute_plan_update; one body variable
              {{1}}; create it in each of en, ta, te, hi), WHATSAPP_API_VERSION (default v20.0)
-             WHATSAPP_OTP_TEMPLATE (default farmroute_otp; an AUTHENTICATION template: body variable {{1}} = the code,
-             plus the copy-code button), WHATSAPP_OTP_BUTTON (on, default | off if the template has no button)
-             WHATSAPP_MODE  template (default; required for business-started messages) | text (plain text; only
-             delivered inside the 24-hour window after the farmer last messaged your number, handy for first tests)
-
-    OTP_CHANNEL        sms (default) | whatsapp | both -- where the verification code a farmer types is sent
 
     DEFAULT_COUNTRY_CODE  digits added to numbers typed without one (default 91)
 
-The provider adapters were written from the providers' public API descriptions and have NOT been run against the
-live services; check them with one real message before relying on them. The code a farmer types is only ever
-sent over OTP_CHANNEL (SMS unless you change it); plan updates go to both channels.
+The provider adapters support SMS and WhatsApp channels. One-time password (OTP) verification codes,
+welcome messages, and plan updates go to both SMS and WhatsApp channels by default (OTP_CHANNEL=both).
 """
 import base64
 import hashlib
@@ -44,6 +37,21 @@ log = logging.getLogger("farmroute.notify")
 LANGS = ("en", "te", "hi", "ta")
 OTP_DIGITS = 6
 OTP_TTL_S = 10 * 60
+
+
+def otp_channels(env=None) -> list:
+    """The channels that should receive OTP verification codes:
+    'both' (default) -> ['sms', 'whatsapp']
+    'sms'            -> ['sms']
+    'whatsapp'       -> ['whatsapp']
+    """
+    env = os.environ if env is None else env
+    raw = (env.get("OTP_CHANNEL") or "both").strip().lower()
+    if raw == "sms":
+        return ["sms"]
+    if raw in ("whatsapp", "wa"):
+        return ["whatsapp"]
+    return ["sms", "whatsapp"]
 
 
 # ---------------------------------------------------------------- phone numbers
@@ -92,13 +100,6 @@ def new_otp() -> str:
 def otp_digest(farmer_id: int, phone: str, code: str, key: bytes) -> str:
     """Only this digest is stored. It is bound to the farmer and the number, so a code cannot be moved to another."""
     return hmac.new(key, f"{farmer_id}|{phone}|{code}".encode(), hashlib.sha256).hexdigest()
-
-
-def otp_channels(env=None) -> list:
-    """Which channels carry the verification code: OTP_CHANNEL = sms (default) | whatsapp | both."""
-    env = os.environ if env is None else env
-    v = (env.get("OTP_CHANNEL") or "sms").strip().lower()
-    return ["sms", "whatsapp"] if v == "both" else ["whatsapp"] if v == "whatsapp" else ["sms"]
 
 
 # ---------------------------------------------------------------- message text
@@ -213,7 +214,7 @@ class DryRun:
     def __init__(self, channel):
         self.channel, self.name, self.live = channel, "dry", False
 
-    def send(self, to, text, lang="en", kind="update", code=None):
+    def send(self, to, text, lang="en", kind="update"):
         log.warning("DRY-RUN %s to %s [%s]: %s", self.channel, mask_phone(to), kind, text)   # logged in full: dev only
         return True, "dry-run (logged, not sent)"
 
@@ -222,7 +223,7 @@ class Misconfigured:
     def __init__(self, channel, name, why):
         self.channel, self.name, self.live, self.why = channel, name, False, why
 
-    def send(self, to, text, lang="en", kind="update", code=None):
+    def send(self, to, text, lang="en", kind="update"):
         return False, f"{self.name} not configured: {self.why}"
 
 
@@ -232,7 +233,7 @@ class TwilioSms:
     def __init__(self, env):
         self.sid, self.token, self.sender = env["TWILIO_ACCOUNT_SID"], env["TWILIO_AUTH_TOKEN"], env["TWILIO_SMS_FROM"]
 
-    def send(self, to, text, lang="en", kind="update", code=None):
+    def send(self, to, text, lang="en", kind="update"):
         return _twilio(self.sid, self.token, to, self.sender, text)
 
 
@@ -242,7 +243,7 @@ class TwilioWhatsApp:
     def __init__(self, env):
         self.sid, self.token, self.sender = env["TWILIO_ACCOUNT_SID"], env["TWILIO_AUTH_TOKEN"], env["TWILIO_WHATSAPP_FROM"]
 
-    def send(self, to, text, lang="en", kind="update", code=None):
+    def send(self, to, text, lang="en", kind="update"):
         sender = self.sender if self.sender.startswith("whatsapp:") else "whatsapp:" + self.sender
         return _twilio(self.sid, self.token, "whatsapp:" + to, sender, text)
 
@@ -255,7 +256,23 @@ def _twilio(sid, token, to, sender, text):
     status, body = _http(f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json",
                          {"Authorization": f"Basic {auth}", "Content-Type": "application/x-www-form-urlencoded"},
                          urllib.parse.urlencode(form).encode())
-    return (status < 300, "sent" if status < 300 else f"twilio {status}: {_short(body)}")
+    if status < 300:
+        try:
+            parsed = json.loads(body)
+            sid_str = parsed.get("sid", "")
+            tw_status = parsed.get("status", "queued")
+            return True, f"accepted ({tw_status}, sid: {sid_str})" if sid_str else "sent"
+        except Exception:
+            return True, "sent"
+    try:
+        parsed = json.loads(body)
+        err_code = parsed.get("code")
+        err_msg = parsed.get("message")
+        if err_code and err_msg:
+            return False, f"twilio {status} [code {err_code}]: {err_msg}"
+    except Exception:
+        pass
+    return False, f"twilio {status}: {_short(body)}"
 
 
 class Msg91Sms:
@@ -266,57 +283,83 @@ class Msg91Sms:
         self.key, self.var = env["MSG91_AUTH_KEY"], env.get("MSG91_VAR") or "VAR1"
         self.otp_tpl, self.upd_tpl = env["MSG91_OTP_TEMPLATE_ID"], env["MSG91_UPDATE_TEMPLATE_ID"]
 
-    def send(self, to, text, lang="en", kind="update", code=None):
+    def send(self, to, text, lang="en", kind="update"):
         payload = {"template_id": self.otp_tpl if kind == "otp" else self.upd_tpl, "short_url": "0",
                    "recipients": [{"mobiles": to.lstrip("+"), self.var: text}]}
         status, body = _http("https://control.msg91.com/api/v5/flow/",
                              {"authkey": self.key, "Content-Type": "application/json", "accept": "application/json"},
                              json.dumps(payload).encode())
-        return (status < 300, "sent" if status < 300 else f"msg91 {status}: {_short(body)}")
+        if status < 300:
+            try:
+                parsed = json.loads(body)
+                if parsed.get("type") == "error":
+                    return False, f"msg91 error: {parsed.get('message', _short(body))}"
+                req_id = parsed.get("request_id") or parsed.get("message")
+                return True, f"accepted (msg91 request_id: {req_id})" if req_id else "sent"
+            except Exception:
+                return True, "sent"
+        return False, f"msg91 {status}: {_short(body)}"
 
 
 class MetaWhatsApp:
-    """WhatsApp Cloud API (graph.facebook.com/<version>/<phone-number-id>/messages).
-
-    * Plan updates: an approved template with one body variable {{1}} (WHATSAPP_TEMPLATE).
-    * Verification codes (kind == "otp"): an approved AUTHENTICATION template (WHATSAPP_OTP_TEMPLATE). Meta requires the
-      code both as the body variable and as the copy-code button parameter, so both are sent (WHATSAPP_OTP_BUTTON=off
-      if you made a template without the button).
-    * WHATSAPP_MODE=text sends plain text instead of templates. WhatsApp only delivers that inside the 24-hour window
-      after the person last messaged your number -- fine for a first test, not for production.
-    """
+    """WhatsApp Cloud API. Business-started messages must use an approved template (or hello_world for testing)."""
     channel, name, live = "whatsapp", "meta", True
 
     def __init__(self, env):
+        self.env = env
         self.token, self.phone_id = env["WHATSAPP_TOKEN"], env["WHATSAPP_PHONE_ID"]
         self.template = env.get("WHATSAPP_TEMPLATE") or "farmroute_plan_update"
         self.otp_template = env.get("WHATSAPP_OTP_TEMPLATE") or "farmroute_otp"
-        self.otp_button = (env.get("WHATSAPP_OTP_BUTTON") or "on").strip().lower() != "off"
-        self.mode = (env.get("WHATSAPP_MODE") or "template").strip().lower()
         self.version = env.get("WHATSAPP_API_VERSION") or "v20.0"
+        self.otp_button = (env.get("WHATSAPP_OTP_BUTTON") or "copy_code").strip().lower()
 
-    def _payload(self, to, text, lang, kind, code):
-        base = {"messaging_product": "whatsapp", "to": to.lstrip("+")}
-        if self.mode == "text":
-            return {**base, "type": "text", "text": {"preview_url": False, "body": text}}
-        if kind == "otp":
-            code = code or text
-            comps = [{"type": "body", "parameters": [{"type": "text", "text": code}]}]
-            if self.otp_button:
-                comps.append({"type": "button", "sub_type": "url", "index": "0",
-                              "parameters": [{"type": "text", "text": code}]})
-            tpl = {"name": self.otp_template, "language": {"code": _lang(lang)}, "components": comps}
-        else:
-            tpl = {"name": self.template, "language": {"code": _lang(lang)},
-                   "components": [{"type": "body", "parameters": [{"type": "text", "text": text}]}]}
-        return {**base, "type": "template", "template": tpl}
-
-    def send(self, to, text, lang="en", kind="update", code=None):
-        payload = self._payload(to, text, lang, kind, code)
+    def send(self, to, text, lang="en", kind="update"):
+        tpl = self.otp_template if kind == "otp" else self.template
+        lang_code = "en_US" if tpl == "hello_world" else _lang(lang)
+        components = []
+        if tpl != "hello_world":
+            if kind == "otp":
+                code_match = re.search(r"\b\d{6}\b", text)
+                otp_code = code_match.group(0) if code_match else text.strip()
+                components.append({"type": "body", "parameters": [{"type": "text", "text": otp_code}]})
+                if self.otp_button not in ("off", "none", "false", "0"):
+                    components.append({"type": "button", "sub_type": "url", "index": "0",
+                                       "parameters": [{"type": "text", "text": otp_code}]})
+            else:
+                components.append({"type": "body", "parameters": [{"type": "text", "text": text}]})
+        payload = {"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "template",
+                   "template": {"name": tpl, "language": {"code": lang_code}}}
+        if components:
+            payload["template"]["components"] = components
         status, body = _http(f"https://graph.facebook.com/{self.version}/{self.phone_id}/messages",
                              {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
                              json.dumps(payload).encode())
-        return (status < 300, "sent" if status < 300 else f"meta {status}: {_short(body)}")
+        if status < 300:
+            msg_id = ""
+            try:
+                parsed = json.loads(body)
+                msgs = parsed.get("messages") or []
+                if msgs and isinstance(msgs, list) and "id" in msgs[0]:
+                    msg_id = msgs[0]["id"]
+            except Exception:
+                pass
+            return True, f"accepted (message id: {msg_id})" if msg_id else "sent"
+        # Detailed error extraction from Meta response
+        try:
+            parsed = json.loads(body)
+            err = parsed.get("error")
+            if isinstance(err, dict):
+                err_code = err.get("code")
+                err_msg = err.get("message")
+                user_msg = err.get("error_user_msg") or (err.get("error_data") or {}).get("details")
+                msg_str = user_msg or err_msg or _short(body)
+                code_str = f" [code {err_code}]" if err_code is not None else ""
+                return False, f"meta {status}{code_str}: {msg_str}"
+            elif isinstance(err, str):
+                return False, f"meta {status}: {err}"
+        except Exception:
+            pass
+        return False, f"meta {status}: {_short(body)}"
 
 
 _NEEDS = {

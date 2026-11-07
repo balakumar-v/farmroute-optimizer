@@ -1,11 +1,5 @@
 # Changelog
 
-
-## WhatsApp OTP and updates
-- `OTP_CHANNEL` (sms | whatsapp | both) chooses where the verification code goes; every attempt is logged per channel.
-- Meta adapter sends the code with an authentication template (body + copy-code button); `WHATSAPP_MODE=text` for first tests.
-- Farmer app wording no longer says the code only comes by SMS. See `WHATSAPP_SETUP.md`.
-
 ## Spoilage rates from the weight-loss review (Nov 2026)
 - `CROPS` in `logistics_lib_v2.py`: `base_spoil_per_hr` is now the COOLED hourly weight loss and each refrigeration-needing crop has its own `unrefrig_mult` (tomato 3.8x, spinach 25x, cauliflower 5x, mango 4.7x) instead of one global 3x. New rates (cooled): tomato 0.013%, spinach 0.03%, cauliflower 0.03%, mango 0.015% per hour; uncooled 0.05%, 0.75%, 0.15%, 0.07%. Old rates were 1.4% to 3.5% per hour. Onion and potato are unchanged (no source) and likely too high.
 - `SPOIL_UNREFRIG_MULT` (3.0) is now only the fallback for a crop with no multiplier; `spoilage_params(unrefrig_mult=...)` still forces one multiplier on every crop.
