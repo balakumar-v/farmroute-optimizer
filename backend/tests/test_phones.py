@@ -142,6 +142,41 @@ def test_meta_whatsapp_uses_a_template_in_the_farmers_language(monkeypatch):
     assert body["template"]["components"][0]["parameters"][0]["text"] == "line one"
 
 
+def test_meta_otp_uses_the_authentication_template_with_code_in_body_and_button(monkeypatch):
+    fake = _Fake()
+    monkeypatch.setattr(notify, "_http", fake)
+    env = {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "123"}
+    p = notify.get_provider("whatsapp", env)
+    assert p.send("+919876543210", "123456 is your code", "en", "otp", code="123456")[0]
+    body = json.loads(fake.calls[0][2])
+    assert body["type"] == "template" and body["template"]["name"] == "farmroute_otp"
+    body_c, button_c = body["template"]["components"]
+    assert body_c["parameters"][0]["text"] == "123456"
+    assert button_c == {"type": "button", "sub_type": "url", "index": "0", "parameters": [{"type": "text", "text": "123456"}]}
+    # no button on the template -> only the body component
+    p2 = notify.get_provider("whatsapp", {**env, "WHATSAPP_OTP_BUTTON": "off", "WHATSAPP_OTP_TEMPLATE": "my_otp"})
+    p2.send("+919876543210", "x", "en", "otp", code="654321")
+    b2 = json.loads(fake.calls[1][2])
+    assert b2["template"]["name"] == "my_otp" and len(b2["template"]["components"]) == 1
+
+
+def test_meta_text_mode_sends_plain_text(monkeypatch):
+    fake = _Fake()
+    monkeypatch.setattr(notify, "_http", fake)
+    p = notify.get_provider("whatsapp", {"WHATSAPP_PROVIDER": "meta", "WHATSAPP_TOKEN": "t", "WHATSAPP_PHONE_ID": "123",
+                                         "WHATSAPP_MODE": "text"})
+    assert p.send("+919876543210", "plan text", "en", "update")[0]
+    body = json.loads(fake.calls[0][2])
+    assert body["type"] == "text" and body["text"]["body"] == "plan text" and body["to"] == "919876543210"
+
+
+def test_otp_channel_setting():
+    assert notify.otp_channels({}) == ["sms"]
+    assert notify.otp_channels({"OTP_CHANNEL": "WhatsApp"}) == ["whatsapp"]
+    assert notify.otp_channels({"OTP_CHANNEL": "both"}) == ["sms", "whatsapp"]
+    assert notify.otp_channels({"OTP_CHANNEL": "nonsense"}) == ["sms"]
+
+
 def test_msg91_picks_the_otp_or_update_template(monkeypatch):
     fake = _Fake()
     monkeypatch.setattr(notify, "_http", fake)

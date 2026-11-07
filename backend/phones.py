@@ -2,8 +2,8 @@
 phones.py -- farmers' phone numbers and the SMS / WhatsApp updates sent to them (database side; the pure parts
 are in notify.py).
 
-How a number gets stored: a logged-in farmer types it (the browser cannot read the SIM number), we text a 6-digit
-code, they type the code back, and only then is the number stored against their farmer id. Nothing here can set a
+How a number gets stored: a logged-in farmer types it (the browser cannot read the SIM number), we send a 6-digit
+code (OTP_CHANNEL: SMS, WhatsApp or both), they type the code back, and only then is the number stored against their farmer id. Nothing here can set a
 number for a farmer who has not proved they hold it. Codes expire in 10 minutes, allow 5 guesses, are stored only
 as a keyed digest, and can be requested once a minute and five times an hour per farmer.
 
@@ -79,20 +79,27 @@ def start(farmer_id: int, raw_phone: str, lang: str) -> dict:
             (farmer_id, phone, lang, notify.otp_digest(farmer_id, phone, code, auth._key()), now + notify.OTP_TTL_S,
              now, window, count))
         conn.commit()
-    provider = notify.get_provider("sms")
-    try:
-        ok, detail = provider.send(phone, notify.compose_otp_message(code, lang), lang, "otp")
-    except Exception as e:                         # network failure: same answer to the farmer as a refusal
-        ok, detail = False, f"{type(e).__name__}: {e}"
-    with get_conn() as conn:
-        _log(conn, farmer_id, "sms", "otp", ok, detail)
-        conn.commit()
-    if not ok:
-        log.error("OTP send failed for farmer %s: %s", farmer_id, detail)
+    # The code goes out over OTP_CHANNEL: sms (default), whatsapp, or both. It counts as sent if any channel accepted it.
+    providers = [notify.get_provider(ch) for ch in notify.otp_channels()]
+    text = notify.compose_otp_message(code, lang)
+    any_ok = False
+    for provider in providers:
+        try:
+            ok, detail = provider.send(phone, text, lang, "otp", code=code)
+        except Exception as e:                     # network failure: same answer to the farmer as a refusal
+            ok, detail = False, f"{type(e).__name__}: {e}"
+        any_ok = any_ok or ok
+        with get_conn() as conn:
+            _log(conn, farmer_id, provider.channel, "otp", ok, detail)
+            conn.commit()
+        if not ok:
+            log.error("OTP send failed for farmer %s on %s: %s", farmer_id, provider.channel, detail)
+    if not any_ok:
         raise HTTPException(502, "We could not send the code. Please try again later or ask your FPO.")
-    out = {"sent": True, "to": notify.mask_phone(phone), "resend_after_s": RESEND_S, "expires_in_s": notify.OTP_TTL_S}
-    if not provider.live and demo_show_otp():
-        out["demo_otp"] = code                     # only with NOTIFY_DEMO_SHOW_OTP=on AND SMS_PROVIDER=dry: demos, never real use
+    out = {"sent": True, "to": notify.mask_phone(phone), "channels": [p.channel for p in providers],
+           "resend_after_s": RESEND_S, "expires_in_s": notify.OTP_TTL_S}
+    if not any(p.live for p in providers) and demo_show_otp():
+        out["demo_otp"] = code                     # only with NOTIFY_DEMO_SHOW_OTP=on AND every OTP provider dry: demos only
     return out
 
 

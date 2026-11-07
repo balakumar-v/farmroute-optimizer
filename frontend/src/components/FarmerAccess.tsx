@@ -96,7 +96,7 @@ export function FarmerAccess() {
 
       <div className="sec-head" style={{ marginTop: 16 }}><h3>Phone numbers (SMS and WhatsApp updates)</h3></div>
       <p className="hint">
-        Farmers add their own number in the farmer app and confirm it with a code sent by SMS. When you publish a plan, farmers with a
+        Farmers add their own number in the farmer app and confirm it with a code sent by WhatsApp or SMS (backend setting OTP_CHANNEL). When you publish a plan, farmers with a
         number whose plan changed get an SMS and a WhatsApp message (everyone with a number on the first publish). Numbers are shown masked.
       </p>
       {ph && (["sms", "whatsapp"] as const).map((ch) => ph.providers[ch].problem

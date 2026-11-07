@@ -14,12 +14,18 @@ whole feature demoable with no account anywhere. Turn real sending on by setting
              DLT template, default VAR1). Each template body must be a single variable.
     meta     WHATSAPP_TOKEN, WHATSAPP_PHONE_ID, WHATSAPP_TEMPLATE (default farmroute_plan_update; one body variable
              {{1}}; create it in each of en, ta, te, hi), WHATSAPP_API_VERSION (default v20.0)
+             WHATSAPP_OTP_TEMPLATE (default farmroute_otp; an AUTHENTICATION template: body variable {{1}} = the code,
+             plus the copy-code button), WHATSAPP_OTP_BUTTON (on, default | off if the template has no button)
+             WHATSAPP_MODE  template (default; required for business-started messages) | text (plain text; only
+             delivered inside the 24-hour window after the farmer last messaged your number, handy for first tests)
+
+    OTP_CHANNEL        sms (default) | whatsapp | both -- where the verification code a farmer types is sent
 
     DEFAULT_COUNTRY_CODE  digits added to numbers typed without one (default 91)
 
 The provider adapters were written from the providers' public API descriptions and have NOT been run against the
 live services; check them with one real message before relying on them. The code a farmer types is only ever
-sent by SMS; plan updates go to both channels.
+sent over OTP_CHANNEL (SMS unless you change it); plan updates go to both channels.
 """
 import base64
 import hashlib
@@ -86,6 +92,13 @@ def new_otp() -> str:
 def otp_digest(farmer_id: int, phone: str, code: str, key: bytes) -> str:
     """Only this digest is stored. It is bound to the farmer and the number, so a code cannot be moved to another."""
     return hmac.new(key, f"{farmer_id}|{phone}|{code}".encode(), hashlib.sha256).hexdigest()
+
+
+def otp_channels(env=None) -> list:
+    """Which channels carry the verification code: OTP_CHANNEL = sms (default) | whatsapp | both."""
+    env = os.environ if env is None else env
+    v = (env.get("OTP_CHANNEL") or "sms").strip().lower()
+    return ["sms", "whatsapp"] if v == "both" else ["whatsapp"] if v == "whatsapp" else ["sms"]
 
 
 # ---------------------------------------------------------------- message text
@@ -200,7 +213,7 @@ class DryRun:
     def __init__(self, channel):
         self.channel, self.name, self.live = channel, "dry", False
 
-    def send(self, to, text, lang="en", kind="update"):
+    def send(self, to, text, lang="en", kind="update", code=None):
         log.warning("DRY-RUN %s to %s [%s]: %s", self.channel, mask_phone(to), kind, text)   # logged in full: dev only
         return True, "dry-run (logged, not sent)"
 
@@ -209,7 +222,7 @@ class Misconfigured:
     def __init__(self, channel, name, why):
         self.channel, self.name, self.live, self.why = channel, name, False, why
 
-    def send(self, to, text, lang="en", kind="update"):
+    def send(self, to, text, lang="en", kind="update", code=None):
         return False, f"{self.name} not configured: {self.why}"
 
 
@@ -219,7 +232,7 @@ class TwilioSms:
     def __init__(self, env):
         self.sid, self.token, self.sender = env["TWILIO_ACCOUNT_SID"], env["TWILIO_AUTH_TOKEN"], env["TWILIO_SMS_FROM"]
 
-    def send(self, to, text, lang="en", kind="update"):
+    def send(self, to, text, lang="en", kind="update", code=None):
         return _twilio(self.sid, self.token, to, self.sender, text)
 
 
@@ -229,7 +242,7 @@ class TwilioWhatsApp:
     def __init__(self, env):
         self.sid, self.token, self.sender = env["TWILIO_ACCOUNT_SID"], env["TWILIO_AUTH_TOKEN"], env["TWILIO_WHATSAPP_FROM"]
 
-    def send(self, to, text, lang="en", kind="update"):
+    def send(self, to, text, lang="en", kind="update", code=None):
         sender = self.sender if self.sender.startswith("whatsapp:") else "whatsapp:" + self.sender
         return _twilio(self.sid, self.token, "whatsapp:" + to, sender, text)
 
@@ -253,7 +266,7 @@ class Msg91Sms:
         self.key, self.var = env["MSG91_AUTH_KEY"], env.get("MSG91_VAR") or "VAR1"
         self.otp_tpl, self.upd_tpl = env["MSG91_OTP_TEMPLATE_ID"], env["MSG91_UPDATE_TEMPLATE_ID"]
 
-    def send(self, to, text, lang="en", kind="update"):
+    def send(self, to, text, lang="en", kind="update", code=None):
         payload = {"template_id": self.otp_tpl if kind == "otp" else self.upd_tpl, "short_url": "0",
                    "recipients": [{"mobiles": to.lstrip("+"), self.var: text}]}
         status, body = _http("https://control.msg91.com/api/v5/flow/",
@@ -263,18 +276,43 @@ class Msg91Sms:
 
 
 class MetaWhatsApp:
-    """WhatsApp Cloud API. Business-started messages must use an approved template (one body variable {{1}})."""
+    """WhatsApp Cloud API (graph.facebook.com/<version>/<phone-number-id>/messages).
+
+    * Plan updates: an approved template with one body variable {{1}} (WHATSAPP_TEMPLATE).
+    * Verification codes (kind == "otp"): an approved AUTHENTICATION template (WHATSAPP_OTP_TEMPLATE). Meta requires the
+      code both as the body variable and as the copy-code button parameter, so both are sent (WHATSAPP_OTP_BUTTON=off
+      if you made a template without the button).
+    * WHATSAPP_MODE=text sends plain text instead of templates. WhatsApp only delivers that inside the 24-hour window
+      after the person last messaged your number -- fine for a first test, not for production.
+    """
     channel, name, live = "whatsapp", "meta", True
 
     def __init__(self, env):
         self.token, self.phone_id = env["WHATSAPP_TOKEN"], env["WHATSAPP_PHONE_ID"]
         self.template = env.get("WHATSAPP_TEMPLATE") or "farmroute_plan_update"
+        self.otp_template = env.get("WHATSAPP_OTP_TEMPLATE") or "farmroute_otp"
+        self.otp_button = (env.get("WHATSAPP_OTP_BUTTON") or "on").strip().lower() != "off"
+        self.mode = (env.get("WHATSAPP_MODE") or "template").strip().lower()
         self.version = env.get("WHATSAPP_API_VERSION") or "v20.0"
 
-    def send(self, to, text, lang="en", kind="update"):
-        payload = {"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "template",
-                   "template": {"name": self.template, "language": {"code": _lang(lang)},
-                                "components": [{"type": "body", "parameters": [{"type": "text", "text": text}]}]}}
+    def _payload(self, to, text, lang, kind, code):
+        base = {"messaging_product": "whatsapp", "to": to.lstrip("+")}
+        if self.mode == "text":
+            return {**base, "type": "text", "text": {"preview_url": False, "body": text}}
+        if kind == "otp":
+            code = code or text
+            comps = [{"type": "body", "parameters": [{"type": "text", "text": code}]}]
+            if self.otp_button:
+                comps.append({"type": "button", "sub_type": "url", "index": "0",
+                              "parameters": [{"type": "text", "text": code}]})
+            tpl = {"name": self.otp_template, "language": {"code": _lang(lang)}, "components": comps}
+        else:
+            tpl = {"name": self.template, "language": {"code": _lang(lang)},
+                   "components": [{"type": "body", "parameters": [{"type": "text", "text": text}]}]}
+        return {**base, "type": "template", "template": tpl}
+
+    def send(self, to, text, lang="en", kind="update", code=None):
+        payload = self._payload(to, text, lang, kind, code)
         status, body = _http(f"https://graph.facebook.com/{self.version}/{self.phone_id}/messages",
                              {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
                              json.dumps(payload).encode())
