@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { PhoneSummary, PublishResult } from "../lib/api";
+import type { PhoneSummary, PinStatus, PublishResult } from "../lib/api";
 import { useApp } from "../state/store";
 import { BusyButton } from "./Shell";
 import { buildPrintHtml, openPrintWindow, parseIds, writePrintWindow, type PerPage } from "../lib/printCards";
@@ -15,6 +15,7 @@ export function FarmerAccess() {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const [pins, setPins] = useState<Pins | null>(null);
+  const [pinList, setPinList] = useState<PinStatus | null>(null);
   const [pub, setPub] = useState<PublishResult | null>(null);
   const [pLang, setPLang] = useState<PrintLang>("en");
   const [pPer, setPPer] = useState<PerPage>(4);
@@ -56,6 +57,16 @@ export function FarmerAccess() {
       } catch (e) { w.close(); throw e; }
     });
   };
+  const showPins = () => run("pinList", async () => setPinList(await api.pinStatus()));
+  // One farmer's PIN is replaced and shown once (the old one stops working and that farmer is logged out).
+  const reissueOne = (id: number) => {
+    if (!window.confirm(`Give farmer ${id} a new PIN? The old one stops working and they are logged out.`)) return;
+    void run("pinOne", async () => {
+      const r = await api.issuePin(id);
+      setPins([{ farmer_id: r.farmer_id, pin: r.pin }]);
+      setPinList(await api.pinStatus());
+    });
+  };
   const text = () => (pins ?? []).map((p) => `${p.farmer_id}\t${p.pin}`).join("\n");
   const download = () => {
     const url = URL.createObjectURL(new Blob(["farmer_id,pin\n" + (pins ?? []).map((p) => `${p.farmer_id},${p.pin}`).join("\n")], { type: "text/csv" }));
@@ -75,6 +86,7 @@ export function FarmerAccess() {
       <div className="head-actions" style={{ flexWrap: "wrap", gap: 8 }}>
         <BusyButton busy={busy === "pins"} busyLabel="Issuing…" label="Issue PINs (farmers without one)" className="btn btn-secondary" onClick={() => issue(true)} />
         <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => issue(false)}>Re-issue for everyone</button>
+        <BusyButton busy={busy === "pinList"} busyLabel="Loading…" label="View current PINs" className="btn btn-secondary" disabled={busy !== "" && busy !== "pinList"} onClick={() => void showPins()} />
         <BusyButton busy={busy === "publish"} busyLabel="Publishing…" label={planId ? `Publish plan ${planId} to farmers` : "Publish plan to farmers"} disabled={!planId}
           onClick={() => void run("publish", async () => { setPub(await api.publish(planId!)); setLive(await api.published()); setTimeout(() => void api.phones().then(setPh).catch(() => undefined), 3000); })} />
         {live?.published && <button className="btn btn-secondary" type="button" disabled={busy !== ""}
@@ -184,6 +196,24 @@ export function FarmerAccess() {
             ? ` ${pub.phone_updates.farmers_messaged} farmer${pub.phone_updates.farmers_messaged === 1 ? "" : "s"} with a phone number ${pub.phone_updates.dry_run ? "would get" : "are getting"} an SMS and a WhatsApp update${pub.phone_updates.dry_run ? " (dry run: logged, nothing sent)" : ""}.`
             : " No SMS or WhatsApp updates to send: nobody with a number has a changed plan.")}
         </span></div>
+      )}
+
+      {pinList && (
+        <div>
+          <div className="note" role="status"><span>
+            <strong>{pinList.with_pin}</strong> of {pinList.farmers} farmers have a PIN. PINs are stored only as salted hashes, so the digits cannot be shown again after they were issued: if a farmer lost theirs, re-issue it (the old one stops working).
+          </span></div>
+          <div className="head-actions" style={{ margin: "8px 0" }}>
+            <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => void showPins()}>Refresh</button>
+            <button className="btn btn-secondary" type="button" onClick={() => setPinList(null)}>Hide list</button>
+          </div>
+          <div className="tablewrap" style={{ maxHeight: 280, overflow: "auto" }}><table className="data"><thead><tr><th>Farmer ID</th><th>PIN</th><th>Issued</th><th>Status</th><th /></tr></thead>
+            <tbody>{pinList.rows.map((r) => <tr key={r.farmer_id}><td>{r.farmer_id}</td>
+              <td style={{ letterSpacing: ".08em" }}>{r.has_pin ? "\u2022\u2022\u2022\u2022\u2022\u2022 (set)" : "Not issued"}</td>
+              <td>{r.issued_at ? new Date(r.issued_at * 1000).toLocaleString() : "-"}</td>
+              <td>{!r.has_pin ? "No PIN" : r.locked ? "Locked (too many wrong tries)" : "Active"}</td>
+              <td><button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => reissueOne(r.farmer_id)}>{r.has_pin ? "Re-issue" : "Issue"}</button></td></tr>)}</tbody></table></div>
+        </div>
       )}
 
       {pins && (

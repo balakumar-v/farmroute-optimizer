@@ -145,4 +145,4 @@ export interface SensorReading {
 }
 
 export type ConnState = "unknown" | "ok" | "bad";
-export type ViewName = "start" | "entry" | "dash" | "requests" | "compare" | "map";
+export type ViewName = "start" | "entry" | "dash" | "access" | "requests" | "compare" | "map";

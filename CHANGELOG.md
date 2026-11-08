@@ -1,5 +1,9 @@
 # Changelog
 
+## Farmer access on its own tab, current-PIN list (Nov 2026)
+- The whole Farmer access area (PINs, publish, printed cards, phone numbers, recent messages) moved out of the Plan tab into a new **Farmer access** tab (`views/AccessView.tsx`); the Plan tab is now only the plan, its numbers and the pools.
+- Next to **Issue PINs** there is now **View current PINs**: every farmer with whether they have a PIN, when it was issued and whether they are locked out, plus a per-farmer **Re-issue / Issue**. PINs are stored only as salted hashes, so the digits of an existing PIN cannot be shown; re-issuing shows the new one once. New route `GET /farmers/pins` (admin token; never returns a PIN or hash).
+
 ## Merge of main4 + v3 + merged2 (Nov 2026)
 Base: main4 (superset: change requests, Web Push, /health, tests, onion/potato spoilage rates, map clock). Added from merged2: the farmer-app microphone (speech recognition) button, its strings (en/te/hi/ta), CSS, README text and jsdom tests, merged by hand into main4's `app.js` next to the Web Push code. Added from v3: `backend/whatsapp_service.py` (Meta Cloud API payload builders, webhook verify + delivery-status events, no WABA ID needed), the `/api/whatsapp/*` and `/webhook/whatsapp` routes (public prefixes in `auth.py`), table `whatsapp_delivery_statuses`, `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_GRAPH_API_VERSION` / `WHATSAPP_WEBHOOK_VERIFY_TOKEN` env names (old `WHATSAPP_PHONE_ID` still works), `tests/test_whatsapp_service.py`, `WHATSAPP_SETUP_GUIDE.md`.  v3's `backend/.env` (live-looking secrets) was NOT carried over.
 

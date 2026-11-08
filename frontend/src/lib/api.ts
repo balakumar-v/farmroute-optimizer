@@ -21,6 +21,8 @@ export interface ApiClient {
   computePlan(mode?: PlanMode): Promise<PlanResponse>;
   reset(): Promise<unknown>;
   issuePins(onlyMissing: boolean): Promise<{ issued: number; pins: { farmer_id: number; pin: string }[] }>;
+  pinStatus(): Promise<PinStatus>;
+  issuePin(farmerId: number): Promise<{ farmer_id: number; pin: string }>;
   publish(planId: number): Promise<PublishResult>;
   published(): Promise<{ published: boolean; plan_id?: number; published_at?: string; farmers?: number }>;
   unpublish(): Promise<unknown>;
@@ -56,6 +58,11 @@ export interface ChangePreview {
 export interface ChangeApproval { approved: number[]; plan_id: number; published: PublishResult; farmers_changed: number }
 
 /** Farmer phone numbers for SMS / WhatsApp updates. Numbers arrive masked; full numbers never reach the console. */
+export interface PinStatus {
+  farmers: number; with_pin: number;
+  rows: { farmer_id: number; has_pin: boolean; issued_at: number | null; locked: boolean; failed_attempts: number }[];
+}
+
 export interface PhoneSummary {
   farmers: number;
   registered: number;
@@ -119,6 +126,8 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     computePlan: (mode = "returns") => post<PlanResponse>(mode === "returns" ? "/plan/compute" : "/plan/compute?mode=spoilage"),
     reset: () => post("/reset"),
     issuePins: (onlyMissing) => post(`/farmers/pins?only_missing=${onlyMissing}`),
+    pinStatus: () => req<PinStatus>("/farmers/pins"),
+    issuePin: (farmerId) => post(`/farmers/${farmerId}/pin`),
     publish: (planId) => post(`/plan/${planId}/publish`),
     published: () => req("/published"),
     unpublish: () => req("/published", { method: "DELETE" }),

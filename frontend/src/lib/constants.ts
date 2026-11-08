@@ -35,6 +35,7 @@ export const VIEWS = [
   { id: "start", label: "Scenarios", icon: "list" },
   { id: "entry", label: "Data", icon: "table" },
   { id: "dash", label: "Plan", icon: "route" },
+  { id: "access", label: "Farmer access", icon: "key" },
   { id: "requests", label: "Requests", icon: "chat" },
   { id: "compare", label: "Compare", icon: "bars" },
   { id: "map", label: "Map", icon: "map" },

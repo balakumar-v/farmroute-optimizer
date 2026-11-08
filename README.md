@@ -115,6 +115,7 @@ Rules: one live request per farmer (a newer one replaces the older), drafts expi
 | Scenarios | Nine ready-made scenarios. One click loads the data, computes the plan and opens the map. |
 | Data | The farmers, vehicles and markets the optimizer sees. Add rows by hand. |
 | Plan | The ILO plan as a ledger: net return, produce not hauled and sold at the farm gate, farmer value, harvest sold, spoilage, and one row per pool. If ILO found nothing better than a simpler plan, the page says which plan it recommends instead. Under it, **Farmer access**: publish the plan to farmers, issue PINs, print cards for farmers without a phone, and manage farmers' phone numbers (see below). |
+| Farmer access | PINs (issue, view who has one, re-issue), publish the plan to farmers, printed cards, phone numbers and recent messages. |
 | Requests | Change requests from farmers (a new quantity or time): what they wrote, what it means, a preview of who a re-plan would move, then approve or reject. |
 | Compare | ILO against two behavioural baselines, with farmer value and produce sold side by side, a delta against ILO, and a full breakdown table. |
 | Map | The plan on a map: 7 presentation stages, a playable timeline, a step-by-step story, details for anything you select, compare mode, 3D, chase camera, and a full-screen walkthrough. Farmers who sell at the farm gate are slate; farmers who wanted a truck and got none are red. |
@@ -273,6 +274,7 @@ Full request and response shapes are in `backend/README.md`.
 | `POST /sensors/reading`, `GET /sensors/readings` | Store ESP32 temperature and humidity readings |
 | `POST /reset` | Clear all data (including phone numbers and the message log) |
 | `POST /farmers/pins`, `POST /farmers/{id}/pin` | Issue farmer PINs (shown once, stored hashed). `pins` issues for everyone without one; `?only_missing=false` re-issues for all |
+| `GET /farmers/pins` | Admin: per farmer, whether a PIN exists, when it was issued and whether they are locked out. Never returns a PIN or hash |
 | `POST /plan/{id}/publish`, `GET /published`, `GET /published/cards`, `DELETE /published` | Choose the one plan farmers can see (or hide it), and read the published cards. Publishing also reports `phone_updates` and sends the SMS / WhatsApp messages afterwards |
 | `POST /farmer/login` | Farmer ID + 6-digit PIN, returns a 12-hour token |
 | `GET /farmer/me` | The logged-in farmer's own card from the published plan, with `phone: {registered, masked}` (farmer token only) |

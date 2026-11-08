@@ -2,7 +2,7 @@ import type { SVGProps } from "react";
 
 export type IconName =
   | "list" | "table" | "route" | "bars" | "map" | "play" | "pause" | "reset" | "present" | "close" | "prev"
-  | "next" | "check" | "plus" | "cube" | "truck" | "split" | "chevron" | "arrow" | "alert" | "spin" | "chat";
+  | "next" | "check" | "plus" | "cube" | "truck" | "split" | "chevron" | "arrow" | "alert" | "spin" | "chat" | "key";
 
 /** One sprite for the whole app (also used by the legacy vis modules' innerHTML snippets). */
 export function IconSprite() {
@@ -30,6 +30,7 @@ export function IconSprite() {
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4.5 12h15M13.5 6l6 6-6 6"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.4M12 17.2v.1"/></symbol>
     <symbol id="i-spin" viewBox="0 0 24 24"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3M14 9l2 2"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4V5z"/></symbol>
   </defs>
     </svg>

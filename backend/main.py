@@ -641,6 +641,26 @@ def issue_pins(response: Response, only_missing: bool = True):
     return {"issued": len(out), "pins": out}
 
 
+@app.get("/farmers/pins")
+def pin_status(response: Response):
+    """Who has a PIN, when it was issued, and whether the farmer is locked out right now. The PIN itself is NOT here
+    (and cannot be: only salted hashes are stored); re-issue one to get a new PIN, shown once."""
+    response.headers["Cache-Control"] = "no-store"
+    now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    with get_conn() as conn:
+        farmers = [r["id"] for r in conn.execute("SELECT id FROM farmers ORDER BY id").fetchall()]
+        creds = {r["farmer_id"]: r for r in conn.execute(
+            "SELECT farmer_id, created_at, failed_attempts, locked_until FROM farmer_credentials").fetchall()}
+    rows = []
+    for fid in farmers:
+        c = creds.get(fid)
+        rows.append({"farmer_id": fid, "has_pin": c is not None,
+                     "issued_at": float(c["created_at"]) if c else None,
+                     "locked": bool(c and float(c["locked_until"]) > now),
+                     "failed_attempts": int(c["failed_attempts"]) if c else 0})
+    return {"farmers": len(farmers), "with_pin": sum(r["has_pin"] for r in rows), "rows": rows}
+
+
 @app.post("/farmers/{farmer_id}/pin")
 def issue_pin(farmer_id: int, response: Response):
     """A fresh PIN for one farmer (also clears a lockout). Returned once."""
