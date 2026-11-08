@@ -142,6 +142,17 @@ CREATE TABLE IF NOT EXISTS notification_log (
     created_at DOUBLE PRECISION NOT NULL
 );
 
+-- Web Push subscriptions (push.py): one row per browser/phone. endpoint is the push service URL, unique per browser.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    farmer_id INTEGER NOT NULL,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    lang TEXT NOT NULL DEFAULT 'en',
+    created_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_farmer ON push_subscriptions (farmer_id);
+
 -- Farmer change requests (see change_requests.py). A farmer's chat message becomes a 'draft'; the farmer's tap on
 -- Confirm makes it 'pending'; the admin then approves or rejects it. Nothing here touches the farmers table until
 -- the admin approves. JSON columns follow the rest of this file (TEXT holding JSON).

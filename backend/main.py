@@ -14,6 +14,7 @@ Endpoints:
     POST /farmers/upload     (csv/xlsx bulk add)
     POST /sensors/reading
     POST /reset
+    /farmer/push[/key|/subscribe|/unsubscribe]  (farmer: phone notifications, see push.py)
     GET  /health             (public, no token: liveness + database check; 503 if the database is down)
     GET/DELETE /farmers/phones   DELETE /farmers/{id}/phone   (admin: phone numbers)
     /farmer/phone[/start|/verify]  (farmer: register a number by code)
@@ -45,7 +46,7 @@ from logistics_lib_v2 import (
     fresh_capacity,
 )
 from schemas import (
-    LoginIn, PhoneStartIn, PhoneVerifyIn, QuoteCheckIn,
+    LoginIn, PhoneStartIn, PhoneVerifyIn, PushSubscribeIn, PushUnsubscribeIn, QuoteCheckIn,
     FarmerIn, FarmerOut,
     VehicleIn, VehicleOut,
     MarketIn, MarketOut,
@@ -58,6 +59,7 @@ import chat_llm
 import farmer_upload
 import notify
 import phones
+import push
 import roads
 from change_requests import ApproveIn, ChangeError, ChatIn, IdsIn, RejectIn, WindowIn
 from visualization_adapter import ALGO_KEYS, build_plan_visualization
@@ -677,13 +679,17 @@ def publish_plan(plan_id: int, background: BackgroundTasks):
     # published before). Sent after this response, so a slow or failing provider never holds up or breaks publishing.
     targets = phones.plan_targets(cards, only_changed=cur is not None)
     background.add_task(phones.send_batch, targets, plan_id)
+    # Web Push to the farmers' phones: same rule (changed cards only), same background task treatment.
+    push_targets = push.plan_targets(cards, only_changed=cur is not None)
+    background.add_task(push.send_batch, push_targets, plan_id)
     prov = notify.describe_providers()
     return {"plan_id": plan_id, "previous_plan_id": prev_id, "published_at": published_at, "farmers": len(cards),
             "farmers_without_pin": sorted(set(cards) - have),
             "farmers_with_changes": sum(1 for c in cards.values() if c["changed"]),
             "phone_updates": {"farmers_messaged": len(targets), "sms": prov["sms"]["provider"],
                               "whatsapp": prov["whatsapp"]["provider"],
-                              "dry_run": not (prov["sms"]["live"] or prov["whatsapp"]["live"])}}
+                              "dry_run": not (prov["sms"]["live"] or prov["whatsapp"]["live"])},
+            "push_updates": {"enabled": push.enabled(), "devices_notified": len(push_targets)}}
 
 
 @app.get("/published")
@@ -739,6 +745,28 @@ def farmer_me(response: Response, farmer_id: int = Depends(auth.current_farmer))
         raise HTTPException(404, "You are not part of the published plan.")
     card["phone"] = phones.status(farmer_id)       # lets the app ask for a number only when there is none
     return card
+
+
+@app.get("/farmer/push/key")
+def farmer_push_key():
+    """The public VAPID key the browser needs to subscribe. Not secret; no login needed. enabled=false: keys not set."""
+    return {"enabled": push.enabled(), "public_key": push.public_key() or None}
+
+
+@app.get("/farmer/push")
+def farmer_push_status(response: Response, farmer_id: int = Depends(auth.current_farmer)):
+    response.headers["Cache-Control"] = "no-store"
+    return push.status(farmer_id)
+
+
+@app.post("/farmer/push/subscribe")
+def farmer_push_subscribe(body: PushSubscribeIn, farmer_id: int = Depends(auth.current_farmer)):
+    return push.subscribe(farmer_id, body.subscription, body.lang)
+
+
+@app.post("/farmer/push/unsubscribe")
+def farmer_push_unsubscribe(body: PushUnsubscribeIn, farmer_id: int = Depends(auth.current_farmer)):
+    return push.unsubscribe(farmer_id, body.endpoint)
 
 
 @app.get("/farmer/phone")
@@ -1021,7 +1049,7 @@ def reset_data():
     the database by hand. Resets the id counters too, so a fresh load
     afterwards gets clean IDs starting from 1."""
     tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets",
-              "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log",
+              "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log", "push_subscriptions",
               "change_requests", "change_window")
     with get_conn() as conn:
         cleared = {}

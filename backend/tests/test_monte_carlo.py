@@ -105,9 +105,10 @@ def test_spoilage_params_context_changes_and_restores_the_model():
 
 
 def test_per_crop_uncooled_rates_match_the_report():
-    # uncooled / cooled weight loss per hour: tomato 0.05/0.013 %, spinach 0.75/0.03 %, cauliflower 0.15/0.03 %, mango 0.07/0.015 %
-    for crop, unc, cool in [("tomato", .0005, .00013), ("spinach", .0075, .0003), ("cauliflower", .0015, .0003), ("mango", .0007, .00015)]:
+    # uncooled / cooled weight loss per hour: tomato 0.05/0.013 %, spinach 0.75/0.03 %, cauliflower 0.15/0.03 %, mango 0.07/0.015 %,
+    # onion 0.025/0.004 %, potato 0.03/0.004 %
+    for crop, unc, cool in [("tomato", .0005, .00013), ("spinach", .0075, .0003), ("cauliflower", .0015, .0003), ("mango", .0007, .00015),
+                            ("onion", .00025, .00004), ("potato", .0003, .00004)]:
         assert L.spoilage_fraction(crop, False, 1.0) == pytest.approx(unc)
         assert L.spoilage_fraction(crop, True, 1.0) == pytest.approx(cool)
-    assert L.spoilage_fraction("onion", False, 1.0) == L.spoilage_fraction("onion", True, 1.0)   # needs no refrigeration
     assert L.spoilage_fraction("spinach", False, 1e6) == L.SPOIL_CAP

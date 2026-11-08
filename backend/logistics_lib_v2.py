@@ -49,11 +49,14 @@ WORKDAY_END_HR = 14.0  # vehicles won't start a fresh trip after this
 # tomato, spinach, cauliflower, mango: working values from a literature review of hourly postharvest WEIGHT loss
 #   (@meks, 7 Nov 2026): uncooled/cooled per hour = tomato 0.05%/0.013%, spinach 0.75%/0.03%, cauliflower
 #   0.15%/0.03%, mango 0.07%/0.015%. Weight loss only: rejection and quality loss are NOT included.
-# onion, potato: no source -- unchanged from the earlier assumption and probably far too high. Replace when measured.
+# onion, potato (8 Nov 2026, same review; multi-day evidence, not hourly trials): uncooled/cooled per hour = onion
+#   0.025%/0.004%, potato 0.03%/0.004%. They need no refrigeration, but a load in an unrefrigerated vehicle still
+#   loses weight at the uncooled rate, so they carry an unrefrig_mult too. Assumes field-dried / cured bulbs and
+#   tubers: freshly dug uncured potatoes and wet-necked onions lose faster, so treat these as a floor for such lots.
 CROPS = {
     "tomato":      {"needs_refrigeration": True,  "base_spoil_per_hr": 0.00013, "unrefrig_mult": 0.0005 / 0.00013},
-    "onion":       {"needs_refrigeration": False, "base_spoil_per_hr": 0.008},
-    "potato":      {"needs_refrigeration": False, "base_spoil_per_hr": 0.005},
+    "onion":       {"needs_refrigeration": False, "base_spoil_per_hr": 0.00004, "unrefrig_mult": 0.00025 / 0.00004},
+    "potato":      {"needs_refrigeration": False, "base_spoil_per_hr": 0.00004, "unrefrig_mult": 0.0003 / 0.00004},
     "cauliflower": {"needs_refrigeration": True,  "base_spoil_per_hr": 0.0003,  "unrefrig_mult": 5.0},
     "mango":       {"needs_refrigeration": True,  "base_spoil_per_hr": 0.00015, "unrefrig_mult": 0.0007 / 0.00015},
     "spinach":     {"needs_refrigeration": True,  "base_spoil_per_hr": 0.0003,  "unrefrig_mult": 25.0},
@@ -229,7 +232,7 @@ def haversine(lat1, lng1, lat2, lng2):
 
 
 # Spoilage model parameters: a per-crop linear weight-loss rate per hour (see CROPS for sources), multiplied by the
-# crop's own unrefrig_mult for refrigeration-needing crops in an unrefrigerated vehicle, capped at 60%.
+# crop's own unrefrig_mult in an unrefrigerated vehicle (refrigeration-needing crops, and onion/potato), capped at 60%.
 # SPOIL_UNREFRIG_MULT is the fallback for a crop with no unrefrig_mult of its own.
 SPOIL_UNREFRIG_MULT = 3.0
 SPOIL_CAP = 0.6
@@ -260,7 +263,7 @@ def spoilage_params(rate_scale=1.0, unrefrig_mult=None, cap=None):
 def spoilage_fraction(crop, vehicle_refrigerated, transit_hours):
     info = CROPS[crop]
     rate = info["base_spoil_per_hr"]
-    if info["needs_refrigeration"] and not vehicle_refrigerated:
+    if not vehicle_refrigerated and (info["needs_refrigeration"] or "unrefrig_mult" in info):
         rate *= _UNREFRIG_OVERRIDE or info.get("unrefrig_mult", SPOIL_UNREFRIG_MULT)
     return min(rate * transit_hours, SPOIL_CAP)
 

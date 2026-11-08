@@ -137,6 +137,16 @@ Three synthetic scenarios, each built to isolate one mechanism, and six built on
 
 In the real-data scenarios the mandi locations, prices and daily arrivals come from Agmarknet via the India Data Portal. The farmers and the fleet are synthetic, because no farmer-level data exists. Each scenario's "About the data" note lists what was cleaned and which counts are assumptions.
 
+## Phone notifications (Web Push)
+
+Farmers can get a notification on their phone when a published plan changes for them (approving a change request re-plans and publishes, so it triggers this too). One-time setup on the backend:
+
+1. `cd backend && python generate_vapid.py` prints `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`.
+2. Set those three environment variables on the Render backend and redeploy (`pywebpush` is in `requirements.txt`).
+3. Farmers tap **Notify me when my plan changes** in the farmer app. Sending is a background task after publish; each attempt is written to `notification_log` with channel `push`; a subscription the push service reports gone (404/410) is deleted. Without the keys nothing is sent and the button is hidden. Keep the private key: changing it makes every farmer turn notifications on again.
+
+Routes: `GET /farmer/push/key` (public), `GET /farmer/push`, `POST /farmer/push/subscribe`, `POST /farmer/push/unsubscribe` (farmer login). The publish response has `push_updates`.
+
 ## Farmer app, phone numbers and messages
 
 Farmers do not use the admin console. They use `farmer-app/`, a phone-first installable site (PWA) in English, Telugu, Hindi and Tamil with read-aloud:

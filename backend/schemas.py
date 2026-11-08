@@ -144,3 +144,13 @@ class PhoneStartIn(BaseModel):
 
 class PhoneVerifyIn(BaseModel):
     code: str = Field(pattern=r"^\d{6}$")
+
+
+class PushSubscribeIn(BaseModel):
+    """What the browser's PushSubscription.toJSON() gives, plus the farmer's app language for the message text."""
+    subscription: dict
+    lang: str = "en"
+
+
+class PushUnsubscribeIn(BaseModel):
+    endpoint: Optional[str] = None

@@ -21,3 +21,6 @@ scikit-learn>=1.3
 # Farmer-list upload (POST /farmers/upload): multipart form parsing and .xlsx reading.
 python-multipart>=0.0.9
 openpyxl>=3.1
+
+# Web Push notifications to farmers' phones (push.py). Imported only when a push is sent.
+pywebpush>=2.0
