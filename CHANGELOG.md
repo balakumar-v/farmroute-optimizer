@@ -1,5 +1,10 @@
 # Changelog
 
+## Farmer login on PC, show/hide PIN (Nov 2026)
+- Farmer app login: the ID and PIN boxes no longer ask the browser's password manager to fill them (`autocomplete="off"` / `"new-password"`). A desktop browser could autofill an old saved PIN (PINs change when re-issued) into the 6-character box, so the correct PIN could not be typed and the login said "wrong". Spaces typed or pasted inside the PIN are ignored.
+- Eye button at the right of the PIN box shows or hides the PIN (labels in en, te, hi, ta).
+- Service worker cache bumped to v10 so desktop browsers drop the old cached `app.js`.
+
 ## Farmer access on its own tab, current-PIN list (Nov 2026)
 - The whole Farmer access area (PINs, publish, printed cards, phone numbers, recent messages) moved out of the Plan tab into a new **Farmer access** tab (`views/AccessView.tsx`); the Plan tab is now only the plan, its numbers and the pools.
 - Next to **Issue PINs** there is now **View current PINs**: every farmer with whether they have a PIN, when it was issued and whether they are locked out, plus a per-farmer **Re-issue / Issue**. PINs are stored only as salted hashes, so the digits of an existing PIN cannot be shown; re-issuing shows the new one once. New route `GET /farmers/pins` (admin token; never returns a PIN or hash).
