@@ -1,5 +1,14 @@
 # Changelog
 
+## Repo restructure (Nov 2026)
+No code behaviour changed; top-level deploy folders (`backend/`, `frontend/`, `farmer-app/`) and every backend module the API imports stay where they were.
+- Root: the long docs moved to `docs/` (with an index); the two WhatsApp guides to `docs/whatsapp/`. Root keeps README, CHANGELOG, `.github`.
+- `backend/tools/`: run-by-hand scripts (`verify_*`, `benchmark_*`, `calibrate_circuity`, `generate_vapid`). Run them as `python tools/<name>.py` from `backend/`.
+- `backend/experiments/{v3_1,v4}`: the study scripts and raw results; v4 logs in `v4/logs/`, launchers no longer hardcode a machine path.
+- `frontend/legacy/`: the old pre-React files (app.js, style.css, vis/, vendor/, config.js). `legacy/app.js` is still read by `backend/real_data` for the presets.
+- Removed `farmer-app/manifest.webmanifest` (unused duplicate; the app loads `manifest.json`). `.gitignore` now covers node_modules, dist and env files.
+- Tests: same results before and after (86 pass; the same 4 `agmarknet` import failures).
+
 ## Farmer login on PC, show/hide PIN (Nov 2026)
 - Farmer app login: the ID and PIN boxes no longer ask the browser's password manager to fill them (`autocomplete="off"` / `"new-password"`). A desktop browser could autofill an old saved PIN (PINs change when re-issued) into the 6-character box, so the correct PIN could not be typed and the login said "wrong". Spaces typed or pasted inside the PIN are ignored.
 - Eye button at the right of the PIN box shows or hides the PIN (labels in en, te, hi, ta).

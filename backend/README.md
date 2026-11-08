@@ -15,7 +15,7 @@ project root, or `python3 main.py` directly, will not find them).
 cd backend
 pip install -r requirements.txt
 cp .env.example .env      # set DATABASE_URL to a Postgres connection string (required)
-python3 verify_setup.py   # sanity-checks every endpoint; ends by resetting the data, so use a throwaway database
+python3 tools/verify_setup.py   # sanity-checks every endpoint; ends by resetting the data, so use a throwaway database
 uvicorn main:app --reload --port 8000 --env-file .env
 ```
 
@@ -242,8 +242,8 @@ at 1 again. For starting over between demos.
 | `logistics_lib_v2.py` | Real data model (`Farmer`, `Vehicle`, `Market`, `CROPS`, `VEHICLE_TYPES`, `fresh_capacity`, etc.) |
 | `algorithms_v2.py` | The three allocation algorithms (`run_ilo_v2` -- internally `run_our_system_v2` -- `run_individual_transport_v2`, `run_proximity_pooling_v2`, `summarize`) |
 | `visualization_adapter.py` | Reshapes a stored plan run into the Map & simulation tab's frontend-facing schema. Pure consumer of the algorithm output — no optimization logic |
-| `verify_setup.py` | Exercises every endpoint via `TestClient`; run after `pip install -r requirements.txt` |
-| `verify_visualization.py` | Exercises `GET /plan/{id}/visualization` and `GET /sensors/readings` against a realistic multi-vehicle scenario, including multi-trip vehicle-reuse and served/unserved-farmer edge cases |
+| `tools/verify_setup.py` | Exercises every endpoint via `TestClient`; run after `pip install -r requirements.txt` |
+| `tools/verify_visualization.py` | Exercises `GET /plan/{id}/visualization` and `GET /sensors/readings` against a realistic multi-vehicle scenario, including multi-trip vehicle-reuse and served/unserved-farmer edge cases |
 | `auth.py` | Admin token, farmer PIN login, signed farmer tokens, lockout |
 | `phones.py` | Farmer phone numbers: code check, storage, clearing, who is messaged when a plan is published |
 | `notify.py` | Phone-number parsing, one-time codes, message text (en/te/hi/ta) and the SMS / WhatsApp providers (dry-run by default). Standard library only, no database |
@@ -253,9 +253,9 @@ at 1 again. For starting over between demos.
 | `ilo_v3.py` | ILO v3 planner: candidates, fleet-aware set partition, repair and value-gain sharing, break-even, discount stress, optional Monte Carlo |
 | `price_impact.py` | `PriceImpact` volume-dependent price model and `estimate_price_flexibility()` (off by default) |
 | `stress.py` | `monte_carlo_stress()` and `withhold_fragile()` for a finished plan |
-| `calibrate_circuity.py` | Fits the road-circuity factor from a CSV of real road distances |
-| `experiments_v3_1/` | Scripts behind the v3.1 numbers (see its README) |
-| `benchmark_v2.py` | Standalone scale/economics benchmark, not used by the API. Needs `pandas` (`pip install pandas`), which isn't in `requirements.txt` since the app itself doesn't need it. Run with `python3 benchmark_v2.py` from this folder. |
+| `tools/calibrate_circuity.py` | Fits the road-circuity factor from a CSV of real road distances |
+| `experiments/v3_1/`, `experiments/v4/` | Scripts behind the v3.1 numbers (see its README) |
+| `tools/benchmark_v2.py` | Standalone scale/economics benchmark, not used by the API. Needs `pandas` (`pip install pandas`), which isn't in `requirements.txt` since the app itself doesn't need it. Run with `python3 tools/benchmark_v2.py` from this folder. |
 
 `plan_runs.result_ilo_trace` (used by `visualization_adapter.py` for exact
 per-market breakdowns) and `result_realistic_baselines` are nullable, so plans

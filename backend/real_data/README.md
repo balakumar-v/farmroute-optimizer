@@ -1,7 +1,7 @@
 # Real-data pipeline (Agmarknet data -> FarmRoute)
 
 Replaces the **synthetic markets** with real Indian mandi data. The pipeline itself only adds files under `backend/real_data/`.
-Separately, this round also changed the planner (see "Planner change" below): `backend/algorithms_v2.py`, `frontend/app.js` (pool card for
+Separately, this round also changed the planner (see "Planner change" below): `backend/algorithms_v2.py`, `frontend/legacy/app.js` (pool card for
 withheld pools; preset categories + the Bihar preset), `ALGORITHM_AND_RESULTS_V2.md` (section 17) and new tests in `backend/tests/`.
 
 ## Why a bulk CSV and not a scraper
@@ -76,7 +76,7 @@ To add another real dataset: run the pipeline for it, then
 ```
 python real_data/make_preset_block.py --id my_new_id --label "Shown in dropdown" --blurb "REAL: ... SYNTHETIC: ..."
 ```
-and paste the printed entry into `SCENARIOS` in `frontend/app.js`. It appears under "Real data" automatically
+and paste the printed entry into `SCENARIOS` in `frontend/legacy/app.js`. It appears under "Real data" automatically
 (`SCENARIO_CATEGORIES` at the top of that section lists the categories; empty ones stay hidden).
 
 ## Tests
@@ -92,6 +92,6 @@ For a state-wide India Data Portal "APMC Arrivals and Prices" CSV that carries t
 
 It cleans the rows (bad prices, min/max conflicts, arrival typos, unit confusion), validates coordinates, flags and raises
 placeholder capacities, picks the nearest mandis to a hub, builds synthetic farmers and a fleet with explicit counts, and writes
-`data/regional/<preset>.js` (paste into `SCENARIOS` in `frontend/app.js`) and `<preset>.json` (every count and assumption).
+`data/regional/<preset>.js` (paste into `SCENARIOS` in `frontend/legacy/app.js`) and `<preset>.json` (every count and assumption).
 The module docstring lists each rule and constant. Farmers, fleet and counts are synthetic; mandi data is real. To add another
 region, add an entry to `PRESETS` (state, window, hub mandi, seed). Tests: `real_data/tests/test_regional_presets.py`.

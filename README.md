@@ -142,7 +142,7 @@ In the real-data scenarios the mandi locations, prices and daily arrivals come f
 
 Farmers can get a notification on their phone when a published plan changes for them (approving a change request re-plans and publishes, so it triggers this too). One-time setup on the backend:
 
-1. `cd backend && python generate_vapid.py` prints `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`.
+1. `cd backend && python tools/generate_vapid.py` prints `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`.
 2. Set those three environment variables on the Render backend and redeploy (`pywebpush` is in `requirements.txt`).
 3. Farmers tap **Notify me when my plan changes** in the farmer app. Sending is a background task after publish; each attempt is written to `notification_log` with channel `push`; a subscription the push service reports gone (404/410) is deleted. Without the keys nothing is sent and the button is hidden. Keep the private key: changing it makes every farmer turn notifications on again.
 
@@ -182,7 +182,7 @@ Step 3 is fleet-aware since v3.1: each candidate trip becomes columns (trip, veh
 
 Every dispatched trip also carries `breakeven`: the doorstep Rs/kg per crop below which hauling still pays, its cushion in percent, and the smallest true discount at which it pays. The intended rule is to dispatch only if the trader's live quote is below that price.
 
-What these showed (synthetic scenarios, few seeds; `ALGORITHM_AND_RESULTS_V2.md` section 22 has the tables and caveats):
+What these showed (synthetic scenarios, few seeds; `docs/ALGORITHM_AND_RESULTS_V2.md` section 22 has the tables and caveats):
 - Planning with straight-line distances when roads are 1.4x longer cost about 17% of the gain and left 15 of 65 trips below the farm-gate price. Planning with the right factor cut that to 2 of 58. Underestimating the factor by 0.2 costs about 2%; overestimating by 0.2 costs about 14%.
 - Fleet-aware planning adds 0 to 2.5% of final value; the gain is small because the synthetic fleet is small relative to the farmers. It also prices vehicles: one extra reefer was worth about Rs 4.7k in one scenario.
 - Price impact: with elasticities estimated from your Agmarknet files (lower bounds), scoring with price response cuts reported gain by about 17%. Planning with it adds nothing measurable at those elasticities (-2%, inside model error) and about +7% when the true response is 3.5x stronger. Wrong beliefs hurt: assuming 2x the truth gave +0.1%.
@@ -230,11 +230,9 @@ backend/
   visualization_adapter.py   reshapes a stored plan for the map (no recomputation)
   integrated_milp.py, milp_benchmark.py   exact MILP ground truth for small instances
   database.py, schemas.py    Postgres storage (psycopg) and request/response models
-  verify_setup.py            endpoint sanity check
-  verify_visualization.py    map-adapter check (see Known issues)
-  benchmark_ilo_v3.py        ILO v3 against every baseline, many scenarios
-  benchmark_*.py             other scale and comparison benchmarks
-  experiments_v3_1/, experiments_v4/   scripts behind the reported numbers (v3.1 has its own README)
+  tools/                     run by hand: verify_*.py (endpoint / map / notification checks), benchmark_*.py
+                             (ILO v3 vs baselines, scale), calibrate_circuity.py, generate_vapid.py
+  experiments/v3_1, v4       scripts and raw results behind the reported numbers (each has its own README)
   tests/                     dispatch, baselines, ILO v3, roads, advisors, upload, auth, phones, visualization
   real_data/                 Agmarknet pipeline, regional preset builder, data (own README)
 farmer-app/                  the farmers' installable PWA (own README); no build step
@@ -242,12 +240,12 @@ frontend/                    React + TypeScript + Vite admin console (own README
   src/                       views, state, API client, scenario data (lib/scenarios.ts), map engine (vis/),
                              Farmer access panel (components/FarmerAccess.tsx), printed cards (lib/printCards.ts)
   index.html, package.json, vite.config.ts
-  app.js, style.css, vis/, vendor/, config.js   the pre-React frontend; no longer loaded by index.html
+  legacy/                    the pre-React frontend (not built or loaded). legacy/app.js is still the preset source
+                             that backend/real_data reads (SCENARIOS), so keep it until presets move to a data file
 .github/workflows/ci.yml     CI: backend tests, and frontend build and tests, on every push
-EXTENDING.md                 where to plug in new views, prices, objectives, constraints and presets
-ALGORITHM_AND_RESULTS_V2.md  design history, benchmarks, assumptions (sections 19 to 21 cover v3 and the presets, 22 to 25 cover v3.1)
-MILP_GROUND_TRUTH.md         exact-benchmark method and results
-PRODUCT.md, DESIGN.md        who the UI is for, and its design system
+docs/                        EXTENDING.md (where to plug in new views, prices, objectives, constraints, presets),
+                             ALGORITHM_AND_RESULTS_V2.md (design history, benchmarks, assumptions), MILP_GROUND_TRUTH.md,
+                             PRODUCT.md and DESIGN.md (admin UI), whatsapp/ (setup guides); docs/README.md is the index
 CHANGELOG.md
 ```
 
@@ -328,12 +326,12 @@ pip install -r requirements-dev.txt
 export DATABASE_URL=postgresql://...   # the endpoint tests need a Postgres; without it they are skipped
 python3 -m pytest tests                # the full run takes several minutes; CI runs it on every push
 
-python3 verify_setup.py                # endpoint sanity check against your DATABASE_URL (it ends by resetting the data)
+python3 tools/verify_setup.py                # endpoint sanity check against your DATABASE_URL (it ends by resetting the data)
 
-python3 benchmark_ilo_v3.py grid      # win/tie/loss map across scenarios
-python3 benchmark_ilo_v3.py robust    # planner assumes 20% discount, truth differs
-python3 benchmark_ilo_v3.py margin    # planner margin sweep
-python3 benchmark_ilo_v3.py bihar     # the Bihar preset
+python3 tools/benchmark_ilo_v3.py grid      # win/tie/loss map across scenarios
+python3 tools/benchmark_ilo_v3.py robust    # planner assumes 20% discount, truth differs
+python3 tools/benchmark_ilo_v3.py margin    # planner margin sweep
+python3 tools/benchmark_ilo_v3.py bihar     # the Bihar preset
 ```
 
 The phone-number tests in `tests/test_phones.py` that need no database (number parsing, codes, message text, provider requests, who is messaged) run anywhere; its API tests need `DATABASE_URL`. Use a throwaway database for tests: the endpoint tests call `POST /reset`, which empties every table. Road lookups need internet access; without it plans fall back to straight lines and the tests still pass.

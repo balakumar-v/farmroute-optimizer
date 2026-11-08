@@ -3,3 +3,8 @@ __pycache__/
 backend/fpo.db
 .DS_Store
 backend/.env
+node_modules/
+frontend/dist/
+.env
+*.env.local
+.pytest_cache/
