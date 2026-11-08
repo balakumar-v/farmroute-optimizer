@@ -154,3 +154,34 @@ class PushSubscribeIn(BaseModel):
 
 class PushUnsubscribeIn(BaseModel):
     endpoint: Optional[str] = None
+
+
+# ---------- WhatsApp notifications ----------
+class WhatsAppOtpIn(BaseModel):
+    to: str
+    code: str = Field(pattern=r"^\d{6}$")
+    lang: str = Field(default="en", max_length=5)
+
+
+class PlanActivationIn(BaseModel):
+    to: str
+    customer_name: str
+    plan_name: str
+    valid_until: str
+    lang: str = Field(default="en", max_length=5)
+
+
+class SubscriptionRenewalIn(BaseModel):
+    to: str
+    customer_name: str
+    plan_name: str
+    valid_until: str
+    lang: str = Field(default="en", max_length=5)
+
+
+class PaymentConfirmationIn(BaseModel):
+    to: str
+    customer_name: str
+    amount: str
+    plan_name: str
+    lang: str = Field(default="en", max_length=5)

@@ -302,38 +302,36 @@ class Msg91Sms:
 
 
 class MetaWhatsApp:
-    """WhatsApp Cloud API. Business-started messages must use an approved template (or hello_world for testing)."""
+    """WhatsApp Cloud API. Business-started messages must use an approved template (or hello_world for testing).
+    IMPORTANT: Uses the Phone Number ID messages endpoint directly. Does NOT require WHATSAPP_BUSINESS_ACCOUNT_ID."""
     channel, name, live = "whatsapp", "meta", True
 
     def __init__(self, env):
         self.env = env
-        self.token, self.phone_id = env["WHATSAPP_TOKEN"], env["WHATSAPP_PHONE_ID"]
-        self.template = env.get("WHATSAPP_TEMPLATE") or "farmroute_plan_update"
-        self.otp_template = env.get("WHATSAPP_OTP_TEMPLATE") or "farmroute_otp"
-        self.version = env.get("WHATSAPP_API_VERSION") or "v20.0"
+        self.token = (env.get("WHATSAPP_TOKEN") or "").strip()
+        self.phone_id = (env.get("WHATSAPP_PHONE_NUMBER_ID") or env.get("WHATSAPP_PHONE_ID") or "").strip()
+        self.template = (env.get("WHATSAPP_TEMPLATE") or "farmroute_plan_update").strip()
+        self.otp_template = (env.get("WHATSAPP_OTP_TEMPLATE") or "farmroute_otp").strip()
+        self.version = (env.get("WHATSAPP_GRAPH_API_VERSION") or env.get("WHATSAPP_API_VERSION") or "v20.0").strip()
         self.otp_button = (env.get("WHATSAPP_OTP_BUTTON") or "copy_code").strip().lower()
 
     def send(self, to, text, lang="en", kind="update"):
+        import whatsapp_service
+        # Connect whatsapp_service's HTTP dispatcher to notify._http so test monkeypatches work across both
+        whatsapp_service._http_request = _http
+
         tpl = self.otp_template if kind == "otp" else self.template
-        lang_code = "en_US" if tpl == "hello_world" else _lang(lang)
-        components = []
-        if tpl != "hello_world":
-            if kind == "otp":
-                code_match = re.search(r"\b\d{6}\b", text)
-                otp_code = code_match.group(0) if code_match else text.strip()
-                components.append({"type": "body", "parameters": [{"type": "text", "text": otp_code}]})
-                if self.otp_button not in ("off", "none", "false", "0"):
-                    components.append({"type": "button", "sub_type": "url", "index": "0",
-                                       "parameters": [{"type": "text", "text": otp_code}]})
-            else:
-                components.append({"type": "body", "parameters": [{"type": "text", "text": text}]})
-        payload = {"messaging_product": "whatsapp", "to": to.lstrip("+"), "type": "template",
-                   "template": {"name": tpl, "language": {"code": lang_code}}}
-        if components:
-            payload["template"]["components"] = components
-        status, body = _http(f"https://graph.facebook.com/{self.version}/{self.phone_id}/messages",
-                             {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
-                             json.dumps(payload).encode())
+        if tpl == "hello_world":
+            payload = whatsapp_service.build_hello_world_payload(to)
+        elif kind == "otp":
+            payload = whatsapp_service.build_otp_payload(to, text, lang, tpl, self.otp_button)
+        else:
+            payload = whatsapp_service.build_utility_payload(to, text, lang, tpl)
+
+        url = f"https://graph.facebook.com/{self.version}/{self.phone_id}/messages"
+        headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
+        status, body = _http(url, headers, json.dumps(payload).encode("utf-8"))
+
         if status < 300:
             msg_id = ""
             try:
@@ -344,6 +342,7 @@ class MetaWhatsApp:
             except Exception:
                 pass
             return True, f"accepted (message id: {msg_id})" if msg_id else "sent"
+
         # Detailed error extraction from Meta response
         try:
             parsed = json.loads(body)
@@ -365,22 +364,33 @@ class MetaWhatsApp:
 _NEEDS = {
     ("sms", "twilio"): (TwilioSms, ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_SMS_FROM")),
     ("sms", "msg91"): (Msg91Sms, ("MSG91_AUTH_KEY", "MSG91_OTP_TEMPLATE_ID", "MSG91_UPDATE_TEMPLATE_ID")),
-    ("whatsapp", "meta"): (MetaWhatsApp, ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_ID")),
+    ("whatsapp", "meta"): (MetaWhatsApp, ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID")),
     ("whatsapp", "twilio"): (TwilioWhatsApp, ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WHATSAPP_FROM")),
 }
 
 
 def get_provider(channel: str, env=None):
     """The provider for 'sms' or 'whatsapp' from the environment. Unknown name or missing credentials give a
-    provider that fails every send with a clear reason (the admin console shows it), never a crash at startup."""
+    provider that fails every send with a clear reason (the admin console shows it), never a crash at startup.
+    Note: For Meta WhatsApp, WHATSAPP_BUSINESS_ACCOUNT_ID is intentionally NOT required."""
     env = os.environ if env is None else env
     name = (env.get(f"{'SMS' if channel == 'sms' else 'WHATSAPP'}_PROVIDER") or "dry").strip().lower()
     if name == "dry":
         return DryRun(channel)
     if (channel, name) not in _NEEDS:
         return Misconfigured(channel, name, f"unknown provider (choose one of: dry, {', '.join(n for c, n in _NEEDS if c == channel)})")
+
     cls, needed = _NEEDS[(channel, name)]
-    missing = [k for k in needed if not env.get(k)]
+    missing = []
+    for k in needed:
+        if k == "WHATSAPP_PHONE_NUMBER_ID":
+            # Either WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_PHONE_ID satisfies this requirement
+            if not (env.get("WHATSAPP_PHONE_NUMBER_ID") or env.get("WHATSAPP_PHONE_ID")):
+                missing.append("WHATSAPP_PHONE_NUMBER_ID")
+        else:
+            if not env.get(k):
+                missing.append(k)
+
     return Misconfigured(channel, name, "missing " + ", ".join(missing)) if missing else cls(env)
 
 

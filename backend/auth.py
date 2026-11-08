@@ -38,6 +38,11 @@ LOCK_S = 15 * 60
 PIN_DIGITS = 6
 FARMER_PREFIX = "/farmer/"
 PUBLIC_PATHS = frozenset({"/health"})   # uptime probes / load balancers carry no token
+WHATSAPP_PUBLIC_PREFIXES = (   # Meta calls these itself: webhook verification + delivery events, and the safe config check
+    "/api/whatsapp/webhook",
+    "/webhook/whatsapp",
+    "/api/whatsapp/health",
+)
 _SCRYPT = dict(n=2 ** 14, r=8, p=1, dklen=32)
 
 _process_secret = None
@@ -60,7 +65,13 @@ def _bearer(request: Request):
 
 def admin_guard(request: Request) -> None:
     """App-wide dependency: everything except the farmer routes needs the admin token (when one is set)."""
-    if request.url.path in PUBLIC_PATHS or request.url.path.startswith(FARMER_PREFIX) or admin_auth_off():
+    path = request.url.path
+    if (
+        path in PUBLIC_PATHS
+        or path.startswith(FARMER_PREFIX)
+        or any(path.startswith(p) for p in WHATSAPP_PUBLIC_PREFIXES)
+        or admin_auth_off()
+    ):
         return
     expected = os.environ.get("ADMIN_TOKEN", "")
     if not expected:

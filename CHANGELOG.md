@@ -1,5 +1,8 @@
 # Changelog
 
+## Merge of main4 + v3 + merged2 (Nov 2026)
+Base: main4 (superset: change requests, Web Push, /health, tests, onion/potato spoilage rates, map clock). Added from merged2: the farmer-app microphone (speech recognition) button, its strings (en/te/hi/ta), CSS, README text and jsdom tests, merged by hand into main4's `app.js` next to the Web Push code. Added from v3: `backend/whatsapp_service.py` (Meta Cloud API payload builders, webhook verify + delivery-status events, no WABA ID needed), the `/api/whatsapp/*` and `/webhook/whatsapp` routes (public prefixes in `auth.py`), table `whatsapp_delivery_statuses`, `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_GRAPH_API_VERSION` / `WHATSAPP_WEBHOOK_VERIFY_TOKEN` env names (old `WHATSAPP_PHONE_ID` still works), `tests/test_whatsapp_service.py`, `WHATSAPP_SETUP_GUIDE.md`.  v3's `backend/.env` (live-looking secrets) was NOT carried over.
+
 ## Farmer change requests: chat in the farmer app, approval in the console (Nov 2026)
 A farmer can ask the FPO for a different quantity, ready time or deadline from a round chat button on the card screen. Nothing changes until an operator approves.
 - Farmer app: type a message ("100 kg less, ready 2 hours later") or, when the language model is off or unreachable, fill a small form. The app shows what it understood in plain numbers (built by code, not by the model) and the farmer taps Confirm. "Your requests" shows waiting, approved or rejected (with a reason), and a waiting request can be cancelled. The button is hidden offline. New strings in en, te, hi, ta (machine-written; need a native review).
@@ -9,6 +12,7 @@ A farmer can ask the FPO for a different quantity, ready time or deadline from a
 - A model that returns no text or is cut off by the token limit (a reasoning model, `finish_reason: length`) now gets one retry with a bigger budget and then falls back to the form; it can no longer crash the chat endpoint.
 - Not done: cancelling participation, dates such as "tomorrow", voice input, the optimizer stability term (penalise moving farmers who did not ask). The OpenRouter call has only been run against a mocked client.
 - Tests: `backend/tests/test_change_requests.py` (pure tests need no database; the API tests need `DATABASE_URL`), `frontend/src/lib/changeRequests.test.ts`, `farmer-app/tests/chat.test.mjs` (jsdom; `cd farmer-app/tests && npm i && npm test`).
+- Microphone button in the farmer app's message box (phone's built-in speech recognition, in the app's language; fills the box, never sends by itself; hidden where the browser has none). Tests use a fake recogniser in jsdom.
 
 ## Spoilage rates from the weight-loss review (Nov 2026)
 - `CROPS` in `logistics_lib_v2.py`: `base_spoil_per_hr` is now the COOLED hourly weight loss and each refrigeration-needing crop has its own `unrefrig_mult` (tomato 3.8x, spinach 25x, cauliflower 5x, mango 4.7x) instead of one global 3x. New rates (cooled): tomato 0.013%, spinach 0.03%, cauliflower 0.03%, mango 0.015% per hour; uncooled 0.05%, 0.75%, 0.15%, 0.07%. Old rates were 1.4% to 3.5% per hour. Onion and potato are unchanged (no source) and likely too high.

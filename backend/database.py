@@ -153,6 +153,19 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_farmer ON push_subscriptions (farmer_id);
 
+-- WhatsApp Cloud API webhook status events (sent, delivered, read, failed).
+CREATE TABLE IF NOT EXISTS whatsapp_delivery_statuses (
+    id BIGSERIAL PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    recipient_id TEXT,
+    error_code INTEGER,
+    error_message TEXT,
+    timestamp DOUBLE PRECISION NOT NULL,
+    created_at DOUBLE PRECISION NOT NULL,
+    CONSTRAINT uniq_wa_msg_status UNIQUE (message_id, status)
+);
+
 -- Farmer change requests (see change_requests.py). A farmer's chat message becomes a 'draft'; the farmer's tap on
 -- Confirm makes it 'pending'; the admin then approves or rejects it. Nothing here touches the farmers table until
 -- the admin approves. JSON columns follow the rest of this file (TEXT holding JSON).

@@ -15,6 +15,7 @@ Endpoints:
     POST /sensors/reading
     POST /reset
     /farmer/push[/key|/subscribe|/unsubscribe]  (farmer: phone notifications, see push.py)
+    /api/whatsapp/health | webhook (GET verify, POST delivery events) | statuses | send-otp | notify/*  (Meta WhatsApp Cloud API, see whatsapp_service.py)
     GET  /health             (public, no token: liveness + database check; 503 if the database is down)
     GET/DELETE /farmers/phones   DELETE /farmers/{id}/phone   (admin: phone numbers)
     /farmer/phone[/start|/verify]  (farmer: register a number by code)
@@ -47,6 +48,7 @@ from logistics_lib_v2 import (
 )
 from schemas import (
     LoginIn, PhoneStartIn, PhoneVerifyIn, PushSubscribeIn, PushUnsubscribeIn, QuoteCheckIn,
+    WhatsAppOtpIn, PlanActivationIn, SubscriptionRenewalIn, PaymentConfirmationIn,
     FarmerIn, FarmerOut,
     VehicleIn, VehicleOut,
     MarketIn, MarketOut,
@@ -60,6 +62,7 @@ import farmer_upload
 import notify
 import phones
 import push
+import whatsapp_service
 import roads
 from change_requests import ApproveIn, ChangeError, ChatIn, IdsIn, RejectIn, WindowIn
 from visualization_adapter import ALGO_KEYS, build_plan_visualization
@@ -997,6 +1000,105 @@ def put_change_window(body: WindowIn):
         change_requests.set_window(conn, body.is_open)
         conn.commit()
     return {"is_open": body.is_open}
+
+
+# =========================================================================
+# WhatsApp Cloud API (Without WABA ID)
+# =========================================================================
+
+@app.get("/api/whatsapp/health")
+def whatsapp_health():
+    """Returns safe WhatsApp Cloud API configuration information without exposing secrets."""
+    return whatsapp_service.get_health_status()
+
+
+@app.get("/api/whatsapp/webhook")
+@app.get("/webhook/whatsapp")
+def whatsapp_webhook_verification(request: Request):
+    """Meta webhook verification endpoint. Responds with hub.challenge when token matches."""
+    params = request.query_params
+    mode = params.get("hub.mode")
+    verify_token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+
+    valid, result = whatsapp_service.verify_webhook(mode, verify_token, challenge)
+    if valid:
+        return Response(content=result, media_type="text/plain")
+    raise HTTPException(403, result)
+
+
+@app.post("/api/whatsapp/webhook")
+@app.post("/webhook/whatsapp")
+async def whatsapp_webhook_events(request: Request):
+    """Receives and processes incoming WhatsApp message status updates (sent, delivered, read, failed)."""
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON payload")
+
+    updates = whatsapp_service.process_webhook_event(data)
+    for u in updates:
+        try:
+            with get_conn() as conn:
+                err = u.get("error") or {}
+                conn.execute(
+                    "INSERT INTO whatsapp_delivery_statuses (message_id, status, recipient_id, error_code, error_message, timestamp, created_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (message_id, status) DO NOTHING",
+                    (u["message_id"], u["status"], u.get("recipient_id"), err.get("code"), err.get("details") or err.get("title"), u["timestamp"], u["processed_at"])
+                )
+                conn.commit()
+        except Exception:
+            pass
+
+    return {"status": "ok", "processed": len(updates)}
+
+
+@app.get("/api/whatsapp/statuses")
+def whatsapp_statuses():
+    """Lists recently received WhatsApp message delivery status updates."""
+    return {"statuses": whatsapp_service.get_stored_statuses(50)}
+
+
+@app.post("/api/whatsapp/send-otp")
+def whatsapp_send_otp(body: WhatsAppOtpIn):
+    """Direct WhatsApp OTP sender using the Authentication template (without WABA ID)."""
+    ok, detail, msg_id = whatsapp_service.send_otp(body.to, body.code, body.lang)
+    if not ok:
+        raise HTTPException(502, f"WhatsApp OTP sending failed: {detail}")
+    return {"sent": True, "detail": detail, "message_id": msg_id}
+
+
+@app.post("/api/whatsapp/notify/plan-activation")
+def whatsapp_notify_plan_activation(body: PlanActivationIn):
+    """Sends plan activation utility notification without WABA ID."""
+    ok, detail, msg_id = whatsapp_service.send_plan_activation(
+        body.to, body.customer_name, body.plan_name, body.valid_until, body.lang
+    )
+    if not ok:
+        raise HTTPException(502, f"WhatsApp notification failed: {detail}")
+    return {"sent": True, "detail": detail, "message_id": msg_id}
+
+
+@app.post("/api/whatsapp/notify/subscription-renewal")
+def whatsapp_notify_subscription_renewal(body: SubscriptionRenewalIn):
+    """Sends subscription renewal notification without WABA ID."""
+    ok, detail, msg_id = whatsapp_service.send_subscription_renewal(
+        body.to, body.customer_name, body.plan_name, body.valid_until, body.lang
+    )
+    if not ok:
+        raise HTTPException(502, f"WhatsApp notification failed: {detail}")
+    return {"sent": True, "detail": detail, "message_id": msg_id}
+
+
+@app.post("/api/whatsapp/notify/payment-confirmation")
+def whatsapp_notify_payment_confirmation(body: PaymentConfirmationIn):
+    """Sends payment confirmation notification without WABA ID."""
+    ok, detail, msg_id = whatsapp_service.send_payment_confirmation(
+        body.to, body.customer_name, body.amount, body.plan_name, body.lang
+    )
+    if not ok:
+        raise HTTPException(502, f"WhatsApp notification failed: {detail}")
+    return {"sent": True, "detail": detail, "message_id": msg_id}
 
 
 # =========================================================================

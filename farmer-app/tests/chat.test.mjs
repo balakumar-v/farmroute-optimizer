@@ -17,12 +17,24 @@ const CARD = { farmer_id: 7, status: "farmgate", crop: "tomato", qty_kg: 400, do
 const CHANGES = [{ field: "qty_kg", label: "Quantity", from: "400 kg", to: "300 kg" }, { field: "ready_hr", label: "Ready time", from: "06:00", to: "08:30" }];
 
 /** A phone with the app loaded and a farmer already logged in. `script` answers POST /farmer/chat in order. */
-async function boot({ chat = [], requests = [], confirmStatus = 200 } = {}) {
+/** A stand-in for the browser's speech recogniser: the test plays the part of the phone's microphone. */
+class FakeSR {
+  constructor() { FakeSR.last = this; }
+  start() { this.started = true; }
+  stop() { this.stopped = true; }          // like the real thing: the words are kept, then onend fires (the test calls end())
+  abort() { this.aborted = true; }
+  say(...parts) { this.onresult({ results: parts.map((t) => [{ transcript: t }]) }); }
+  end() { this.onend(); }
+  fail(code) { this.onerror({ error: code }); this.onend(); }
+}
+
+async function boot({ chat = [], requests = [], confirmStatus = 200, speech = false } = {}) {
   const calls = [];
   const dom = new JSDOM(html, { url: "http://localhost/", pretendToBeVisual: true, runScripts: "outside-only" });
   const w = dom.window;
   w.localStorage.token = "tok"; w.localStorage.card = JSON.stringify(CARD); w.localStorage.cardAt = String(Date.now());
   w.matchMedia = () => ({ matches: false });
+  if (speech) w.webkitSpeechRecognition = FakeSR;
   const queue = [...chat], state = { requests: [...requests], offline: false };
   const json = (status, body) => Promise.resolve({ ok: status < 400, status, json: async () => body });
   w.fetch = (url, o = {}) => {
@@ -45,7 +57,7 @@ async function boot({ chat = [], requests = [], confirmStatus = 200 } = {}) {
   const pick = async (sel, v) => { const el = $(sel); el.value = v; el.dispatchEvent(new w.Event("change", { bubbles: true })); await settle(); };
   const text = () => w.document.body.textContent.replace(/\s+/g, " ");
   await settle();
-  return { w, calls, state, $, $$, settle, click, type, pick, text };
+  return { w, calls, state, $, $$, settle, click, type, pick, text, rec: () => FakeSR.last };
 }
 const posts = (a, path) => a.calls.filter((c) => c.method === "POST" && c.path.includes(path));
 
@@ -166,4 +178,102 @@ test("every language has every chat string, and the app source has no stray quot
     const chatKeys = missing.filter((k) => /^(chat|c[A-Z]\w*|f(Qty|Ready|Dead)|h[QT][sml]|s[PARWE]|r[1-4]|e[0-6])$/.test(k));
     assert.deepEqual(chatKeys, [], `${lang} is missing ${chatKeys.join(", ")}`);
   }
+});
+
+// ---------------------------------------------------------------- speaking instead of typing
+test("no microphone button where the browser has no speech recognition", async () => {
+  const a = await boot();
+  await a.click("#fab");
+  assert.ok(a.$("#cq"));
+  assert.equal(a.$(".mic"), null);
+});
+
+test("the microphone fills the message box, shows that it is listening, and sends nothing by itself", async () => {
+  const a = await boot({ speech: true, chat: [{ status: "confirm", request_id: 2, changes: CHANGES }] });
+  await a.click("#fab");
+  assert.match(a.$(".mic").getAttribute("aria-label"), /Speak instead of typing/);
+  assert.equal(a.$(".mic svg") !== null, true);
+  await a.click(".mic");
+  assert.equal(a.rec().started, true);
+  assert.equal(a.rec().lang, "en-IN");
+  assert.match(a.text(), /Listening\.\.\. speak now/);
+  assert.equal(a.$(".mic").getAttribute("aria-pressed"), "true");
+  a.rec().say("hundred kg");                                      // words appear while the farmer is still talking
+  assert.equal(a.$("#cq").value, "hundred kg");
+  a.rec().say("hundred kg less");
+  a.rec().end(); await a.settle();
+  assert.equal(a.$("#cq").value, "hundred kg less");
+  assert.doesNotMatch(a.text(), /Listening/);
+  assert.equal(posts(a, "/farmer/chat").length, 0, "nothing was sent; the farmer checks the words and taps Send");
+  await a.click("[data-act=cSend]");
+  assert.deepEqual(posts(a, "/farmer/chat")[0].body, { message: "hundred kg less" });
+});
+
+test("speech is added after what the farmer already typed", async () => {
+  const a = await boot({ speech: true });
+  await a.click("#fab"); a.type("#cq", "ready"); await a.click(".mic");
+  a.rec().say("2 hours later"); a.rec().end(); await a.settle();
+  assert.equal(a.$("#cq").value, "ready 2 hours later");
+});
+
+test("tapping the microphone again stops listening and keeps the words", async () => {
+  const a = await boot({ speech: true });
+  await a.click("#fab"); await a.click(".mic");
+  a.rec().say("less produce");
+  await a.click(".mic");
+  assert.equal(a.rec().stopped, true);
+  a.rec().end(); await a.settle();
+  assert.equal(a.$("#cq").value, "less produce");
+});
+
+test("it listens in the language the app is showing", async () => {
+  const a = await boot({ speech: true });
+  await a.click("#fab");
+  for (const [lang, code] of [["te", "te-IN"], ["hi", "hi-IN"], ["ta", "ta-IN"], ["en", "en-IN"]]) {
+    await a.click(`[data-lang=${lang}]`); await a.click(".mic");
+    assert.equal(a.rec().lang, code);
+    a.rec().end(); await a.settle();
+  }
+});
+
+test("changing the language, leaving the chat, or switching to the form drops the listening", async () => {
+  const a = await boot({ speech: true });
+  await a.click("#fab"); await a.click(".mic");
+  const first = a.rec();
+  await a.click("[data-lang=hi]");
+  assert.equal(first.aborted, true);
+  assert.doesNotMatch(a.text(), /Listening|सुन रहा/);
+  await a.click(".mic"); const second = a.rec();
+  await a.click("[data-act=home]");
+  assert.equal(second.aborted, true);
+  assert.equal(a.$("#fab").hidden, false, "back on the card");
+});
+
+test("sending while listening stops the microphone first", async () => {
+  const a = await boot({ speech: true, chat: [{ status: "confirm", request_id: 2, changes: CHANGES }] });
+  await a.click("#fab"); await a.click(".mic");
+  a.type("#cq", "100 kg less");
+  await a.click("[data-act=cSend]");
+  assert.equal(a.rec().aborted, true);
+  assert.deepEqual(posts(a, "/farmer/chat")[0].body, { message: "100 kg less" });
+});
+
+test("a blocked or unavailable microphone says what to do, in words", async () => {
+  const a = await boot({ speech: true });
+  await a.click("#fab");
+  for (const [code, re] of [["not-allowed", /microphone is blocked/i], ["service-not-allowed", /microphone is blocked/i],
+                            ["no-speech", /did not hear anything/i], ["network", /needs internet/i], ["audio-capture", /did not work/i]]) {
+    await a.click(".mic"); a.rec().fail(code); await a.settle();
+    assert.match(a.text(), re, code);
+    assert.ok(a.$("#cq"), "typing still works");
+  }
+  await a.click(".mic"); a.rec().end(); await a.settle();                   // listened, heard nothing
+  assert.match(a.text(), /did not hear anything/i);
+});
+
+test("every language has the microphone strings", () => {
+  const src = appJs.slice(appJs.indexOf("const L = {"), appJs.indexOf("const CROP"));
+  const L = new Function(src + "; return L;")();
+  for (const lang of ["en", "te", "hi", "ta"])
+    for (const k of ["cMic", "cMicOn", "cMicDenied", "cMicNone", "cMicNet", "cMicFail"]) assert.ok(L[lang][k], `${lang}.${k}`);
 });
