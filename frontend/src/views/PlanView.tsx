@@ -1,8 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { FairnessPanel } from "../components/FairnessPanel";
 import { Icon } from "../components/Icon";
 import { BusyButton, PageHead, StaleBanner } from "../components/Shell";
 import { fmt, inr } from "../lib/format";
-import type { PlanMode, Pool, ViewName } from "../lib/types";
+import type { PlanMode, Pool, SplitRule, ViewName } from "../lib/types";
 import { useApp } from "../state/store";
 
 export function Line({ label, value, cls }: { label: ReactNode; value: ReactNode; cls?: string }) {
@@ -89,6 +90,12 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
               <option value="spoilage">Least spoilage</option>
             </select>
           </label>
+          <label className="mode-pick"><span>Share gains</span>
+            <select value={state.splitRule} disabled={computing} onChange={(e) => actions.setSplitRule(e.target.value as SplitRule)}>
+              <option value="kg">By kg</option>
+              <option value="cost_aware">By crop value and route cost</option>
+            </select>
+          </label>
           <BusyButton busy={computing} busyLabel={"Computing…"} label="Compute plan" onClick={() => void actions.computePlan()} />
         </div>} />
   );
@@ -162,6 +169,8 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
             </dl>
           </div>
         </div>
+
+        <FairnessPanel planId={plan.id} />
 
         {spoilText && (
           <div id="dashSpoilNote" className="note" role="note"><Icon name="check" small={false} /><span>{spoilText}</span></div>

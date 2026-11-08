@@ -1,6 +1,6 @@
 import type { PublishedCards } from "./printCards";
 import type {
-  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, Vehicle, VehicleIn,
+  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, SplitRule, Vehicle, VehicleIn,
 } from "./types";
 
 export class ApiError extends Error {
@@ -18,7 +18,8 @@ export interface ApiClient {
   addFarmer(f: FarmerIn): Promise<Farmer>;
   addVehicles(v: VehicleIn): Promise<Vehicle[]>;
   addMarket(m: MarketIn): Promise<Market>;
-  computePlan(mode?: PlanMode): Promise<PlanResponse>;
+  computePlan(mode?: PlanMode, splitRule?: SplitRule): Promise<PlanResponse>;
+  fairness(planId: number): Promise<Fairness>;
   reset(): Promise<unknown>;
   issuePins(onlyMissing: boolean): Promise<{ issued: number; pins: { farmer_id: number; pin: string }[] }>;
   pinStatus(): Promise<PinStatus>;
@@ -58,6 +59,13 @@ export interface ChangePreview {
 export interface ChangeApproval { approved: number[]; plan_id: number; published: PublishResult; farmers_changed: number }
 
 /** Farmer phone numbers for SMS / WhatsApp updates. Numbers arrive masked; full numbers never reach the console. */
+export interface Fairness {
+  farmers: number; by_status: { hauled: number; farmgate: number; unserved: number };
+  gaining: number; share_gaining: number; total_gain_inr: number; gain_per_hauled_farmer_inr: number;
+  gain_per_kg_p10_median_p90: (number | null)[]; min_hauled_gain_inr: number; max_hauled_gain_inr: number;
+  gini_of_gains: number; bottom_fifth_share_of_gain: number; split_rules: string[]; notes: string[];
+}
+
 export interface PinStatus {
   farmers: number; with_pin: number;
   rows: { farmer_id: number; has_pin: boolean; issued_at: number | null; locked: boolean; failed_attempts: number }[];
@@ -123,7 +131,13 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     addFarmer: (f) => post<Farmer>("/farmers", f),
     addVehicles: (v) => post<Vehicle[]>("/vehicles", v),
     addMarket: (m) => post<Market>("/markets", m),
-    computePlan: (mode = "returns") => post<PlanResponse>(mode === "returns" ? "/plan/compute" : "/plan/compute?mode=spoilage"),
+    computePlan: (mode = "returns", splitRule = "kg") => {
+      const q = new URLSearchParams();
+      if (mode !== "returns") q.set("mode", mode);
+      if (splitRule !== "kg") q.set("split_rule", splitRule);
+      return post<PlanResponse>("/plan/compute" + (q.toString() ? `?${q}` : ""));
+    },
+    fairness: (planId) => req<Fairness>(`/plan/${planId}/fairness`),
     reset: () => post("/reset"),
     issuePins: (onlyMissing) => post(`/farmers/pins?only_missing=${onlyMissing}`),
     pinStatus: () => req<PinStatus>("/farmers/pins"),

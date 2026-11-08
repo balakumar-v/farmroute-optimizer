@@ -12,6 +12,7 @@ advisor.py -- read-only views over a stored ILO plan. Nothing here changes what 
 
 All inputs are the JSON shapes /plan/{id} already returns, so a plan read back from Postgres works unchanged.
 """
+import os
 from logistics_lib_v2 import Market, haversine
 from baselines_v3 import FarmgatePrices
 
@@ -245,13 +246,46 @@ def impact(plan, routes):
 # ----------------------------------------------------------------------
 # Tags say how much to trust a line: "exact" = a number the farmer/operator entered, "derived" = computed by the
 # planner from those inputs, "assumed" = rests on the doorstep-price assumption.
-def payout_statements(plan):
-    """One statement per farmer. A hauled farmer gets their own farm-gate value plus a quantity share of the
-    trip's surplus (ILO v3's value-gain split); anyone not hauled is valued at the assumed doorstep price.
-    The totals add up to the plan's net_return_incl_farmgate (checked in the tests)."""
+# Operator fee: a share of each hauled farmer's GAIN over their doorstep value (never of the doorstep value itself,
+# so a farmer is never charged into a loss). 0 until the FPO / operator sets OPERATOR_FEE_PCT (e.g. 5 for 5%).
+# The downside range re-prices the trip with a lower mandi price and a higher running cost.
+RISK_PRICE_DROP = 0.10      # mandi prices come in 10% lower than planned
+RISK_COST_RISE = 0.10       # transport cost comes in 10% higher than planned
+
+
+def operator_fee_pct():
+    try:
+        v = float(os.environ.get("OPERATOR_FEE_PCT", "0") or 0)
+    except ValueError:
+        v = 0.0
+    return min(max(v, 0.0), 50.0)
+
+
+def _farmer_money(pool, fid, qty, pool_qty, fg_value, pool_fg, fee_pct):
+    """(gross, fee, take_home, conservative_take_home) for one hauled farmer."""
+    gross = float(pool["per_farmer_net"].get(str(fid), pool["per_farmer_net"].get(fid)))
+    gain = gross - fg_value
+    fee = max(gain, 0.0) * fee_pct / 100.0
+    # same share of the surplus this farmer gets in the plan, applied to the downside trip result
+    surplus = pool["net_return"] - pool_fg
+    frac = gain / surplus if abs(surplus) > _EPS else qty / pool_qty
+    cons_net = pool["revenue"] * (1 - RISK_PRICE_DROP) - pool["transport_cost"] * (1 + RISK_COST_RISE)
+    cons_gain = (cons_net - pool_fg) * frac
+    cons = fg_value + cons_gain - max(cons_gain, 0.0) * fee_pct / 100.0
+    return gross, fee, gross - fee, cons
+
+
+def payout_statements(plan, fee_pct=None):
+    """One statement per farmer. A hauled farmer gets their own farm-gate value plus their share of the trip's
+    surplus (the split rule the plan was made with), minus the operator fee on that gain if one is set; anyone not
+    hauled is valued at the assumed doorstep price. Each statement also has `range_inr` (a downside case with
+    mandi prices 10% lower and running cost 10% higher, and the planned case). Totals plus the operator fee add
+    up to the plan's net_return_incl_farmgate (checked in the tests)."""
     snap, ilo = plan["input_snapshot"], plan["integrated_logistics_optimization"]
     prices = _prices(snap, _discount(plan))
-    out = []
+    fee_pct = operator_fee_pct() if fee_pct is None else fee_pct
+    qty_of = {f["id"]: f["qty_kg"] for f in snap["farmers"]}
+    out, fee_total = [], 0.0
     for f in snap["farmers"]:
         fid, status = f["id"], farmer_status(ilo["pools"], f["id"])
         fg_value = prices.value(_as_obj(f))
@@ -263,22 +297,85 @@ def payout_statements(plan):
             {"key": "doorstep_value", "label": "Value if sold at the doorstep (Rs)", "value": fg_value,
              "tag": "assumed"},
         ]
-        trip = None
+        trip, fee, rng = None, 0.0, {"low": fg_value, "planned": fg_value}
         if status == "hauled":
             pool = _pool_for(ilo["pools"], fid)
-            total = float(pool["per_farmer_net"].get(str(fid), pool["per_farmer_net"].get(fid)))
+            pool_qty = sum(qty_of[i] for i in pool["farmer_ids"])
+            pool_fg = sum(prices.value(_as_obj(next(x for x in snap["farmers"] if x["id"] == i)))
+                          for i in pool["farmer_ids"])
+            gross, fee, total, cons = _farmer_money(pool, fid, f["qty_kg"], pool_qty, fg_value, pool_fg, fee_pct)
             lines.append({"key": "trip_share", "label": "Your share of the trip's extra earnings (Rs)",
-                          "value": total - fg_value, "tag": "derived"})
+                          "value": gross - fg_value, "tag": "derived"})
+            lines.append({"key": "operator_fee", "label": f"Operator fee ({fee_pct:g}% of your extra earnings) (Rs)",
+                          "value": -fee, "tag": "exact" if fee_pct else "derived"})
+            rng = {"low": cons, "planned": total}
             trip = {"vehicle_id": pool["vehicle_id"], "markets_used": pool["markets_used"],
                     "dispatch_hr": pool.get("dispatch_hr"), "farmers_on_trip": len(pool["farmer_ids"]),
                     "trip_revenue_inr": pool["revenue"], "trip_transport_cost_inr": pool["transport_cost"],
-                    "trip_spoilage_kg": pool["spoilage_loss_kg"]}
+                    "trip_spoilage_kg": pool["spoilage_loss_kg"], "split_rule": pool.get("split_rule", "kg")}
         else:
             total = fg_value
-        out.append({"farmer_id": fid, "status": status, "lines": lines, "total_inr": total, "trip": trip})
+        fee_total += fee
+        out.append({"farmer_id": fid, "status": status, "lines": lines, "total_inr": total, "trip": trip,
+                    "operator_fee_inr": fee, "range_inr": rng})
     return {"total_inr": sum(s["total_inr"] for s in out),
+            "operator_fee_total_inr": fee_total, "operator_fee_pct": fee_pct,
             "plan_value_inr": ilo["summary"]["net_return_incl_farmgate"],
+            "risk_case": {"mandi_price_drop": RISK_PRICE_DROP, "transport_cost_rise": RISK_COST_RISE},
             "statements": out}
+
+
+def _gini(xs):
+    xs = sorted(x for x in xs if x >= 0)
+    n, tot = len(xs), sum(xs)
+    if n == 0 or tot <= _EPS:
+        return 0.0
+    return sum((2 * (i + 1) - n - 1) * x for i, x in enumerate(xs)) / (n * tot)
+
+
+def _pct(xs, q):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    k = (len(xs) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(xs) - 1)
+    return xs[lo] + (xs[hi] - xs[lo]) * (k - lo)
+
+
+def fairness_metrics(plan):
+    """How the plan's gain is spread over farmers. Gain = take-home minus assumed doorstep value, so 0 for anyone
+    not hauled. A planner that only maximises the total can leave some farmers with nothing; this shows it."""
+    stm = payout_statements(plan)["statements"]
+    snap = plan["input_snapshot"]
+    qty = {f["id"]: f["qty_kg"] for f in snap["farmers"]}
+    rows = []
+    for s in stm:
+        fg = next(l["value"] for l in s["lines"] if l["key"] == "doorstep_value")
+        rows.append({"id": s["farmer_id"], "status": s["status"], "gain": s["total_inr"] - fg,
+                     "per_kg": (s["total_inr"] - fg) / qty[s["farmer_id"]] if qty[s["farmer_id"]] else 0.0})
+    n = len(rows)
+    hauled = [r for r in rows if r["status"] == "hauled"]
+    gains = [r["gain"] for r in rows]
+    total_gain = sum(gains)
+    by_status = {k: sum(1 for r in rows if r["status"] == k) for k in ("hauled", "farmgate", "unserved")}
+    srt = sorted(gains)
+    bottom = srt[: max(1, n // 5)] if n else []
+    return {
+        "farmers": n, "by_status": by_status,
+        "gaining": sum(1 for g in gains if g > _EPS),
+        "share_gaining": (sum(1 for g in gains if g > _EPS) / n) if n else 0.0,
+        "total_gain_inr": total_gain,
+        "gain_per_hauled_farmer_inr": (sum(r["gain"] for r in hauled) / len(hauled)) if hauled else 0.0,
+        "gain_per_kg_p10_median_p90": [_pct([r["per_kg"] for r in hauled], q) for q in (0.1, 0.5, 0.9)],
+        "min_hauled_gain_inr": min((r["gain"] for r in hauled), default=0.0),
+        "max_hauled_gain_inr": max((r["gain"] for r in hauled), default=0.0),
+        "gini_of_gains": _gini(gains),
+        "bottom_fifth_share_of_gain": (sum(bottom) / total_gain) if total_gain > _EPS else 0.0,
+        "split_rules": sorted({(s["trip"] or {}).get("split_rule", "kg") for s in stm if s["trip"]}),
+        "notes": ["Gain = payout - assumed doorstep value; farmers who are not hauled gain nothing by construction.",
+                  "Gini 0 = everyone gains the same, 1 = one farmer gets everything (computed over all farmers).",
+                  "Gains rest on the assumed doorstep price; with real farm-gate prices they change."],
+    }
 
 
 # ----------------------------------------------------------------------
@@ -426,7 +523,8 @@ def farmer_cards(plan, solution, published_at, previous_plan=None, fpo_phone=Non
         cards[fid] = {
             "farmer_id": fid, "crop": f["crop"], "qty_kg": f["qty_kg"], "status": st["status"],
             "ready_hr": f["ready_hr"], "deadline_hr": f["deadline_hr"],
-            "payout": {"total_inr": st["total_inr"], "lines": st["lines"]},
+            "payout": {"total_inr": st["total_inr"], "lines": st["lines"], "range_inr": st["range_inr"],
+                       "operator_fee_inr": st["operator_fee_inr"]},
             "trip": trip, "changed": changes.get(fid) if previous_plan is not None else None,
             "published_at": published_at,
             # lets the app answer "haul or sell?" on the phone, offline: haul if the trader's quote is BELOW this

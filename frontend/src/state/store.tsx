@@ -3,7 +3,7 @@ import { ApiError, createApi, type ApiClient } from "../lib/api";
 import { DEFAULT_API_BASE } from "../lib/constants";
 import { SCENARIOS } from "../lib/scenarios";
 import type {
-  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, Vehicle, VehicleIn,
+  ConnState, Farmer, FarmerIn, Market, MarketIn, PlanMode, PlanResponse, SplitRule, Vehicle, VehicleIn,
 } from "../lib/types";
 
 export interface Toast { id: number; kind: "ok" | "err" | "info"; text: string }
@@ -24,6 +24,8 @@ export interface AppState {
   planError: string;
   /** what the next computed plan optimises for (the plan on screen reports its own mode in ilo_meta) */
   planMode: PlanMode;
+  /** how the next computed plan shares each trip's surplus among its farmers */
+  splitRule: SplitRule;
   run: RunProgress | null;
   runError: string;
   runNote: string;
@@ -45,7 +47,7 @@ const initial: AppState = {
   conn: "unknown",
   farmers: [], vehicles: [], markets: [],
   tables: "idle", tablesError: "",
-  plan: null, planStale: false, planStatus: "idle", planError: "", planMode: "returns",
+  plan: null, planStale: false, planStatus: "idle", planError: "", planMode: "returns", splitRule: "kg",
   run: null, runError: "", runNote: "",
   toasts: [],
 };
@@ -69,6 +71,7 @@ export interface Actions {
   addMarket(m: MarketIn): Promise<void>;
   computePlan(): Promise<PlanResponse | null>;
   setPlanMode(mode: PlanMode): void;
+  setSplitRule(rule: SplitRule): void;
   runScenario(key: string): Promise<boolean>;
   resetAll(): Promise<void>;
   /** The backend's farmers changed behind our back (e.g. an approved change request): reload them and mark the plan on screen out of date. */
@@ -140,11 +143,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async addMarket(m) { await apiRef.current.addMarket(m); await loadTables(); markStale(); },
 
     setPlanMode(mode) { patch({ planMode: mode }); },
+    setSplitRule(rule) { patch({ splitRule: rule }); },
 
     async computePlan() {
       patch({ planStatus: "computing", planError: "" });
       try {
-        const plan = await apiRef.current.computePlan(stateRef.current.planMode);
+        const plan = await apiRef.current.computePlan(stateRef.current.planMode, stateRef.current.splitRule);
         patch({ plan, planStale: false, planStatus: "idle" });
         return plan;
       } catch (e) {
@@ -174,7 +178,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         for (const m of sc.markets) { step("Loading markets"); await a.addMarket(m); done++; }
         step("Computing the plan (large scenarios take a few seconds)");
         await loadTables();
-        const plan = await a.computePlan(stateRef.current.planMode);
+        const plan = await a.computePlan(stateRef.current.planMode, stateRef.current.splitRule);
         patch({ plan, planStale: false, planStatus: "idle", run: null, runNote: "" });
         return true;
       } catch (e) {

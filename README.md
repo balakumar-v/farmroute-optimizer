@@ -266,7 +266,8 @@ Full request and response shapes are in `backend/README.md`.
 | `GET /plan/{id}/fleet-advice` | What one extra vehicle of each class is worth (LP shadow value) |
 | `POST /plan/{id}/quote-check` | A trader's doorstep offer for one farmer vs their planned take-home: haul or sell |
 | `GET /plan/{id}/impact` | kg reaching buyers, rupees gained vs doing nothing, km and CO2 saved by pooling |
-| `GET /plan/{id}/payout`, `/payout/{farmer_id}` | Per-farmer payout statements (totals reconcile to the plan value) |
+| `GET /plan/{id}/payout`, `/payout/{farmer_id}` | Per-farmer payout statements: planned take-home, downside range, operator fee line (totals plus fee reconcile to the plan value) |
+| `GET /plan/{id}/fairness` | Who gains and how evenly: share gaining, gain spread, Gini, bottom-fifth share |
 | `GET /plan/{id}/diff/{old_plan_id}` | Which farmers a re-plan changed, and why |
 | `GET /plan/{id}/driver-sheet/{vehicle_id}` | One vehicle's trips in order, with planned times, kg and map links |
 | `POST /sensors/reading`, `GET /sensors/readings` | Store ESP32 temperature and humidity readings |

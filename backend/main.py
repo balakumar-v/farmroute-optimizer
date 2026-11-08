@@ -9,7 +9,7 @@ Endpoints:
     POST /markets             GET /markets
     POST /plan/compute
     GET  /plan/{plan_id}
-    GET  /plan/{plan_id}/fleet-advice | impact | payout | payout/{farmer_id}
+    GET  /plan/{plan_id}/fleet-advice | impact | payout | fairness | payout/{farmer_id}
          | driver-sheet/{vehicle_id} | diff/{old_plan_id}        POST /plan/{plan_id}/quote-check
     POST /farmers/upload     (csv/xlsx bulk add)
     POST /sensors/reading
@@ -252,7 +252,7 @@ def list_markets():
 
 @app.post("/plan/compute")
 def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
-                 max_value_sacrifice: float = 0.10):
+                 max_value_sacrifice: float = 0.10, split_rule: str = "kg"):
     """Computes and stores a plan. How distance is measured (stored with the plan as `distance_model`):
 
     - default: measured ROAD distances between every farmer/market pair (OpenStreetMap via OSRM, cached) so the
@@ -269,17 +269,21 @@ def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = T
         raise HTTPException(400, "mode must be 'returns' or 'spoilage'.")
     if not 0 <= max_value_sacrifice < 1:
         raise HTTPException(400, "max_value_sacrifice must be between 0 and 1 (e.g. 0.10 for 10%).")
+    from payout_rules import SPLIT_RULES
+    if split_rule not in SPLIT_RULES:
+        raise HTTPException(400, f"split_rule must be one of {', '.join(SPLIT_RULES)}.")
     from logistics_lib_v2 import _check_circuity
     if road_circuity is not None:
         try:
             road_circuity = _check_circuity(road_circuity)
         except ValueError as exc:
             raise HTTPException(400, str(exc))
-    return _compute_plan_impl(road_circuity, road_distances, mode, max_value_sacrifice)
+    return _compute_plan_impl(road_circuity, road_distances, mode, max_value_sacrifice, split_rule=split_rule)
 
 
 def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
-                       max_value_sacrifice: float = 0.10, farmer_overrides: Optional[dict] = None):
+                       max_value_sacrifice: float = 0.10, farmer_overrides: Optional[dict] = None,
+                       split_rule: str = "kg"):
     """`farmer_overrides` ({farmer_id: {column: value}}) plans as if those farmer values were already saved, without
     writing them: used to preview and apply farmer change requests. The farmers table is not touched here."""
     with get_conn() as conn:
@@ -331,10 +335,10 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
             model, matrix = roads.plan_distance_model(conn, farmers, markets, enabled=road_distances)
     from logistics_lib_v2 import road_circuity as _rc, use_road_matrix
     with (use_road_matrix(matrix) if matrix is not None else _rc(model["k"])):
-        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice)
+        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule)
 
 
-def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10):
+def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10, split_rule="kg"):
     # Imported lazily here (not at module load) so a problem with
     # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
     # requirements.txt) only breaks this one endpoint, not the whole API.
@@ -381,11 +385,12 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
     if mode == "spoilage":
         res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3_spoilage_first(
             farmers, fleet_template, markets, max_value_sacrifice=max_value_sacrifice, return_meta=True,
-            return_trace=True)
+            return_trace=True, split_rule=split_rule)
     else:
         res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3(farmers, fleet_template, markets, return_meta=True,
-                                                       return_trace=True)
+                                                       return_trace=True, split_rule=split_rule)
         ilo_meta["mode"] = "returns"
+    ilo_meta["split_rule"] = split_rule
     res_ilo_v2 = run_ilo_v2(farmers, copy.deepcopy(fleet_template), markets)
     # The two comparison baselines are the BEHAVIOURAL farmer baselines from baselines_v3.py, not the old
     # strawmen: "individual_transport" = each farmer hires a spot truck to the nearest mandi if it is within
@@ -583,6 +588,12 @@ def plan_quote_check(plan_id: int, body: QuoteCheckIn):
 def plan_payout(plan_id: int):
     """Every farmer's payout statement; the totals add up to the plan's farmer value."""
     return advisor.payout_statements(get_plan(plan_id))
+
+
+@app.get("/plan/{plan_id}/fairness")
+def plan_fairness(plan_id: int):
+    """Who gains from this plan and by how much: share of farmers gaining, spread of gains, who gets nothing."""
+    return advisor.fairness_metrics(get_plan(plan_id))
 
 
 @app.get("/plan/{plan_id}/payout/{farmer_id}")
@@ -935,6 +946,8 @@ def _replan_options(plan: dict) -> dict:
     opts = {"mode": meta["mode"] if meta.get("mode") in ("returns", "spoilage") else "returns"}
     if isinstance(meta.get("max_value_sacrifice"), (int, float)):
         opts["max_value_sacrifice"] = meta["max_value_sacrifice"]
+    if meta.get("split_rule") in ("kg", "cost_aware"):
+        opts["split_rule"] = meta["split_rule"]
     if model.get("type") == "circuity" and model.get("source") == "manual":
         opts["road_circuity"] = model["k"]
     elif "switched off" in (model.get("note") or ""):

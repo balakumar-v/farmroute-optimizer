@@ -105,6 +105,8 @@ export interface AlgoResult {
 
 /** What the optimizer aims for: farmer value (net return) or the least produce spoiled in transit. */
 export type PlanMode = "returns" | "spoilage";
+/** How a trip's surplus is shared: by kg only, or by what each farmer's lot is worth minus the cost they add. */
+export type SplitRule = "kg" | "cost_aware";
 
 export interface SpoilageFirstMeta {
   max_value_sacrifice: number;

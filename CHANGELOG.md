@@ -1,5 +1,12 @@
 # Changelog
 
+## Fairer payouts: range, operator fee, split rule, fairness report (Nov 2026)
+- Payout statements and farmer cards show a downside range (`range_inr`: mandi prices -10%, running cost +10%); the farmer app slip shows "as little as Rs X" when it is meaningfully lower (en/te/hi/ta). Service worker cache v11.
+- `OPERATOR_FEE_PCT` (default 0): an explicit fee line taken only from a farmer's gain over their doorstep value; totals plus fee reconcile to the plan value.
+- `split_rule=kg|cost_aware` on `POST /plan/compute` and a "Share gains" selector on the Plan tab. `kg` stays the default; `cost_aware` (new `backend/payout_rules.py`) splits by crop value and pickup detour. `tools/compare_split_rules.py` shows it tracks detour cost but widens inequality (docs section 26).
+- `GET /plan/{id}/fairness` and a Fairness panel on the Plan tab (share gaining, gain spread, Gini, bottom fifth, who gets nothing).
+- Tests: `backend/tests/test_payout_rules.py` (15).
+
 ## Repo restructure (Nov 2026)
 No code behaviour changed; top-level deploy folders (`backend/`, `frontend/`, `farmer-app/`) and every backend module the API imports stay where they were.
 - Root: the long docs moved to `docs/` (with an index); the two WhatsApp guides to `docs/whatsapp/`. Root keeps README, CHANGELOG, `.github`.

@@ -267,7 +267,7 @@ a column means altering the table yourself (or resetting a throwaway database).
 
 The sections above cover farmers, vehicles, markets, plans and sensors. Also available (see `/docs` for shapes):
 `POST /farmers/upload`, `POST /plan/{id}/roads`, `GET /plan/{id}/fleet-advice`, `POST /plan/{id}/quote-check`,
-`GET /plan/{id}/impact`, `GET /plan/{id}/payout[/{farmer_id}]`, `GET /plan/{id}/diff/{old_plan_id}`,
+`GET /plan/{id}/impact`, `GET /plan/{id}/payout[/{farmer_id}]`, `GET /plan/{id}/fairness`, `GET /plan/{id}/diff/{old_plan_id}`,
 `GET /plan/{id}/driver-sheet/{vehicle_id}`. `POST /plan/compute` also takes `road_distances`, `road_circuity`,
 `mode` and `max_value_sacrifice`.
 

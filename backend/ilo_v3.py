@@ -618,7 +618,7 @@ def discount_stress(results, farmers, prices, discounts=DEFAULT_STRESS_DISCOUNTS
     return out
 
 
-def _repair_and_share(results, farmers, prices):
+def _repair_and_share(results, farmers, prices, split_rule="kg", fleet=None):
     """Drop any dispatched trip that earns less than its members' farm-gate value; then split each remaining
     trip's surplus so every farmer gets at least their own farm-gate value."""
     by_id = {f.id: f for f in farmers}
@@ -640,7 +640,13 @@ def _repair_and_share(results, farmers, prices):
         # value-gain sharing is the ONLY split ILO v3 reports: each farmer gets their own farm-gate value plus a
         # qty-share of the trip's surplus (sums to net_return; never below the doorstep price). The legacy
         # pro-rata-by-kg split can leave low-price-crop farmers worse off, so it is not exposed here.
-        r["per_farmer_net"] = {f.id: prices.value(f) + surplus * f.qty_kg / qty for f in members}
+        if split_rule == "kg":
+            r["per_farmer_net"] = {f.id: prices.value(f) + surplus * f.qty_kg / qty for f in members}
+        else:                                           # "cost_aware": see payout_rules.py
+            from payout_rules import split_trip
+            veh = next((v for v in (fleet or []) if v.id == r["vehicle_id"]), None)
+            r["per_farmer_net"] = split_trip(split_rule, members, r, prices, veh.per_km_cost if veh else None)
+        r["split_rule"] = split_rule
         out.append(r)
     return out, {"trips_dropped_below_farmgate": dropped}
 
@@ -690,7 +696,7 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                safeguard=True, repair=True, return_meta=False, return_trace=False,
                fleet_aware=True, keep_blind_plan=True, price_impact=None, true_price_impact=None,
                stress_discounts=DEFAULT_STRESS_DISCOUNTS, mc_draws=0, mc_min_prob=None, mc_kwargs=None,
-               markets_per_trip=None, spoil_weight=0.0):
+               markets_per_trip=None, spoil_weight=0.0, split_rule="kg"):
     """See module docstring. `fleet` is not mutated. Returns the pool-result list (same shape as ILO v2); with
     return_meta=True, (results, meta); with return_trace=True as well, (results, meta, trace_json) where
     trace_json is what the visualization adapter needs for exact per-market receipts ({} when the returned plan
@@ -790,7 +796,7 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
     meta["ilo_own_best"] = max((k for k in values if not k.startswith("fallback:")), key=lambda k: values[k])
     meta["safeguard_used"] = chosen_name.startswith("fallback:")
     if repair:
-        results, rstats = _repair_and_share(results, farmers, prices)
+        results, rstats = _repair_and_share(results, farmers, prices, split_rule, fleet)
         meta.update(rstats)
         meta["final_value"] = S(results)
     else:
