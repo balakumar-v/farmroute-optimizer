@@ -11,11 +11,15 @@ Environment:
   OPENROUTER_MODEL     required, no default: pick a small model that follows JSON instructions, and test it on the
                        languages your farmers write in (small models are weaker on Indian languages)
   OPENROUTER_TIMEOUT_S optional, default 10
+  OPENROUTER_MAX_TOKENS optional, default 1000. Reasoning models spend tokens thinking before they answer, and a
+                       cap that is too low ends the reply early (finish_reason "length") with no usable text. If
+                       OpenRouter's log shows "length", raise this or pick a non-reasoning model.
 
 Anything that stops a parse (no key, timeout, HTTP error, output that is not a valid ChangeParse after one retry)
 raises LLMUnavailable, and the app falls back to the plain form.
 """
 import json
+import logging
 import os
 import re
 
@@ -25,6 +29,7 @@ from pydantic import ValidationError
 from change_requests import ChangeParse
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
+log = logging.getLogger("farmroute.chat")     # reasons only; a farmer's message is never logged
 
 SYSTEM = """You turn a farmer's short message into a JSON change request for a produce-pooling app.
 
@@ -71,25 +76,51 @@ def _json_text(text: str) -> str:
     return (m.group(1) if m else text).strip()
 
 
+def _max_tokens() -> int:
+    return int(os.environ.get("OPENROUTER_MAX_TOKENS", "1000"))
+
+
 def parse_message(message: str, current: dict) -> ChangeParse:
+    """Whatever the provider does (timeouts, empty text, cut-off replies, odd shapes), this either returns a valid
+    ChangeParse or raises LLMUnavailable. It never lets another exception escape: an unhandled one would be a 500,
+    which the browser reports as 'could not reach the server' because error pages carry no CORS headers."""
     if not is_configured():
         raise LLMUnavailable("OPENROUTER_API_KEY / OPENROUTER_MODEL are not set")
+    try:
+        return _parse(message, current)
+    except LLMUnavailable as e:
+        log.warning("chat LLM unavailable: %s", e)
+        raise
+    except Exception as e:      # noqa: BLE001 -- see the docstring
+        log.warning("chat LLM failed unexpectedly: %s", type(e).__name__)
+        raise LLMUnavailable(f"unexpected {type(e).__name__}") from e
+
+
+def _parse(message: str, current: dict) -> ChangeParse:
     messages = build_messages(message, current)
-    problem = None
+    problem, budget = None, _max_tokens()
     for attempt in range(2):
         payload = {"model": os.environ["OPENROUTER_MODEL"], "messages": messages, "temperature": 0,
-                   "max_tokens": 300, "response_format": {"type": "json_object"}}
+                   "max_tokens": budget, "response_format": {"type": "json_object"}}
         try:
-            text = _post(payload)["choices"][0]["message"]["content"]
-        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError) as e:
+            choice = _post(payload)["choices"][0]
+            text, finish = choice["message"].get("content"), choice.get("finish_reason")
+        except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
             problem = f"request failed: {type(e).__name__}"
             continue
-        try:
-            return ChangeParse.model_validate_json(_json_text(text))
-        except ValidationError as e:
-            problem = "model output was not a valid change request"
-            # one retry, telling the model what was wrong with its own output
-            messages = messages + [{"role": "assistant", "content": text},
-                                   {"role": "user", "content": "That was not valid. Reply with only the JSON object "
-                                    f"described above. Problems: {e.errors(include_url=False, include_input=False)}"}]
+        if isinstance(text, str) and text.strip():
+            try:
+                return ChangeParse.model_validate_json(_json_text(text))
+            except ValidationError as e:
+                if finish != "length":
+                    problem = "model output was not a valid change request"
+                    # one retry, telling the model what was wrong with its own output
+                    messages = messages + [{"role": "assistant", "content": text},
+                                           {"role": "user", "content": "That was not valid. Reply with only the JSON object "
+                                            f"described above. Problems: {e.errors(include_url=False, include_input=False)}"}]
+                    continue
+        # No usable text: usually a reasoning model that used its whole token budget thinking (finish_reason "length").
+        problem = ("the model ran out of tokens (finish_reason=length): raise OPENROUTER_MAX_TOKENS or use a "
+                   "non-reasoning model" if finish == "length" else f"the model returned no usable text (finish_reason={finish})")
+        budget *= 2     # the retry gets more room
     raise LLMUnavailable(problem or "no answer")

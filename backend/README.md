@@ -286,7 +286,7 @@ Codes expire in 10 minutes, allow 5 guesses, one request per minute and 5 per ho
 ### Farmer change requests
 Farmer routes (farmer token): `POST /farmer/chat` (`{message}` for the language model or `{structured: {changes: [...]}}` for the form fallback; replies with `status` `confirm`, `clarify`, `invalid` (with `code` and `params`) or `llm_unavailable`), `POST /farmer/requests/{id}/confirm`, `POST /farmer/requests/{id}/withdraw`, `GET /farmer/requests`.
 Admin routes: `GET /change-requests?status=`, `POST /change-requests/preview` (`{ids}`; plans with the changes applied in memory and returns the diff), `POST /change-requests/approve` (`{ids, base_plan_id}`; 409 if the published plan moved), `POST /change-requests/{id}/reject` (`{reason_code}`), `GET` and `PUT /change-window` (`{is_open}`).
-`_compute_plan_impl` takes `farmer_overrides` to plan as if new farmer values were already saved. Env: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (no default), `OPENROUTER_TIMEOUT_S`, `CHANGE_MAX_QTY_KG`, `CHANGE_MAX_HOUR`, `CHANGE_REQUEST_TTL_H`, `CHAT_RATE_PER_HOUR`. Tables: `change_requests`, `change_window` (both cleared by `POST /reset`).
+`_compute_plan_impl` takes `farmer_overrides` to plan as if new farmer values were already saved. Env: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (no default), `OPENROUTER_TIMEOUT_S`, `OPENROUTER_MAX_TOKENS` (default 1000; reasoning models need room to think, and OpenRouter's log shows `finish_reason: length` when it is too small), `CHANGE_MAX_QTY_KG`, `CHANGE_MAX_HOUR`, `CHANGE_REQUEST_TTL_H`, `CHAT_RATE_PER_HOUR`. Tables: `change_requests`, `change_window` (both cleared by `POST /reset`).
 
 
 ## Known simplifications (inherited, not re-litigated here)

@@ -187,6 +187,38 @@ def test_invalid_output_gets_one_retry_then_gives_up(llm):
         chat_llm.parse_message("300", CUR)
 
 
+def _cut(finish="length", content=None):
+    return {"choices": [{"message": {"content": content}, "finish_reason": finish}]}
+
+
+def test_a_reply_cut_off_by_the_token_limit_is_retried_with_more_room(llm, monkeypatch):
+    """What a reasoning model does when max_tokens is too small: OpenRouter logs finish_reason 'length' and the
+    message content is empty or None. This used to crash with a TypeError (a 500, shown on a phone as 'could not
+    reach the server')."""
+    monkeypatch.setenv("OPENROUTER_MAX_TOKENS", "300")
+    sent = llm(_cut("length", None), _reply('{"changes":[{"field":"qty_kg","mode":"set","value":300}]}'))
+    assert chat_llm.parse_message("300", CUR).changes[0].value == 300
+    assert [p["max_tokens"] for p in sent] == [300, 600]
+
+
+def test_a_truncated_reply_that_is_still_valid_json_is_used(llm):
+    llm(_cut("length", '{"changes":[],"clarify":"How many kg?"}'))
+    assert chat_llm.parse_message("less", CUR).clarify == "How many kg?"
+
+
+@pytest.mark.parametrize("answers", [
+    [_cut("length", None), _cut("length", "")],                       # out of tokens twice
+    [_cut("stop", None), _cut("stop", None)],                         # no text at all
+    [_cut("length", '{"changes":[{"field":"qty_'), _cut("length", '{"chang')],   # cut mid-JSON
+    [{"choices": []}, {"choices": [{"message": None}]}],              # odd shapes
+    [RuntimeError("boom"), RuntimeError("boom")],                     # anything else the provider layer throws
+])
+def test_no_provider_behaviour_escapes_as_anything_but_llm_unavailable(llm, answers):
+    llm(*answers)
+    with pytest.raises(chat_llm.LLMUnavailable):
+        chat_llm.parse_message("less", CUR)
+
+
 def test_network_failure_and_missing_config_mean_unavailable(llm, monkeypatch):
     llm(httpx.ConnectError("down"), httpx.ReadTimeout("slow"))
     with pytest.raises(chat_llm.LLMUnavailable):
@@ -372,6 +404,16 @@ def test_llm_path_numbers_come_from_code_and_a_hostile_answer_makes_no_request(a
     assert anon.post("/farmer/chat", json={"message": "hello"}, headers=h).json()["status"] == "llm_unavailable"
     assert mine() == [r["request_id"]] and _farmer_row(api, 7) == cur                       # no new request, no change
     anon.post(f"/farmer/requests/{r['request_id']}/withdraw", headers=h)
+
+
+@pytestmark_db
+def test_a_misbehaving_model_gives_the_form_never_a_500(api, llm):
+    anon, h = _anon(), _as(api, 16)
+    llm(_cut("length", None), _cut("length", None), RuntimeError("boom"), RuntimeError("boom"))
+    for _ in range(2):
+        r = anon.post("/farmer/chat", json={"message": "ready 10 minutes before"}, headers=h)
+        assert r.status_code == 200 and r.json()["status"] == "llm_unavailable"
+    assert anon.get("/farmer/requests", headers=h).json()["requests"] == []
 
 
 @pytestmark_db
