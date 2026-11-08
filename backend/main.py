@@ -14,6 +14,7 @@ Endpoints:
     POST /farmers/upload     (csv/xlsx bulk add)
     POST /sensors/reading
     POST /reset
+    GET  /health             (public, no token: liveness + database check; 503 if the database is down)
     GET/DELETE /farmers/phones   DELETE /farmers/{id}/phone   (admin: phone numbers)
     /farmer/phone[/start|/verify]  (farmer: register a number by code)
     POST /farmer/chat   POST /farmer/requests/{id}/confirm|withdraw   GET /farmer/requests   (farmer: change requests)
@@ -86,6 +87,26 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
+
+
+# =========================================================================
+# health
+# =========================================================================
+
+@app.get("/health")
+def health():
+    """Public liveness/readiness probe (exempt from the admin token, see auth.PUBLIC_PATHS).
+    200 {"status": "ok"} when the database answers SELECT 1, else 503 {"status": "degraded"}.
+    Never echoes the error text: it can contain the connection string."""
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1").fetchone()
+        db = "ok"
+    except Exception:
+        db = "unavailable"
+    body = {"status": "ok" if db == "ok" else "degraded", "database": db, "version": app.version,
+            "time": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")}
+    return JSONResponse(body, status_code=200 if db == "ok" else 503)
 
 
 # =========================================================================
