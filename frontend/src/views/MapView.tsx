@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../components/Icon";
 import { StaleBanner } from "../components/Shell";
-import { fmt } from "../lib/format";
+import { clock12, fmt } from "../lib/format";
 import type { SensorReading, ViewName } from "../lib/types";
 import { useApp } from "../state/store";
 import {
@@ -41,6 +41,29 @@ const initialUi: Ui = {
   stage: 1, selection: null, sidePane: "story", mode3d: false, chase: false, engineKey: 0,
 };
 
+/** Small clock over the map: the plan's current time in 12-hour form (plan hour 0 = 12:00 AM). */
+function MapClock({ engine }: { engine: SimEngine | null }) {
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    if (!engine) { setT(0); return; }
+    setT(engine.snapshot().t);
+    return engine.on((s: EngineSnapshot) => setT(s.t));
+  }, [engine]);
+  const c = clock12(t);
+  return (
+    <div className="map-clock" role="timer" aria-label={`Plan time ${c.text}${c.day ? `, day ${c.day + 1}` : ""}`}>
+      <svg viewBox="0 0 40 40" width="38" height="38" aria-hidden="true">
+        <circle cx="20" cy="20" r="18" className="mc-face" />
+        {[0, 90, 180, 270].map((a) => <line key={a} x1="20" y1="4.5" x2="20" y2="7" className="mc-tick" transform={`rotate(${a} 20 20)`} />)}
+        <line x1="20" y1="20" x2="20" y2="10.5" className="mc-hand-m" transform={`rotate(${c.angleM} 20 20)`} />
+        <line x1="20" y1="20" x2="20" y2="13.5" className="mc-hand-h" transform={`rotate(${c.angleH} 20 20)`} />
+        <circle cx="20" cy="20" r="1.6" className="mc-pin" />
+      </svg>
+      <div className="mc-text"><span className="mc-time">{c.h}:{c.m}<small>{c.ap}</small></span>{c.day > 0 && <span className="mc-day">+{c.day} day</span>}</div>
+    </div>
+  );
+}
+
 /** Timeline controls. Owns the per-frame snapshot so the rest of the map view does not re-render at 60 fps. */
 function Transport({ engine, speed, setSpeed, reduced, setReduced, onPlayChange }: {
   engine: SimEngine | null; speed: number; setSpeed: (n: number) => void; reduced: boolean; setReduced: (b: boolean) => void; onPlayChange: () => void;
@@ -69,7 +92,7 @@ function Transport({ engine, speed, setSpeed, reduced, setReduced, onPlayChange 
       <input type="range" id="simScrubber" min={0} max={1000} step={1} aria-label="Simulation time" disabled={!engine}
         value={dragging.current ? undefined : Math.round(snap.progress * 1000)}
         onChange={(e) => { if (!engine) return; engine.pause(); engine.seekProgress(Number(e.target.value) / 1000); }} />
-      <span id="simTimeReadout" className="readout">t = {fmt(snap.t, 2)} hr</span>
+      <span id="simTimeReadout" className="readout">{clock12(snap.t).text} · t = {fmt(snap.t, 2)} hr</span>
       <label className="speed"><span className="sr-only">Playback speed</span>
         <select id="simSpeedSelect" title="Playback speed" value={speed} disabled={reduced} onChange={(e) => setSpeed(Number(e.target.value))}>
           {[1, 2, 4, 10].map((n) => <option key={n} value={n}>{n}&times;</option>)}
@@ -437,6 +460,7 @@ export function MapView({ visible, go }: { visible: boolean; go: (v: ViewName) =
                 {!state.plan && <button className="btn btn-primary" type="button" onClick={() => go("start")}>Go to scenarios<Icon name="arrow" /></button>}
               </div>
             </div>
+            <MapClock key={ui.engineKey} engine={engineRef.current} />
             <div id="mapLegend" className="map-legend" ref={legendRef}><Legend solution={sol} provider={ui.payload?.roads?.provider ?? null} model={ui.payload?.distanceModel} /></div>
             <p className="map-note" hidden={!ui.note}>{ui.note}</p>
             <div className="map-busy" role="status" hidden={!ui.roadsMsg || ui.loading}><span className="spinner" aria-hidden="true" />{ui.roadsMsg}</div>
