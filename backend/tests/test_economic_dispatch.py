@@ -16,9 +16,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import algorithms_v2 as A
-from logistics_lib_v2 import generate_scenario_v2
+from logistics_lib_v2 import Farmer, Market, Vehicle, generate_scenario_v2
 
-LOSS_CASE = (20, 304)     # original behaviour dispatches a losing pool here
+def _loss_case():
+    """Hand-built so it cannot drift when crop rates change: 30 kg of potatoes, a ~44 km haul to a Rs 10/kg market.
+    Revenue (~Rs 300) is below the trip cost (Rs 500 fixed + running), so dispatching it loses money."""
+    farmers = [Farmer(id=1, lat=25.0, lng=85.0, crop="potato", qty_kg=30, ready_hr=1, deadline_hr=14, needs_refrigeration=False)]
+    fleet = [Vehicle(id=0, type_name="mini_pickup", capacity_kg=500, refrigerated=False, fixed_cost=500, per_km_cost=14)]
+    markets = [Market(id=0, lat=25.4, lng=85.0, price={"potato": 10.0}, capacity_kg={"potato": 5000})]
+    return farmers, fleet, markets
+
+
 SMALL_CASES = [(n, s) for n in (12, 16, 20) for s in (300, 304, 310, 319)]
 
 
@@ -36,10 +44,14 @@ def _loss_pools(res):
     return [r for r in res if r["vehicle_id"] is not None and r["net_return"] < 0]
 
 
+def _run_loss_case(**kw):
+    farmers, fleet, markets = _loss_case()
+    return farmers, fleet, markets, A.run_our_system_v2(farmers, copy.deepcopy(fleet), markets, **kw)
+
+
 def test_old_behaviour_dispatches_a_loss_and_default_does_not():
-    n, seed = LOSS_CASE
-    _, _, _, old = _run(n, seed, withhold_uneconomic=False)
-    _, _, _, new = _run(n, seed)
+    _, _, _, old = _run_loss_case(withhold_uneconomic=False)
+    _, _, _, new = _run_loss_case()
     assert len(_loss_pools(old)) >= 1                       # the defect this feature fixes
     assert _loss_pools(new) == []
     assert _net(new) > _net(old)
@@ -81,8 +93,7 @@ def test_plan_is_valid(n, seed):
 
 
 def test_summary_counts_withheld_produce_as_not_served():
-    n, seed = LOSS_CASE
-    farmers, fleet, markets, res = _run(n, seed)
+    farmers, fleet, markets, res = _run_loss_case()
     s = A.summarize(res, len(farmers), len(fleet))
     withheld = sum(r.get("withheld_uneconomic_kg", 0) for r in res)
     assert withheld > 0 and s["total_withheld_kg"] == pytest.approx(withheld)
@@ -91,9 +102,8 @@ def test_summary_counts_withheld_produce_as_not_served():
 
 
 def test_deterministic():
-    n, seed = LOSS_CASE
-    a = _run(n, seed)[3]
-    b = _run(n, seed)[3]
+    a = _run_loss_case()[3]
+    b = _run_loss_case()[3]
     assert [(r["farmer_ids"], r["vehicle_id"], round(r["net_return"], 6)) for r in a] == \
            [(r["farmer_ids"], r["vehicle_id"], round(r["net_return"], 6)) for r in b]
 
