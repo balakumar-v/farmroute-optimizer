@@ -15,6 +15,8 @@ export interface FarmerIn {
 export interface Farmer extends FarmerIn {
   id: number;
   needs_refrigeration: boolean;
+  /** false once the farmer's request to leave the plan was approved: their row stays, but they are not planned */
+  active?: boolean;
 }
 
 export interface VehicleIn { type_name: string; count: number }
@@ -95,6 +97,7 @@ export interface Pool {
   sold_at_farmgate?: boolean;
   withheld?: boolean;
   spot_hire?: boolean;
+  no_truck_reason?: string;
 }
 
 export interface AlgoResult {

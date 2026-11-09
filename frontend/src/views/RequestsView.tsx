@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { BusyButton, PageHead } from "../components/Shell";
 import { Icon } from "../components/Icon";
 import type { ChangeList, ChangePreview, ChangeReason, ChangeStatus } from "../lib/api";
-import { previewRows, rawText, reasonLabel, REASONS, rupees, sameIds, STATUS_FILTERS, whenText } from "../lib/changeRequests";
+import { clashingPairs, lineText, previewRows, rawText, reasonLabel, REASONS, rupees, sameIds, STATUS_FILTERS, whenText } from "../lib/changeRequests";
 import { useApp } from "../state/store";
 
-/** Farmers ask (in the farmer app) for a different quantity or time; nothing changes until you approve here. */
+/** Farmers ask (in the farmer app) for a different quantity or time, or to leave the plan; nothing changes until you approve here. */
 export function RequestsView() {
   const { state, actions } = useApp();
   const api = actions.api;
@@ -14,6 +14,7 @@ export function RequestsView() {
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [preview, setPreview] = useState<{ p: ChangePreview; ids: number[] } | null>(null);
   const [reason, setReason] = useState<ChangeReason>("other");
+  const [day, setDay] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
 
@@ -24,6 +25,7 @@ export function RequestsView() {
   const load = useCallback(async () => {
     const l = await api.changeRequests(status);
     setList(l);
+    setDay(l.plan_day);
     const here = new Set(l.requests.map((r) => r.id));
     setSel((s) => new Set([...s].filter((id) => here.has(id))));
   }, [api, status]);
@@ -32,10 +34,13 @@ export function RequestsView() {
 
   const pending = status === "pending";
   const ids = useMemo(() => [...sel].sort((a, b) => a - b), [sel]);
-  // Approve only what was previewed, and only while the published plan is still the one previewed against.
-  const fresh = preview !== null && sameIds(preview.ids, ids) && list?.published_plan_id === preview.p.base_plan_id;
-  const toggle = (id: number) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const all = list?.requests ?? [];
+  const clashes = useMemo(() => clashingPairs(ids, all), [ids, all]);
+  // Approve only what was previewed, and only while the published plan is still the one previewed against.
+  const fresh = preview !== null && sameIds(preview.ids, ids) && list?.published_plan_id === preview.p.base_plan_id && clashes.length === 0;
+  const toggle = (id: number) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const rows = useMemo(() => (preview ? previewRows(preview.p.diff, preview.p.requested_farmer_ids) : []), [preview]);
+  const unasked = rows.filter((r) => !r.asked).length;
 
   const doPreview = () => run("preview", async () => {
     try { setPreview({ p: await api.previewChanges(ids), ids }); }
@@ -43,9 +48,9 @@ export function RequestsView() {
   });
   const doApprove = () => {
     if (!preview || !fresh) return;
-    const n = ids.length, c = preview.p.collateral_count;
+    const n = ids.length;
     const ask = `Approve ${n} request${n === 1 ? "" : "s"}, recompute and publish the plan?\n\n`
-      + `${preview.p.diff.farmers_changed} farmers get a different plan${c ? `, ${c} of them did not ask` : ""}. Farmers whose plan changed are messaged.`;
+      + `${rows.length} farmer${rows.length === 1 ? "" : "s"} would be affected${unasked ? `, ${unasked} of them did not ask` : ""}. Farmers whose plan changed are messaged.`;
     if (!window.confirm(ask)) return;
     void run("approve", async () => {
       try {
@@ -63,11 +68,12 @@ export function RequestsView() {
     setPreview(null); setSel(new Set());
     await load();
   });
-  const toggleWindow = () => run("window", async () => { if (list) { await api.changeWindow(!list.window_open); await load(); } });
+  const toggleWindow = () => run("window", async () => { if (list) { await api.changeWindow({ is_open: !list.window_open }); await load(); } });
+  const savePlanDay = (value: string | null) => run("planday", async () => { await api.changeWindow({ plan_day: value }); await load(); });
 
   return (
     <>
-      <PageHead title="Farmer requests" lede="Farmers ask for a different quantity or time in the farmer app. Nothing changes until you approve." />
+      <PageHead title="Farmer requests" lede="Farmers ask for a different quantity or time, or to leave the plan, in the farmer app. Nothing changes until you approve." />
       <div className="sec">
         <p className="hint">
           {list === null ? "Checking…" : list.published_plan_id === null
@@ -82,6 +88,14 @@ export function RequestsView() {
           {list && <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={toggleWindow}>
             {list.window_open ? "Close requests (dispatch started)" : "Open requests again"}</button>}
         </div>
+        {list && (
+          <div className="head-actions" style={{ flexWrap: "wrap", gap: 8, alignItems: "flex-end", marginTop: 12 }}>
+            <label>Hour 0 of the plan is the date<input type="date" value={day} onChange={(e) => setDay(e.target.value)} /></label>
+            <button className="btn btn-secondary" type="button" disabled={busy !== "" || !day || day === list.plan_day} onClick={() => void savePlanDay(day)}>Save date</button>
+            <button className="btn btn-secondary" type="button" disabled={busy !== ""} onClick={() => void savePlanDay(null)}>Use the publish date</button>
+          </div>
+        )}
+        {list && <p className="hint">This is how a farmer's "tomorrow 6 AM" becomes an hour: today is {list.today}, so tomorrow is {Math.round((Date.parse(list.today) - Date.parse(list.plan_day)) / 864e5) + 1} day(s) after hour 0. A time with no day means the plan day.</p>}
 
         {list && all.length === 0 && <p className="hint">{pending ? "No requests are waiting." : "Nothing here."}</p>}
         {all.length > 0 && (
@@ -91,9 +105,10 @@ export function RequestsView() {
               <tbody>{all.map((r) => (
                 <tr key={r.id}>
                   {pending && <td><input type="checkbox" aria-label={`Select request ${r.id}`} checked={sel.has(r.id)} onChange={() => toggle(r.id)} /></td>}
-                  <td>{r.farmer_id}{r.crop ? <span className="hint"> · {r.crop}</span> : null}</td>
+                  <td>{r.farmer_id}{r.crop ? <span className="hint"> · {r.crop}</span> : null}<div className="hint">request #{r.id}</div>
+                    {r.overlaps?.length > 0 && <div className="hint" style={{ color: "var(--warn, #8a5a00)" }}>clashes with {r.overlaps.map((o) => `#${o}`).join(", ")}</div>}</td>
                   <td style={{ maxWidth: 260, overflowWrap: "anywhere" }}>{rawText(r)}</td>
-                  <td>{r.changes.map((c) => <div key={c.field}>{c.label}: {c.from} {"→"} {c.to}</div>)}</td>
+                  <td>{r.changes.map((c) => <div key={c.field}>{lineText(c)}</div>)}</td>
                   <td>{whenText(r.created_at)}</td>
                   {!pending && <td>{r.status === "rejected" ? `Rejected: ${reasonLabel(r.reason_code)}` : r.status === "approved" ? `Approved in plan ${r.applied_plan_id}` : r.status}</td>}
                 </tr>))}
@@ -106,7 +121,7 @@ export function RequestsView() {
           <div className="head-actions" style={{ flexWrap: "wrap", gap: 8, alignItems: "flex-end", marginTop: 12 }}>
             <button className="btn btn-secondary" type="button" onClick={() => setSel(new Set(all.map((r) => r.id)))}>Select all</button>
             <BusyButton busy={busy === "preview"} busyLabel="Computing…" label={`Preview ${ids.length || ""} selected`.replace("  ", " ")} className="btn btn-secondary"
-              disabled={ids.length === 0 || (busy !== "" && busy !== "preview")} onClick={doPreview} />
+              disabled={ids.length === 0 || clashes.length > 0 || (busy !== "" && busy !== "preview")} onClick={doPreview} />
             <BusyButton busy={busy === "approve"} busyLabel="Publishing…" label="Approve and publish" disabled={!fresh || (busy !== "" && busy !== "approve")} onClick={doApprove} />
             <label>Reject for<select value={reason} onChange={(e) => setReason(e.target.value as ChangeReason)}>
               {REASONS.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}</select></label>
@@ -114,22 +129,26 @@ export function RequestsView() {
               disabled={ids.length === 0 || (busy !== "" && busy !== "reject")} onClick={doReject} />
           </div>
         )}
-        {pending && ids.length > 0 && !fresh && <p className="hint">Preview the selection first: approving recomputes the plan for every farmer.</p>}
+        {clashes.length > 0 && (
+          <div className="note warn" role="status"><Icon name="alert" small={false} />
+            <span>{clashes.map(([a, b]) => `#${a} and #${b}`).join("; ")}: from the same farmer and they change the same thing (or one leaves the plan). Select only one of each pair; approving one replaces the other.</span></div>
+        )}
+        {pending && ids.length > 0 && !fresh && clashes.length === 0 && <p className="hint">Preview the selection first: approving recomputes the plan for every farmer.</p>}
 
         {preview && (
           <div style={{ marginTop: 16 }}>
             <div className="sec-head"><h3>Preview: plan {preview.p.base_plan_id} with {preview.ids.length} request{preview.ids.length === 1 ? "" : "s"} applied</h3></div>
-            {!fresh && <div className="note warn" role="status"><Icon name="alert" small={false} /><span>The selection or the published plan changed since this preview. Preview again before approving.</span></div>}
+            {!fresh && clashes.length === 0 && <div className="note warn" role="status"><Icon name="alert" small={false} /><span>The selection or the published plan changed since this preview. Preview again before approving.</span></div>}
             <p className="hint">
-              <strong>{preview.p.diff.farmers_changed}</strong> farmers would get a different plan
-              {preview.p.collateral_count > 0 ? <>: {preview.p.diff.farmers_changed - preview.p.collateral_count} asked, <strong>{preview.p.collateral_count} did not ask</strong>.</> : "; all of them asked."}
+              <strong>{rows.length}</strong> farmer{rows.length === 1 ? "" : "s"} would be affected
+              {unasked > 0 ? <>: {rows.length - unasked} asked, <strong>{unasked} did not ask</strong>.</> : "; all of them asked."}
               {" "}Farmers not listed are unchanged. Nothing is saved or sent until you approve.
             </p>
-            {preview.p.collateral_count > 0 && <div className="note warn" role="status"><Icon name="alert" small={false} /><span>Approving also changes the plan, and messages, farmers who did not ask.</span></div>}
-            {preview.p.diff.farmers_changed > 0 && (
+            {unasked > 0 && <div className="note warn" role="status"><Icon name="alert" small={false} /><span>Approving also changes the plan, and messages, farmers who did not ask.</span></div>}
+            {rows.length > 0 && (
               <div className="tablewrap"><table className="data">
                 <thead><tr><th>Farmer</th><th>Asked</th><th>What changes</th><th>Payout</th></tr></thead>
-                <tbody>{previewRows(preview.p.diff, preview.p.requested_farmer_ids).map((r) => (
+                <tbody>{rows.map((r) => (
                   <tr key={r.farmerId}><td>{r.farmerId}</td><td>{r.asked ? "Yes" : "No"}</td><td>{r.why.join("; ")}</td><td style={{ fontVariantNumeric: "tabular-nums" }}>{rupees(r.payoutChange)}</td></tr>))}
                 </tbody></table></div>
             )}

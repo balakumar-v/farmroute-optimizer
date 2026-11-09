@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { FairnessPanel } from "../components/FairnessPanel";
+import { FleetUsagePanel } from "../components/FleetUsagePanel";
 import { Icon } from "../components/Icon";
 import { BusyButton, PageHead, StaleBanner } from "../components/Shell";
 import { fmt, inr } from "../lib/format";
@@ -35,7 +36,8 @@ function poolVehicle(p: Pool): ReactNode {
   if (p.sold_at_farmgate) return <span className="tag warn">Sold at the farm gate</span>;
   if (p.withheld) return <span className="tag warn">Withheld: unprofitable</span>;
   if (p.spot_hire) return "Hired truck";
-  return <>Vehicle {p.vehicle_id}{p.infeasible && <> <span className="tag bad">Infeasible</span></>}</>;
+  if (p.vehicle_id == null) return <span className="tag bad" title={p.no_truck_reason}>No truck{p.no_truck_reason ? `: ${p.no_truck_reason}` : ""}</span>;
+  return <>Vehicle {p.vehicle_id}</>;
 }
 
 function PoolsTable({ pools }: { pools: Pool[] }) {
@@ -161,15 +163,16 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
             </div>
             <dl>
               {unsold > 0 && <Line label={<><span className="key unsold" />Unsold at market</>} value={`${fmt(unsold, 1)} kg`} />}
-              {noTruck > 0 && <Line label={<><span className="key notruck" />Never got a truck</>} value={<span className="bad-text">{fmt(noTruck, 1)} kg</span>} />}
+              {noTruck > 0 && <Line label={<><span className="key notruck" />Got no truck (see Fleet usage)</>} value={<span className="bad-text">{fmt(noTruck, 1)} kg</span>} />}
               {withheld > 0 && <Line label={<><span className="key withheld" />{hasFg ? "Not hauled: sold at the farm gate" : "Withheld as unprofitable"}</>} value={`${fmt(withheld, 1)} kg`} />}
               <Line label="Spoilage in transit" value={`${fmt(s.total_spoilage_kg, 1)} kg`} cls="sub" />
               <Line label="Pools formed" value={fmt(s.pools_formed)} cls="sub" />
-              <Line label="Vehicles used" value={fmt(s.vehicles_used) + (s.vehicle_utilization_pct !== undefined ? ` (${fmt(s.vehicle_utilization_pct, 0)}% utilised)` : "")} cls="sub" />
+              <Line label="Vehicles used" value={fmt(s.vehicles_used) + (s.vehicle_utilization_pct !== undefined ? ` (${fmt(s.vehicle_utilization_pct, 0)}% of fleet dispatched)` : "")} cls="sub" />
             </dl>
           </div>
         </div>
 
+        <FleetUsagePanel planId={plan.id} />
         <FairnessPanel planId={plan.id} />
 
         {spoilText && (

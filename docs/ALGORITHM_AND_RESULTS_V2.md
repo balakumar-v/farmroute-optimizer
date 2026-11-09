@@ -1244,3 +1244,16 @@ Result (`tools/compare_split_rules.py`, synthetic n=40 and n=120 x 3 seeds, plus
 - Decision: `kg` stays the default. `cost_aware` is available as a policy choice (it rewards farmers who are cheap to collect and is easier to defend as cost-reflective), but the data does not show it protects the worst-off farmers. A rule that also lifts the lowest gains (a minimum-gain guarantee) would be the next experiment.
 
 Limits: the downside case is a fixed +/-10% stress, not a forecast; gains are measured against the assumed doorstep price, so they move with that assumption; the scenarios are synthetic or preset, not real farmer records.
+
+
+## 27. Rescuing pools that got no truck (Nov 2026)
+
+Symptom (MP preset): 4,904 kg "never got a truck" while the summary said "5 vehicles used (38% utilised)". Two separate issues:
+
+- **Metric.** `vehicle_utilization_pct` is dispatched vehicles / fleet size. It says nothing about how full trucks were, or whether the missing pool could have used the idle ones. New `advisor.fleet_usage` reports dispatched, idle, average load (trip kg / capacity), hired trips and unserved pools with reasons.
+- **Planning.** The set-partition step formed one ~5 t pool that only a 5 t truck could carry; that truck was busy, smaller ones sat idle. Fix: after the main solve, re-run the planner on the stuck farmers using vehicles unused so far (pass 1), then on hired non-refrigerated trucks at 1.15x the table rate (pass 2). A pass is kept only if its value is at least the doorstep value of those farmers; all farmers appear once (asserted).
+
+Results (scripts, synthetic data): MP preset circuity 3.0 unserved 4,971 to 0 kg, value +Rs 4,396. n=120 seed 2: 3,814 to 155 kg, +Rs 5.8k with 5 spot trips. Some scenarios are unchanged (nothing stuck, or no profitable rescue).
+
+Limits: pass 2 uses vehicles unused in pass 1 only (no multi-trip reuse of busy ones); price impact of the extra sales is applied approximately by removing already-sold market volume; hired trucks are non-refrigerated only; the markup is an assumption, not a quote; I could not reproduce the exact Render run (real OSRM distances).
+

@@ -20,6 +20,7 @@ export interface ApiClient {
   addMarket(m: MarketIn): Promise<Market>;
   computePlan(mode?: PlanMode, splitRule?: SplitRule): Promise<PlanResponse>;
   fairness(planId: number): Promise<Fairness>;
+  fleetUsage(planId: number): Promise<FleetUsage>;
   reset(): Promise<unknown>;
   issuePins(onlyMissing: boolean): Promise<{ issued: number; pins: { farmer_id: number; pin: string }[] }>;
   pinStatus(): Promise<PinStatus>;
@@ -35,20 +36,24 @@ export interface ApiClient {
   previewChanges(ids: number[]): Promise<ChangePreview>;
   approveChanges(ids: number[], basePlanId: number): Promise<ChangeApproval>;
   rejectChange(id: number, reason: ChangeReason): Promise<unknown>;
-  changeWindow(isOpen: boolean): Promise<{ is_open: boolean }>;
+  changeWindow(patch: { is_open?: boolean; plan_day?: string | null }): Promise<WindowState>;
 }
 
 /** Farmer change requests (see backend/change_requests.py). A farmer asks for a new quantity or time; the admin decides. */
 export type ChangeStatus = "draft" | "pending" | "approved" | "rejected" | "superseded" | "expired" | "withdrawn";
 export type ChangeReason = "too_late" | "not_possible" | "capacity" | "other";
-export interface ChangeLine { field: "qty_kg" | "ready_hr" | "deadline_hr"; label: string; from: string; to: string }
+/** from_day / to_day: whole days after the plan day for a time ("06:00" with to_day 1 is 06:00 the next day). Participation lines use from/to "in" | "out". */
+export interface ChangeLine { field: "qty_kg" | "ready_hr" | "deadline_hr" | "active"; label: string; from: string; to: string; from_day: number; to_day: number }
 export interface ChangeRequest {
   id: number; farmer_id: number; crop: string | null; status: ChangeStatus;
   raw_text: string;                       // what the farmer typed, or "[form]"; untrusted: show as plain text
   changes: ChangeLine[]; reason_code: ChangeReason | null; applied_plan_id: number | null;
   created_at: number; decided_at: number | null;
+  overlaps: number[];                     // other waiting requests of the same farmer that clash with this one
 }
-export interface ChangeList { requests: ChangeRequest[]; window_open: boolean; published_plan_id: number | null }
+export interface ChangeList { requests: ChangeRequest[]; window_open: boolean; published_plan_id: number | null; plan_day: string; today: string }
+/** is_open: may farmers send requests. plan_day: the admin's choice or null. effective_plan_day: the calendar date hour 0 of the plan means (the publish date when plan_day is null). */
+export interface WindowState { is_open: boolean; plan_day: string | null; effective_plan_day: string; today: string }
 export interface PlanDiff {
   farmers_changed: number; farmers_unchanged: number; farmers_only_in_old: number[]; farmers_only_in_new: number[];
   changed: { farmer_id: number; why: string[]; payout_change_inr: number }[];
@@ -64,6 +69,13 @@ export interface Fairness {
   gaining: number; share_gaining: number; total_gain_inr: number; gain_per_hauled_farmer_inr: number;
   gain_per_kg_p10_median_p90: (number | null)[]; min_hauled_gain_inr: number; max_hauled_gain_inr: number;
   gini_of_gains: number; bottom_fifth_share_of_gain: number; split_rules: string[]; notes: string[];
+}
+
+export interface FleetUsage {
+  fleet_size: number; dispatched: number; idle: number; dispatched_pct: number; trips: number; spot_trips: number;
+  avg_load_pct: number; unserved_kg: number; notes: string[];
+  by_type: { class: string; owned: number; dispatched: number; idle: number; trips: number; avg_load_pct: number | null }[];
+  unserved: { pool: number; farmers: number; kg: number; reason: string }[];
 }
 
 export interface PinStatus {
@@ -138,6 +150,7 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
       return post<PlanResponse>("/plan/compute" + (q.toString() ? `?${q}` : ""));
     },
     fairness: (planId) => req<Fairness>(`/plan/${planId}/fairness`),
+    fleetUsage: (planId) => req<FleetUsage>(`/plan/${planId}/fleet-usage`),
     reset: () => post("/reset"),
     issuePins: (onlyMissing) => post(`/farmers/pins?only_missing=${onlyMissing}`),
     pinStatus: () => req<PinStatus>("/farmers/pins"),
@@ -153,8 +166,8 @@ export function createApi(base: string, onConn: (s: ConnState) => void): ApiClie
     previewChanges: (ids) => post<ChangePreview>("/change-requests/preview", { ids }),
     approveChanges: (ids, basePlanId) => post<ChangeApproval>("/change-requests/approve", { ids, base_plan_id: basePlanId }),
     rejectChange: (id, reason) => post(`/change-requests/${id}/reject`, { reason_code: reason }),
-    changeWindow: (isOpen) => req<{ is_open: boolean }>("/change-window", {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_open: isOpen }),
+    changeWindow: (patch) => req<WindowState>("/change-window", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
     }),
   };
 }

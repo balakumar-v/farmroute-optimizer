@@ -193,6 +193,21 @@ CREATE TABLE IF NOT EXISTS change_window (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     is_open BOOLEAN NOT NULL
 );
+
+-- Change-request chat additions.
+-- A farmer may have several requests waiting at once: drop the old one-pending index.
+DROP INDEX IF EXISTS change_requests_one_pending;
+-- Cancelling participation keeps the farmer's row and marks them out of the plan (rejoining flips it back).
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+-- The calendar date that hour 0 of the plan means, so "tomorrow 6 AM" can become an hour. NULL = the day the plan
+-- was published.
+ALTER TABLE change_window ADD COLUMN IF NOT EXISTS plan_day TEXT;
+-- The last few chat turns of a farmer, so a follow-up answer has its question. Short-lived (see change_requests.py).
+CREATE TABLE IF NOT EXISTS chat_context (
+    farmer_id INTEGER PRIMARY KEY,
+    turns TEXT NOT NULL,              -- JSON: [{"role": "user" | "assistant", "content": "..."}]
+    updated_at DOUBLE PRECISION NOT NULL
+);
 """
 
 

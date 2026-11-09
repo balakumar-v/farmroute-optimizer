@@ -9,7 +9,7 @@ Endpoints:
     POST /markets             GET /markets
     POST /plan/compute
     GET  /plan/{plan_id}
-    GET  /plan/{plan_id}/fleet-advice | impact | payout | fairness | payout/{farmer_id}
+    GET  /plan/{plan_id}/fleet-advice | impact | payout | fairness | fleet-usage | payout/{farmer_id}
          | driver-sheet/{vehicle_id} | diff/{old_plan_id}        POST /plan/{plan_id}/quote-check
     POST /farmers/upload     (csv/xlsx bulk add)
     POST /sensors/reading
@@ -171,7 +171,7 @@ def list_farmers():
         FarmerOut(
             id=r["id"], lat=r["lat"], lng=r["lng"], crop=r["crop"], qty_kg=r["qty_kg"],
             ready_hr=r["ready_hr"], deadline_hr=r["deadline_hr"],
-            needs_refrigeration=bool(r["needs_refrigeration"]),
+            needs_refrigeration=bool(r["needs_refrigeration"]), active=bool(r["active"]),
         )
         for r in rows
     ]
@@ -293,8 +293,12 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
 
     if farmer_overrides:
         farmer_rows = [{**r, **farmer_overrides.get(r["id"], {})} for r in farmer_rows]
+    # a farmer who cancelled (active = false) keeps their row but is not planned; rejoining flips it back
+    everyone = len(farmer_rows)
+    farmer_rows = [r for r in farmer_rows if r.get("active", True)]
     if not farmer_rows:
-        raise HTTPException(400, "No farmers in the database yet -- add some via POST /farmers first.")
+        raise HTTPException(400, "No farmers in the database yet -- add some via POST /farmers first."
+                            if everyone == 0 else "Every farmer has left the plan, so there is nothing to plan.")
     if not vehicle_rows:
         raise HTTPException(400, "No vehicles in the database yet -- add some via POST /vehicles first.")
     if not market_rows:
@@ -596,6 +600,12 @@ def plan_fairness(plan_id: int):
     return advisor.fairness_metrics(get_plan(plan_id))
 
 
+@app.get("/plan/{plan_id}/fleet-usage")
+def plan_fleet_usage(plan_id: int):
+    """Vehicles dispatched vs idle, average load as % of capacity, spot-hired trips, and why any pool got no truck."""
+    return advisor.fleet_usage(get_plan(plan_id))
+
+
 @app.get("/plan/{plan_id}/payout/{farmer_id}")
 def plan_farmer_payout(plan_id: int, farmer_id: int):
     out = advisor.payout_statements(get_plan(plan_id))
@@ -776,7 +786,12 @@ def farmer_me(response: Response, farmer_id: int = Depends(auth.current_farmer))
         raise HTTPException(404, "No plan has been published yet.")
     card = json.loads(r["cards"]).get(str(farmer_id))
     if card is None:
-        raise HTTPException(404, "You are not part of the published plan.")
+        with get_conn() as conn:
+            row = conn.execute("SELECT active FROM farmers WHERE id = %s", (farmer_id,)).fetchone()
+        if row is None or row["active"]:
+            raise HTTPException(404, "You are not part of the published plan.")
+        # they left the plan (cancel approved): a small card so the app can say so and offer to rejoin
+        card = {"farmer_id": farmer_id, "status": "withdrawn", "fpo_phone": os.environ.get("FPO_PHONE") or None}
     card["phone"] = phones.status(farmer_id)       # lets the app ask for a number only when there is none
     return card
 
@@ -868,7 +883,7 @@ def _request_not_found(request: Request, exc: change_requests.RequestNotFound):
 
 @app.exception_handler(change_requests.RequestConflict)
 def _request_conflict(request: Request, exc: change_requests.RequestConflict):
-    return JSONResponse({"detail": str(exc)}, status_code=409)
+    return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=409)
 
 
 @app.post("/farmer/chat")
@@ -876,6 +891,7 @@ def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
     """The farmer's message (or the form fallback) -> what we understood, to confirm. Always one of `status`:
     confirm (a draft was saved: show `changes`, then POST /farmer/requests/{request_id}/confirm), clarify (the
     LLM needs one more fact), invalid (the numbers do not make a sensible plan), llm_unavailable (use the form).
+    The chat remembers the last few turns for ten minutes, so an answer to a clarifying question is understood.
     The farmer id is the token's, never the body's or the LLM's. Nothing here changes any plan."""
     with get_conn() as conn:
         if not change_requests.window_open(conn):
@@ -883,29 +899,43 @@ def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
         if change_requests.published_plan_id(conn) is None:
             raise HTTPException(409, "No plan has been published yet, so there is nothing to change.")
         current = change_requests.fetch_current(conn, farmer_id)
+        clock = change_requests.get_clock(conn)
+        history = change_requests.load_context(conn, farmer_id) if body.message is not None else []
     if current is None:
         raise HTTPException(404, "You are not part of this plan.")
     if not change_requests.rate_limit_ok(farmer_id):
         raise HTTPException(429, "Too many messages. Please wait a while, or call your FPO.",
                             headers={"Retry-After": "3600"})
+    def remember(assistant_json: str):      # keep this exchange so the next message can build on it
+        if body.message is None:
+            return
+        turns = history + [{"role": "user", "content": body.message}, {"role": "assistant", "content": assistant_json}]
+        with get_conn() as conn:
+            change_requests.save_context(conn, farmer_id, turns)
+            conn.commit()
+
     if body.structured is not None:
         parse, raw = body.structured, "[form]"
     else:
         try:
-            parse, raw = chat_llm.parse_message(body.message, current), body.message
+            parse, raw = chat_llm.parse_message(body.message, current, history, clock.today), body.message
         except chat_llm.LLMUnavailable:
             return {"status": "llm_unavailable",
                     "message": "I could not read that right now. Please use the form instead."}
-    if not parse.changes:
+    if not parse.changes and not parse.participation:
+        remember(parse.model_dump_json())
         return {"status": "clarify", "code": "llm" if parse.clarify else "empty", "message": parse.clarify or
-                "I can only help change your quantity, ready time or deadline. What would you like to change?"}
+                "I can only help change your quantity, ready time, deadline or whether you sell. What would you like to change?"}
     try:
-        proposed = change_requests.resolve(parse, current)
+        proposed = change_requests.resolve(parse, current, clock)
     except ChangeError as e:
+        # tell the model what the app said, as if it had asked, so "make it 200 then" is understood
+        remember(change_requests.ChangeParse(clarify=str(e)[:200]).model_dump_json())
         return {"status": "invalid", "code": e.code, "params": e.params, "message": str(e)}
     with get_conn() as conn:
         request_id = change_requests.create_draft(conn, farmer_id, raw, parse, current, proposed)
         conn.commit()
+    remember(parse.model_dump_json())
     return {"status": "confirm", "request_id": request_id, "changes": change_requests.change_lines(current, proposed),
             "summary": change_requests.summary(current, proposed)}
 
@@ -914,7 +944,7 @@ def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
 def farmer_confirm_request(request_id: int, farmer_id: int = Depends(auth.current_farmer)):
     with get_conn() as conn:
         if not change_requests.window_open(conn):
-            raise HTTPException(409, "Changes are closed right now. Please call your FPO.")
+            raise change_requests.RequestConflict("Changes are closed right now. Please call your FPO.", "closed")
         out = change_requests.confirm(conn, farmer_id, request_id)
         conn.commit()
     return out
@@ -969,7 +999,9 @@ def list_change_requests(status: str = "pending"):
     with get_conn() as conn:
         out = change_requests.list_by_status(conn, status)
         info = {"window_open": change_requests.window_open(conn),
-                "published_plan_id": change_requests.published_plan_id(conn)}
+                "published_plan_id": change_requests.published_plan_id(conn),
+                "plan_day": change_requests.effective_plan_day(conn).isoformat(),
+                "today": change_requests.local_today().isoformat()}
         conn.commit()
     return {"requests": out, **info}
 
@@ -1021,18 +1053,31 @@ def reject_change_request(request_id: int, body: RejectIn):
     return {"id": request_id, "status": "rejected", "reason_code": body.reason_code}
 
 
+def _window_state(conn) -> dict:
+    is_open, stored = change_requests.get_window(conn)
+    return {"is_open": is_open, "plan_day": stored, "effective_plan_day": change_requests.effective_plan_day(conn).isoformat(),
+            "today": change_requests.local_today().isoformat()}
+
+
 @app.get("/change-window")
 def get_change_window():
+    """Whether farmers may send requests, and what calendar date hour 0 of the plan means (`plan_day`: the admin's
+    choice or null; `effective_plan_day`: what is used, which is the day the plan was published when null)."""
     with get_conn() as conn:
-        return {"is_open": change_requests.window_open(conn)}
+        return _window_state(conn)
 
 
 @app.put("/change-window")
 def put_change_window(body: WindowIn):
     with get_conn() as conn:
-        change_requests.set_window(conn, body.is_open)
+        kw = {}
+        if "is_open" in body.model_fields_set:
+            kw["is_open"] = body.is_open
+        if "plan_day" in body.model_fields_set:
+            kw["plan_day"] = body.plan_day
+        change_requests.set_window(conn, **kw)
         conn.commit()
-    return {"is_open": body.is_open}
+        return _window_state(conn)
 
 
 # =========================================================================
@@ -1185,7 +1230,7 @@ def reset_data():
     afterwards gets clean IDs starting from 1."""
     tables = ("sensor_readings", "plan_runs", "farmers", "vehicles", "markets",
               "farmer_credentials", "published_plan", "farmer_phones", "phone_otps", "notification_log", "push_subscriptions",
-              "change_requests", "change_window")
+              "change_requests", "change_window", "chat_context")
     with get_conn() as conn:
         cleared = {}
         for table in tables:

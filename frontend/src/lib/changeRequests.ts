@@ -1,4 +1,4 @@
-import type { ChangeReason, ChangeRequest, ChangeStatus, PlanDiff } from "./api";
+import type { ChangeLine, ChangeReason, ChangeRequest, ChangeStatus, PlanDiff } from "./api";
 
 export const REASONS: { code: ChangeReason; label: string }[] = [
   { code: "too_late", label: "Too late" },
@@ -28,11 +28,32 @@ export const rawText = (r: Pick<ChangeRequest, "raw_text">) => (r.raw_text === "
 
 export interface PreviewRow { farmerId: number; asked: boolean; why: string[]; payoutChange: number }
 
-/** The farmers a preview would move: the ones who asked first, then everyone else by how much their payout moves. */
+/** One line of a request as the operator reads it: "Quantity: 400 kg → 300 kg", "Ready time: 06:00 → 06:30 (+1 day)",
+ *  "Participation: leaves the plan". */
+export function lineText(l: ChangeLine): string {
+  if (l.field === "active") return l.to === "out" ? "Leaves the plan (will not sell this time)" : "Rejoins the plan";
+  const day = (d: number) => (d > 0 ? ` (+${d} day${d > 1 ? "s" : ""})` : "");
+  return `${l.label}: ${l.from}${day(l.from_day)} \u2192 ${l.to}${day(l.to_day)}`;
+}
+
+/** Pairs among the selected requests that cannot be approved together (the backend refuses them too). */
+export function clashingPairs(selected: number[], requests: Pick<ChangeRequest, "id" | "overlaps">[]): [number, number][] {
+  const pick = new Set(selected), seen = new Map<string, [number, number]>();
+  for (const r of requests) {
+    if (!pick.has(r.id)) continue;
+    for (const o of r.overlaps ?? []) if (pick.has(o)) seen.set(`${Math.min(r.id, o)}-${Math.max(r.id, o)}`, [Math.min(r.id, o), Math.max(r.id, o)]);
+  }
+  return [...seen.values()].sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+}
+
+/** The farmers a preview would move: the ones who asked first, then everyone else by how much their payout moves.
+ *  Farmers leaving or joining the plan are listed too. */
 export function previewRows(diff: PlanDiff, requested: number[]): PreviewRow[] {
   const ask = new Set(requested);
-  return diff.changed
-    .map((c) => ({ farmerId: c.farmer_id, asked: ask.has(c.farmer_id), why: c.why, payoutChange: c.payout_change_inr }))
+  const moved = diff.changed.map((c) => ({ farmerId: c.farmer_id, asked: ask.has(c.farmer_id), why: c.why, payoutChange: c.payout_change_inr }));
+  const edge = (ids: number[] | undefined, why: string): PreviewRow[] =>
+    (ids ?? []).map((id) => ({ farmerId: id, asked: ask.has(id), why: [why], payoutChange: 0 }));
+  return [...moved, ...edge(diff.farmers_only_in_old, "Leaves the plan"), ...edge(diff.farmers_only_in_new, "Joins the plan")]
     .sort((a, b) => Number(b.asked) - Number(a.asked) || (a.asked ? a.farmerId - b.farmerId : Math.abs(b.payoutChange) - Math.abs(a.payoutChange) || a.farmerId - b.farmerId));
 }
 

@@ -43,14 +43,14 @@ from scipy.sparse import lil_matrix
 
 from algorithms_v2 import (
     EARTH_R_KM, _bin_pack_fleet_aware, _geo_clusters, _nearest_neighbor_order, _refrig_eps_km,
-    _route_distance, _route_duration, _simulate_end_time, _split_by_time_window, _timeline_from, _two_opt,
+    _no_vehicle_result, _route_distance, _route_duration, _simulate_end_time, _split_by_time_window, _timeline_from, _two_opt,
     _withheld_result, fleet_capacity_cycle, run_our_system_v2,
 )
 from baselines_v3 import (
     DEFAULT_BEHAVIOUR, FARMGATE_DISCOUNT, FarmgatePrices, _as_prices, _neighbour_groups,
     run_farmgate_baseline_v2, run_neighbour_pooling_v2, run_self_haul_v2, summarize_with_farmgate,
 )
-from logistics_lib_v2 import (AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity, get_road_matrix,
+from logistics_lib_v2 import (Vehicle, AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, TURNAROUND_HR, WORKDAY_END_HR, fresh_capacity, get_road_circuity, get_road_matrix,
                               haversine, spoilage_fraction)
 
 DEFAULT_DISPATCH_MARGIN = 0.0     # tuned in benchmark_ilo_v3.py (--margin-sweep); see ALGORITHM doc
@@ -691,7 +691,7 @@ def _flag_farmgate(results):
     return results
 
 
-def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
+def _run_ilo_v3_core(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
                dispatch_margin=DEFAULT_DISPATCH_MARGIN, consolidate=True, set_partition=True,
                safeguard=True, repair=True, return_meta=False, return_trace=False,
                fleet_aware=True, keep_blind_plan=True, price_impact=None, true_price_impact=None,
@@ -822,6 +822,227 @@ def run_ilo_v3(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices=None,
     if return_trace:
         return results, meta, _trace_json(trace, results)
     return (results, meta) if return_meta else results
+
+
+# ----------------------------------------------------------------------
+# Rescue of pools that got no truck
+# ----------------------------------------------------------------------
+# The planner builds pools first and assigns vehicles after, so it can build a pool that only one vehicle class
+# can carry (say a 4.9 t pool that needs a 5 t truck) while smaller vehicles sit idle. Two extra passes, each
+# planning ONLY the stuck farmers and each safe by construction (the inner planner never does worse than selling
+# at the farm gate, so a rescued farmer is never worse off than before):
+#   1. idle FPO vehicles (none of them drove in the first pass): pools are re-built to fit the idle vehicles, so a
+#      big pool is split across several small trucks;
+#   2. spot-hired trucks (non-refrigerated, SPOT_MARKUP x the table rate, SPOT_LEAD_HR before they arrive), for
+#      whoever is still stuck.
+# Mandi capacity already sold in earlier passes is taken out of the markets the later passes see.
+SPOT_MARKUP = 1.15
+SPOT_LEAD_HR = 1.0
+SPOT_MAX_PER_TYPE = 6
+
+
+def _no_truck_reason(members, fleet, used_ids):
+    """Why a pool got no vehicle, in words an operator can act on."""
+    qty = sum(f.qty_kg for f in members)
+    need_ref = any(f.needs_refrigeration for f in members)
+    if need_ref and not any(v.refrigerated for v in fleet):
+        return "Needs a refrigerated truck and the fleet has none"
+    if not fleet:
+        return "No vehicles in the fleet"
+    biggest = max(v.capacity_kg for v in fleet)
+    if qty > biggest:
+        return f"{qty:,.0f} kg is more than the biggest vehicle carries ({biggest:,.0f} kg)"
+    fits = [v for v in fleet if v.capacity_kg >= qty and (v.refrigerated or not need_ref)]
+    if not fits:
+        return "Needs a refrigerated truck big enough and the fleet has none"
+    if len(fits) == len(fleet) and all(v.id in used_ids for v in fits):
+        return f"All {len(fleet)} vehicles were already dispatched and none was free in time"
+    if all(v.id in used_ids for v in fits):
+        idle_small = sum(1 for v in fleet if v.id not in used_ids and v.capacity_kg < qty)
+        types = ", ".join(sorted({v.type_name for v in fits}))
+        return (f"Only {types} can carry {qty:,.0f} kg and all {len(fits)} were already dispatched"
+                + (f"; {idle_small} smaller vehicle{'s' if idle_small != 1 else ''} sat idle" if idle_small else ""))
+    return f"No suitable vehicle could reach these farmers before their deadline ({min(f.deadline_hr for f in members):.1f} h)"
+
+
+def _sold_kg(trace):
+    """{(market_id, crop): kg} sold by the plans in a trace."""
+    out = defaultdict(float)
+    for t in (trace or {}).values():
+        for crop, allocs in (t.get("crop_allocations") or {}).items():
+            for a in allocs:
+                out[(a["market_id"], crop)] += a["kg"]
+    return out
+
+
+def _markets_after(markets, sold):
+    import dataclasses
+    out = []
+    for m in markets:
+        cap = {c: max(0.0, q - sold.get((m.id, c), 0.0)) for c, q in m.capacity_kg.items()}
+        out.append(dataclasses.replace(m, capacity_kg=cap))
+    return out
+
+
+def _merge_allocs(entries):
+    out = defaultdict(list)
+    for e in entries:
+        for crop, allocs in (e.get("crop_allocations") or {}).items():
+            out[crop] += allocs
+    return dict(out)
+
+
+def _unserved(results):
+    return [r for r in results if r["vehicle_id"] is None and r.get("unserved_no_vehicle_kg", 0.0) > _EPS]
+
+
+def _spot_fleet(unserved_kg):
+    from baselines_v3 import _SPOT_TYPES
+    out, vid = [], -1
+    for name, cap, refrig, fixed, per_km in _SPOT_TYPES:
+        for _ in range(min(SPOT_MAX_PER_TYPE, int(unserved_kg // cap) + 1)):
+            out.append(Vehicle(vid, name, cap, refrig, fixed * SPOT_MARKUP, per_km * SPOT_MARKUP,
+                               available_at_hr=SPOT_LEAD_HR))
+            vid -= 1
+    return out
+
+
+def _rescue_pass(stuck, vehicles, markets, kw):
+    kw = dict(kw)
+    kw.update(return_meta=True, return_trace=True)
+    return _run_ilo_v3_core(stuck, vehicles, markets, **kw)
+
+
+def run_ilo_v3(farmers, fleet, markets, *args, rescue_unserved=True, spot_fallback=True, **kw):
+    """ILO v3 (see the module docstring) plus the rescue passes above. Same return shapes as before.
+    rescue_unserved=False / spot_fallback=False switch the passes off (exactly the previous behaviour)."""
+    want_meta, want_trace = kw.get("return_meta", False), kw.get("return_trace", False)
+    kw_core = dict(kw, return_meta=True, return_trace=True)
+    results, meta, trace = _run_ilo_v3_core(farmers, fleet, markets, *args, **kw_core)
+    stuck_pools = _unserved(results)
+    if stuck_pools and (rescue_unserved or spot_fallback):
+        results, meta, trace = _rescue(results, meta, trace, farmers, fleet, markets, args, kw_core,
+                                       rescue_unserved, spot_fallback)
+    # say why every pool that is still without a truck has none
+    by_id = {f.id: f for f in farmers}
+    used = {r["vehicle_id"] for r in results if r["vehicle_id"] is not None and r["vehicle_id"] >= 0}
+    for r in _unserved(results):
+        r["no_truck_reason"] = _no_truck_reason([by_id[i] for i in r["farmer_ids"]], fleet, used)
+    if want_trace:
+        return results, meta, trace
+    return (results, meta) if want_meta else results
+
+
+def _synth_trace_entry(r, by_id):
+    """Trace entry for a hauled pool that has none: its kg split by crop, all sold at its (single) market."""
+    mk = (r.get("markets_used") or [None])[0]
+    by_crop = {}
+    for fid in r["farmer_ids"]:
+        f = by_id[fid]
+        by_crop[f.crop] = by_crop.get(f.crop, 0.0) + f.qty_kg
+    tot = sum(by_crop.values()) or 1.0
+    sold = max(r["total_qty_kg"] - r.get("spoilage_loss_kg", 0.0) - r.get("unsold_kg", 0.0), 1e-9)
+    price = r["revenue"] / sold
+    return {"crop_allocations": {c: [{"market_id": mk, "price": price, "kg": float(kg * sold / tot),
+                                      "dist_km": r.get("route_distance_km", 0.0)}]
+                                 for c, kg in by_crop.items()}}
+
+
+def _rescue(results, meta, trace, farmers, fleet, markets, args, kw, use_idle, use_spot):
+    by_id = {f.id: f for f in farmers}
+    discount = args[0] if args else kw.get("discount", FARMGATE_DISCOUNT)
+    prices = _as_prices(markets, discount, kw.get("prices"))
+    stuck_pools = _unserved(results)
+    before = {"pools": len(stuck_pools), "farmers": sum(len(r["farmer_ids"]) for r in stuck_pools),
+              "kg": sum(r["unserved_no_vehicle_kg"] for r in stuck_pools)}
+    stuck_ids = {i for r in stuck_pools for i in r["farmer_ids"]}
+    keep = [r for r in results if not (r["vehicle_id"] is None and r["farmer_ids"] and set(r["farmer_ids"]) <= stuck_ids
+                                       and r.get("unserved_no_vehicle_kg", 0.0) > _EPS)]
+    # a trace is keyed by the pool's index in ITS OWN results list, so entries are tracked per pool object and
+    # re-keyed against the merged list at the end
+    entry_of = {id(results[int(k)]): v for k, v in (trace or {}).items()}
+    sold = _sold_kg(trace)
+    info = {"before": before, "idle_fleet": None, "spot_hire": None}
+    used = {r["vehicle_id"] for r in results if r["vehicle_id"] is not None}
+    stuck = [by_id[i] for i in sorted(stuck_ids)]
+    kw2 = {k: v for k, v in kw.items() if k not in ("return_meta", "return_trace")}
+    kw2.pop("prices", None)
+    kw2["prices"] = prices
+
+    def value(res, members):
+        member_ids = {f.id for f in members}
+        hauled = [r for r in res if r["vehicle_id"] is not None]
+        got = sum(r["net_return"] for r in hauled)
+        left = sum(prices.value(by_id[i]) for r in res if r["vehicle_id"] is None for i in r["farmer_ids"])
+        return got + left
+
+    pass_results = []
+    remaining = stuck
+    if use_idle:
+        idle = [copy.deepcopy(v) for v in fleet if v.id not in used]
+        if idle:
+            r2, _m2, t2 = _rescue_pass(stuck, idle, _markets_after(markets, sold), kw2)
+            if value(r2, stuck) >= prices.value_of(stuck) - _EPS:
+                hauled2 = [r for r in r2 if r["vehicle_id"] is not None]
+                pass_results += r2
+                entry_of.update({id(r2[int(k)]): v for k, v in t2.items()})
+                sold = _sold_kg({"_": {"crop_allocations": _merge_allocs(entry_of.values())}})
+                info["idle_fleet"] = {"vehicles_offered": len(idle), "trips": len(hauled2),
+                                      "farmers_rescued": sum(len(r["farmer_ids"]) for r in hauled2),
+                                      "kg_rescued": sum(r["total_qty_kg"] for r in hauled2),
+                                      "value_gain_inr": sum(r["net_return"] for r in hauled2)
+                                      - prices.value_of([by_id[i] for r in hauled2 for i in r["farmer_ids"]])}
+                still = {i for r in _unserved(r2) for i in r["farmer_ids"]}
+                remaining = [by_id[i] for i in sorted(still)]
+            else:
+                pass_results = []
+                remaining = stuck
+    if use_spot and remaining:
+        hireable = [f for f in remaining if not f.needs_refrigeration]
+        if hireable:
+            spot = _spot_fleet(sum(f.qty_kg for f in hireable))
+            r3, _m3, t3 = _rescue_pass(hireable, spot, _markets_after(markets, sold), kw2)
+            hauled3 = [r for r in r3 if r["vehicle_id"] is not None]
+            if hauled3 and value(r3, hireable) >= prices.value_of(hireable) - _EPS:
+                specs = {v.id: v for v in spot}
+                for r in hauled3:
+                    v = specs[r["vehicle_id"]]
+                    r["spot_hire"] = True
+                    r["vehicle_spec"] = {"type_name": v.type_name, "capacity_kg": v.capacity_kg,
+                                         "refrigerated": v.refrigerated, "fixed_cost": v.fixed_cost,
+                                         "per_km_cost": v.per_km_cost}
+                hired = {i for r in hauled3 for i in r["farmer_ids"]}
+                pass_results = [r for r in pass_results if not (set(r["farmer_ids"]) & hired)]
+                pass_results += hauled3
+                entry_of.update({id(r3[int(k)]): v for k, v in t3.items()})
+                left_ids = {f.id for f in remaining} - hired
+                for f in [by_id[i] for i in sorted(left_ids)]:
+                    if not any(f.id in r["farmer_ids"] for r in pass_results):
+                        pass_results.append(_no_vehicle_result([f]))
+                info["spot_hire"] = {"markup": SPOT_MARKUP, "trips": len(hauled3), "farmers_rescued": len(hired),
+                                     "kg_rescued": sum(r["total_qty_kg"] for r in hauled3),
+                                     "value_gain_inr": sum(r["net_return"] for r in hauled3)
+                                     - prices.value_of([by_id[i] for i in hired])}
+    if not pass_results:
+        meta["rescue"] = dict(info, after=before, changed=False)
+        return results, meta, trace
+    trace = None
+    final = keep + pass_results
+    assert {i for r in final for i in r["farmer_ids"]} == {f.id for f in farmers}, "rescue lost or duplicated farmers"
+    after_pools = _unserved(final)
+    info["after"] = {"pools": len(after_pools), "farmers": sum(len(r["farmer_ids"]) for r in after_pools),
+                     "kg": sum(r["unserved_no_vehicle_kg"] for r in after_pools)}
+    info["changed"] = True
+    trace = {}
+    for i, r in enumerate(final):
+        if id(r) in entry_of:
+            trace[str(i)] = entry_of[id(r)]
+        elif r["vehicle_id"] is not None:
+            # a pass that fell back to its farm-gate/direct baseline has no market-LP trace: rebuild the receipt
+            trace[str(i)] = _synth_trace_entry(r, by_id)
+    meta["rescue"] = info
+    meta["final_value"] = summarize_with_farmgate(final, farmers, markets, len(fleet), prices=prices)["net_return_incl_farmgate"]
+    return final, meta, trace
 
 
 # ----------------------------------------------------------------------

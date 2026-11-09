@@ -156,12 +156,21 @@ def _about(n: float) -> str:
     return _indian(round(n / 10) * 10 if n >= 1000 else round(n / 5) * 5 if n >= 100 else n)
 
 
-def _clock12(hhmm) -> str:
+# A plan time past 24:00 is on a later day ("30:12" is 6:12 AM the next day); without this the message would say 6:12 AM.
+_NEXT_DAY = {"en": ("next day", "{n} days later"), "te": ("మరుసటి రోజు", "{n} రోజుల తర్వాత"),
+             "hi": ("अगले दिन", "{n} दिन बाद"), "ta": ("அடுத்த நாள்", "{n} நாட்கள் கழித்து")}
+
+
+def _clock12(hhmm, lang: str = "en") -> str:
     m = re.fullmatch(r"(\d{1,2}):(\d{2})", str(hhmm or ""))
     if not m:
         return str(hhmm or "")
-    h = int(m.group(1)) % 24
-    return f"{h % 12 or 12}:{m.group(2)} {'AM' if h < 12 else 'PM'}"
+    h, days = int(m.group(1)) % 24, int(m.group(1)) // 24
+    out = f"{h % 12 or 12}:{m.group(2)} {'AM' if h < 12 else 'PM'}"
+    if days:
+        one, many = _NEXT_DAY[lang if lang in _NEXT_DAY else "en"]
+        out += f" ({one if days == 1 else many.format(n=days)})"
+    return out
 
 
 def _lang(lang) -> str:
@@ -177,7 +186,7 @@ def compose_plan_message(card: dict, lang: str, kind: str = "update") -> str:
     trip = card.get("trip") or {}
     mandis = trip.get("mandis") or []
     kg = card.get("qty_kg", 0)
-    v = {"t": _clock12(trip.get("pickup_eta")), "kg": int(kg) if float(kg) == int(kg) else round(float(kg), 1),
+    v = {"t": _clock12(trip.get("pickup_eta"), lang), "kg": int(kg) if float(kg) == int(kg) else round(float(kg), 1),
          "crop": _CROP.get(lang, {}).get(card.get("crop"), card.get("crop", "")),
          "m": mandis[0]["id"] if mandis else "", "v": _about((card.get("payout") or {}).get("total_inr", 0)),
          "p": _indian(round(card.get("doorstep_per_kg") or 0))}

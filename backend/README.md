@@ -267,7 +267,7 @@ a column means altering the table yourself (or resetting a throwaway database).
 
 The sections above cover farmers, vehicles, markets, plans and sensors. Also available (see `/docs` for shapes):
 `POST /farmers/upload`, `POST /plan/{id}/roads`, `GET /plan/{id}/fleet-advice`, `POST /plan/{id}/quote-check`,
-`GET /plan/{id}/impact`, `GET /plan/{id}/payout[/{farmer_id}]`, `GET /plan/{id}/fairness`, `GET /plan/{id}/diff/{old_plan_id}`,
+`GET /plan/{id}/impact`, `GET /plan/{id}/payout[/{farmer_id}]`, `GET /plan/{id}/fairness`, `GET /plan/{id}/fleet-usage`, `GET /plan/{id}/diff/{old_plan_id}`,
 `GET /plan/{id}/driver-sheet/{vehicle_id}`. `POST /plan/compute` also takes `road_distances`, `road_circuity`,
 `mode` and `max_value_sacrifice`.
 
@@ -285,8 +285,9 @@ Codes expire in 10 minutes, allow 5 guesses, one request per minute and 5 per ho
 
 ### Farmer change requests
 Farmer routes (farmer token): `POST /farmer/chat` (`{message}` for the language model or `{structured: {changes: [...]}}` for the form fallback; replies with `status` `confirm`, `clarify`, `invalid` (with `code` and `params`) or `llm_unavailable`), `POST /farmer/requests/{id}/confirm`, `POST /farmer/requests/{id}/withdraw`, `GET /farmer/requests`.
-Admin routes: `GET /change-requests?status=`, `POST /change-requests/preview` (`{ids}`; plans with the changes applied in memory and returns the diff), `POST /change-requests/approve` (`{ids, base_plan_id}`; 409 if the published plan moved), `POST /change-requests/{id}/reject` (`{reason_code}`), `GET` and `PUT /change-window` (`{is_open}`).
-`_compute_plan_impl` takes `farmer_overrides` to plan as if new farmer values were already saved. Env: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (no default), `OPENROUTER_TIMEOUT_S`, `OPENROUTER_MAX_TOKENS` (default 1000; reasoning models need room to think, and OpenRouter's log shows `finish_reason: length` when it is too small), `CHANGE_MAX_QTY_KG`, `CHANGE_MAX_HOUR`, `CHANGE_REQUEST_TTL_H`, `CHAT_RATE_PER_HOUR`. Tables: `change_requests`, `change_window` (both cleared by `POST /reset`).
+Admin routes: `GET /change-requests?status=` (pending requests carry `overlaps`: other waiting requests of the same farmer that clash), `POST /change-requests/preview` (`{ids}`; plans with the changes applied in memory and returns the diff), `POST /change-requests/approve` (`{ids, base_plan_id}`; 409 if the published plan moved, with a `code` such as `plan_moved`, `stale`, `same_field`, `cannot_combine`), `POST /change-requests/{id}/reject` (`{reason_code}`), `GET` and `PUT /change-window` (`{is_open}` and/or `{plan_day}`: the calendar date of hour 0, null for the day the plan was published).
+A farmer may have several pending requests; a change is `set`/`shift`/`scale`, or `at` (`day` word or ISO date plus `clock` HH:MM), or `participation` cancel/rejoin (a cancelled farmer has `farmers.active = false` and is left out of `_compute_plan_impl`); the chat keeps the last turns for ten minutes (`chat_context`).
+`_compute_plan_impl` takes `farmer_overrides` to plan as if new farmer values were already saved. Env: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (no default), `OPENROUTER_TIMEOUT_S`, `OPENROUTER_MAX_TOKENS` (default 1000; reasoning models need room to think, and OpenRouter's log shows `finish_reason: length` when it is too small), `CHANGE_MAX_QTY_KG`, `CHANGE_MAX_HOUR`, `CHANGE_REQUEST_TTL_H`, `CHANGE_MAX_PENDING`, `CHAT_RATE_PER_HOUR`, `FARMROUTE_TZ`. Tables: `change_requests`, `change_window`, `chat_context` (cleared by `POST /reset`), and the column `farmers.active` (added automatically at startup).
 
 
 ## Known simplifications (inherited, not re-litigated here)

@@ -171,7 +171,7 @@ export function DataView() {
         <table id="farmerTable" className="data"><thead><tr><th>ID</th><th>Lat</th><th>Lng</th><th>Crop</th><th className="num">Qty (kg)</th><th className="num">Ready &ndash; deadline (hr)</th><th>Cold</th></tr></thead>
           <tbody>
             {farmers.length ? farmers.map((f) => (
-              <tr key={f.id}><td>{f.id}</td><td>{fmt(f.lat, 4)}</td><td>{fmt(f.lng, 4)}</td><td>{f.crop}</td>
+              <tr key={f.id}><td>{f.id}{f.active === false && <span className="tag"> left the plan</span>}</td><td>{fmt(f.lat, 4)}</td><td>{fmt(f.lng, 4)}</td><td>{f.crop}</td>
                 <td className="num">{fmt(f.qty_kg, 1)}</td><td className="num">{fmt(f.ready_hr, 1)} &ndash; {fmt(f.deadline_hr, 1)}</td>
                 <td>{f.needs_refrigeration ? <span className="tag cold">Cold</span> : "–"}</td></tr>
             )) : <TableState kind="farmers" cols={7} empty="No farmers yet. Run a scenario, or use Add farmer." />}

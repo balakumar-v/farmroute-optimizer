@@ -28,11 +28,11 @@ class FakeSR {
   fail(code) { this.onerror({ error: code }); this.onend(); }
 }
 
-async function boot({ chat = [], requests = [], confirmStatus = 200, speech = false } = {}) {
+async function boot({ chat = [], requests = [], confirmStatus = 200, confirmBody = null, speech = false, card = CARD } = {}) {
   const calls = [];
   const dom = new JSDOM(html, { url: "http://localhost/", pretendToBeVisual: true, runScripts: "outside-only" });
   const w = dom.window;
-  w.localStorage.token = "tok"; w.localStorage.card = JSON.stringify(CARD); w.localStorage.cardAt = String(Date.now());
+  w.localStorage.token = "tok"; w.localStorage.card = JSON.stringify(card); w.localStorage.cardAt = String(Date.now());
   w.matchMedia = () => ({ matches: false });
   if (speech) w.webkitSpeechRecognition = FakeSR;
   const queue = [...chat], state = { requests: [...requests], offline: false };
@@ -41,10 +41,10 @@ async function boot({ chat = [], requests = [], confirmStatus = 200, speech = fa
     const path = url.replace(/^.*\/farmer/, "/farmer"), method = o.method || "GET";
     calls.push({ path, method, body: o.body ? JSON.parse(o.body) : undefined, auth: new w.Headers(o.headers).get("Authorization") });
     if (state.offline) return Promise.reject(new TypeError("offline"));
-    if (path === "/farmer/me") return json(200, CARD);
+    if (path === "/farmer/me") return json(200, card);
     if (path === "/farmer/requests" && method === "GET") return json(200, { requests: state.requests });
     if (path === "/farmer/chat") { const r = queue.shift(); return json(r.http || 200, r.body || r); }
-    if (/\/confirm$/.test(path)) return json(confirmStatus, confirmStatus === 200 ? { status: "pending" } : { detail: "Your plan details changed since you asked." });
+    if (/\/confirm$/.test(path)) return json(confirmStatus, confirmStatus === 200 ? { status: "pending" } : (confirmBody || { detail: "Your plan details changed since you asked.", code: "stale" }));
     if (/\/withdraw$/.test(path)) return json(200, { status: "withdrawn" });
     return json(404, {});
   };
@@ -175,7 +175,7 @@ test("every language has every chat string, and the app source has no stray quot
   for (const lang of ["te", "hi", "ta"]) {
     const missing = need.filter((k) => !(k in L[lang]));
     // pre-existing app strings may legitimately fall back to English; the new chat strings must not
-    const chatKeys = missing.filter((k) => /^(chat|c[A-Z]\w*|f(Qty|Ready|Dead)|h[QT][sml]|s[PARWE]|r[1-4]|e[0-6])$/.test(k));
+    const chatKeys = missing.filter((k) => /^(chat|c[A-Z]\w*|f(Qty|Ready|Dead|Cancel)|h[QT][sml]|s[PARWES]|r[1-4]|e([0-9]|1[01])|p(Out|In)|d(Next|Many|None|Today|Tom|After)|w(T|B|Btn))$/.test(k));
     assert.deepEqual(chatKeys, [], `${lang} is missing ${chatKeys.join(", ")}`);
   }
 });
@@ -276,4 +276,101 @@ test("every language has the microphone strings", () => {
   const L = new Function(src + "; return L;")();
   for (const lang of ["en", "te", "hi", "ta"])
     for (const k of ["cMic", "cMicOn", "cMicDenied", "cMicNone", "cMicNet", "cMicFail"]) assert.ok(L[lang][k], `${lang}.${k}`);
+});
+
+// ---------------------------------------------------------------- v2: several requests, next-day times, cancel and rejoin
+const L2 = { ...CARD, status: "hauled", trip: { pickup_eta: "30:12", mandis: [{ id: 2 }] } };
+const OUT = { farmer_id: 7, status: "withdrawn", fpo_phone: "9876543210", phone: { registered: true, masked: "+91 *****1234" } };
+
+test("a pickup after midnight says which day, on the card and in the day's list", async () => {
+  const a = await boot({ card: L2 });
+  assert.match(a.$(".big").textContent, /6:12\s*AM/);
+  assert.match(a.$("#app").textContent, /6:12AM\s*next day/);                  // its own line under the big time
+  assert.match(a.text(), /6:12 AM \(next day\)/);                               // and in "your day"
+  const b = await boot({ card: { ...L2, trip: { pickup_eta: "54:00", mandis: [{ id: 2 }] } } });
+  assert.match(b.text(), /2 days later/);
+  const c = await boot({ card: { ...L2, trip: { pickup_eta: "06:30", mandis: [{ id: 2 }] } } });
+  assert.doesNotMatch(c.text(), /next day|days later/);
+});
+
+test("the confirm card shows a next-day time and a request to stop selling", async () => {
+  const lines = [{ field: "ready_hr", label: "Ready time", from: "06:00", to: "06:00", from_day: 0, to_day: 1 }];
+  const a = await boot({ chat: [{ status: "confirm", request_id: 3, changes: lines }, { status: "confirm", request_id: 4, changes: [{ field: "active", label: "Participation", from: "in", to: "out", from_day: 0, to_day: 0 }] }] });
+  await a.click("#fab"); a.type("#cq", "ready tomorrow 6 am"); await a.click("[data-act=cSend]");
+  assert.match(a.text(), /Ready time: 6:00 AM \u2192 6:00 AM \(next day\)/);
+  await a.click("[data-act=cNo]"); a.type("#cq", "I will not sell this time"); await a.click("[data-act=cSend]");
+  assert.match(a.text(), /You will not sell this time/);
+});
+
+test("several waiting requests are all listed, and a replaced one says so", async () => {
+  const mk = (id, status, f) => ({ id, status, reason_code: null, changes: [{ field: f, label: "x", from: f === "qty_kg" ? "400 kg" : "06:00", to: f === "qty_kg" ? "300 kg" : "07:00", from_day: 0, to_day: 0 }] });
+  const a = await boot({ requests: [mk(1, "pending", "qty_kg"), mk(2, "pending", "ready_hr"), mk(3, "superseded", "qty_kg")] });
+  await a.click("#fab");
+  assert.equal(a.$$("[data-act=cWd]").length, 2, "each waiting request can be cancelled");
+  assert.match(a.text(), /Waiting for your FPO.*Waiting for your FPO/);
+  assert.match(a.text(), /Not needed any more/);
+});
+
+test("confirming can be refused because too many are waiting or it was already asked, in words", async () => {
+  for (const [code, re] of [["max_pending", /several requests waiting/], ["duplicate", /already asked for exactly this/], ["closed", /not open right now/], ["stale", /details changed/]]) {
+    const a = await boot({ chat: [{ status: "confirm", request_id: 3, changes: CHANGES }], confirmStatus: 409, confirmBody: { detail: "x", code } });
+    await a.click("#fab"); a.type("#cq", "less"); await a.click("[data-act=cSend]"); await a.click("[data-act=cYes]");
+    assert.match(a.text(), re, code);
+  }
+});
+
+test("the new refusals are shown in the farmer's language", async () => {
+  const a = await boot({ chat: [{ status: "invalid", code: "inactive", params: {}, message: "SERVER-ENGLISH-TEXT" }, { status: "invalid", code: "date_past", params: {}, message: "SERVER-ENGLISH-TEXT" }] });
+  await a.click("#fab"); await a.click("[data-lang=hi]");
+  a.type("#cq", "x"); await a.click("[data-act=cSend]");
+  assert.match(a.text(), /आप अभी इस योजना में नहीं हैं/);
+  a.type("#cq", "y"); await a.click("[data-act=cSend]");
+  assert.match(a.text(), /वह दिन योजना शुरू होने से पहले है/);
+  assert.doesNotMatch(a.text(), /SERVER-ENGLISH-TEXT/);
+});
+
+test("the form can say \"I will not sell this time\", and put a time on a named day", async () => {
+  const a = await boot({ chat: [{ status: "llm_unavailable", message: "x" }, { status: "confirm", request_id: 5, changes: CHANGES }, { status: "confirm", request_id: 6, changes: CHANGES }] });
+  await a.click("#fab"); a.type("#cq", "hi"); await a.click("[data-act=cSend]");
+  assert.match([...a.$$("#cf option")].map((o) => o.textContent).join("|"), /I will not sell this time/);
+  await a.pick("#cf", "cancel");
+  assert.equal(a.$("#cv"), null, "no value box for cancel");
+  await a.click("[data-act=cFormSend]");
+  assert.deepEqual(posts(a, "/farmer/chat")[1].body, { structured: { participation: "cancel" } });
+  await a.click("[data-act=cNo]");
+  await a.pick("#cf", "ready_hr"); await a.pick("#ch", "set");
+  assert.ok(a.$("#cdy"), "a day box for a time");
+  assert.deepEqual([...a.$$("#cdy option")].map((o) => o.value), ["", "today", "tomorrow", "day_after_tomorrow"]);
+  await a.pick("#cdy", "tomorrow"); a.type("#cv", "06:00"); await a.click("[data-act=cFormSend]");
+  assert.deepEqual(posts(a, "/farmer/chat")[2].body, { structured: { changes: [{ field: "ready_hr", mode: "at", day: "tomorrow", clock: "06:00" }] } });
+});
+
+test("a farmer who has left the plan sees that, and one button to ask to join again", async () => {
+  const a = await boot({ card: OUT, chat: [{ status: "confirm", request_id: 8, changes: [{ field: "active", label: "Participation", from: "out", to: "in", from_day: 0, to_day: 0 }] }] });
+  assert.match(a.text(), /You are not selling this time/);
+  assert.match(a.text(), /ask to join again/);
+  assert.equal(a.$(".big"), null, "no truck time");
+  await a.click("[data-act=rejoin]");
+  assert.deepEqual(posts(a, "/farmer/chat")[0].body, { structured: { participation: "rejoin" } });
+  assert.match(a.text(), /You will sell again/);
+  await a.click("[data-act=cYes]");
+  assert.equal(posts(a, "/requests/8/confirm").length, 1);
+});
+
+test("while out, the form offers only joining again", async () => {
+  const a = await boot({ card: OUT, chat: [{ status: "llm_unavailable", message: "x" }, { status: "confirm", request_id: 9, changes: CHANGES }] });
+  await a.click("#fab"); a.type("#cq", "hi"); await a.click("[data-act=cSend]");
+  assert.deepEqual([...a.$$("#cf option")].map((o) => o.value), ["rejoin"]);
+  assert.equal(a.$("#cv"), null);
+  await a.click("[data-act=cFormSend]");
+  assert.deepEqual(posts(a, "/farmer/chat")[1].body, { structured: { participation: "rejoin" } });
+});
+
+test("every language has the v2 strings", () => {
+  const src = appJs.slice(appJs.indexOf("const L = {"), appJs.indexOf("const CROP"));
+  const L = new Function(src + "; return L;")();
+  for (const lang of ["en", "te", "hi", "ta"])
+    for (const k of ["pOut", "pIn", "dNext", "dMany", "sS", "cMax", "cDup", "e7", "e8", "e9", "e10", "e11", "fCancel", "wT", "wB", "wBtn", "cDay", "dNone", "dToday", "dTom", "dAfter"])
+      assert.ok(L[lang][k], `${lang}.${k}`);
+  assert.match(L.en.dMany, /\{n\}/); assert.match(L.te.dMany, /\{n\}/); assert.match(L.hi.dMany, /\{n\}/); assert.match(L.ta.dMany, /\{n\}/);
 });

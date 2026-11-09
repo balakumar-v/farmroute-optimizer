@@ -378,6 +378,56 @@ def fairness_metrics(plan):
     }
 
 
+def fleet_usage(plan):
+    """What 'vehicles used' hides: how many own vehicles ran, how full the trips were (kg / capacity), how many
+    sat idle, how many trucks were hired on the spot, and which pools never got a truck and why."""
+    snap, pools = plan["input_snapshot"], plan["integrated_logistics_optimization"]["pools"]
+    fleet = {v["id"]: v for v in snap["fleet"]}
+    own_ids = set()
+    trips, loads, spot = 0, [], 0
+    per_type = {}
+    for lab in {class_label(v["capacity_kg"], v["refrigerated"]) for v in fleet.values()}:
+        per_type[lab] = {"class": lab, "owned": 0, "dispatched": 0, "trips": 0, "kg": 0.0, "cap_kg": 0.0}
+    for v in fleet.values():
+        per_type[class_label(v["capacity_kg"], v["refrigerated"])]["owned"] += 1
+    unserved = []
+    for i, p in enumerate(pools):
+        if p["vehicle_id"] is None:
+            if not p.get("sold_at_farmgate") and not p.get("withheld") and p.get("unserved_no_vehicle_kg", 0) > _EPS:
+                unserved.append({"pool": i, "farmers": len(p["farmer_ids"]), "kg": p["unserved_no_vehicle_kg"],
+                                 "reason": p.get("no_truck_reason") or "No vehicle could take this pool."})
+            continue
+        trips += 1
+        spec = p.get("vehicle_spec") if p.get("spot_hire") else fleet.get(p["vehicle_id"])
+        cap = float(spec["capacity_kg"]) if spec else 0.0
+        if cap:
+            loads.append(min(p["total_qty_kg"] / cap, 1.0))
+        if p.get("spot_hire"):
+            spot += 1
+            continue
+        own_ids.add(p["vehicle_id"])
+        row = per_type[class_label(fleet[p["vehicle_id"]]["capacity_kg"], fleet[p["vehicle_id"]]["refrigerated"])]
+        row["trips"] += 1
+        row["kg"] += p["total_qty_kg"]
+        row["cap_kg"] += cap
+    for vid in own_ids:
+        per_type[class_label(fleet[vid]["capacity_kg"], fleet[vid]["refrigerated"])]["dispatched"] += 1
+    rows = sorted(per_type.values(), key=lambda r: r["class"])
+    for r in rows:
+        r["avg_load_pct"] = 100.0 * r["kg"] / r["cap_kg"] if r["cap_kg"] else None
+        r["idle"] = r["owned"] - r["dispatched"]
+    return {
+        "fleet_size": len(fleet), "dispatched": len(own_ids), "idle": len(fleet) - len(own_ids),
+        "dispatched_pct": 100.0 * len(own_ids) / len(fleet) if fleet else 0.0,
+        "trips": trips, "spot_trips": spot,
+        "avg_load_pct": 100.0 * sum(loads) / len(loads) if loads else 0.0,
+        "by_type": rows, "unserved": unserved,
+        "unserved_kg": sum(u["kg"] for u in unserved),
+        "notes": ["Dispatched = own vehicles that ran at least one trip (the old '% utilised' was this, not how full they were).",
+                  "Average load = trip kg / vehicle capacity, averaged over trips."],
+    }
+
+
 # ----------------------------------------------------------------------
 # N8  Plan diff
 # ----------------------------------------------------------------------

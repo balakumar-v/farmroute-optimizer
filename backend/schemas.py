@@ -46,6 +46,7 @@ class FarmerOut(BaseModel):
     ready_hr: float
     deadline_hr: float
     needs_refrigeration: bool
+    active: bool = True        # false once the farmer's request to leave the plan was approved
 
 
 # ---------- vehicles ----------

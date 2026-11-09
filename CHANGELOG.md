@@ -1,5 +1,21 @@
 # Changelog
 
+## Change-request chat: follow-ups, several requests, "tomorrow 6 AM", cancel (Nov 2026)
+- **The bot remembers the chat.** The last few turns (the farmer's messages and what the app asked or refused) are kept per farmer for ten minutes and sent to the model, so an answer to "before what?" or "make it 200 then" is understood. The memory is cleared when a request is confirmed. New table `chat_context`.
+- **Several requests at once.** A farmer can have up to `CHANGE_MAX_PENDING` (5) requests waiting; a new one no longer replaces the old one. Asking for exactly the same thing twice is refused. The console flags requests of one farmer that clash (same thing, or one leaves the plan), refuses to preview or approve a clashing pair together, checks at approval that a farmer's numbers still hold together (ready before deadline), and marks the other request superseded when one is approved. A request is stale only if what it changes moved, so approving a quantity request does not spoil a waiting time request. Drafts are now deleted rather than kept when replaced or withdrawn. The unique one-pending index is dropped at startup.
+- **Dates.** The model passes a day word (today, tomorrow, day after tomorrow, a weekday, or a date) and a 24-hour time; code turns it into plan hours from today's date (`FARMROUTE_TZ`, default Asia/Kolkata) and the plan day (the calendar date of hour 0, set in the Requests tab, default the day the plan was published). Times past 24:00 show as "next day" on the confirm card, the farmer's card and in SMS/WhatsApp. The farmer form has a Day box.
+- **Cancel and rejoin.** "I will not sell this time" becomes a request; approving it sets `farmers.active = false` (new column, added at startup), the row stays and the next plan leaves the farmer out. The farmer sees a "you are not selling this time" screen with a button to ask to join again. The console's Data tab marks farmers who left, and the preview lists farmers who leave or join. An all-farmers-out plan is refused.
+- Tests: backend (`test_change_requests.py`), console (`changeRequests.test.ts`), farmer app (`chat.test.mjs`).
+- Not done: the optimizer stability term (penalise moving farmers who did not ask), voice replies, dates with a month name beyond what the model turns into YYYY-MM-DD.
+
+## Rescue for pools that got no truck + honest fleet metrics (Nov 2026)
+- `run_ilo_v3` now runs two extra passes on pools that ended with no vehicle: (1) re-plan them on own vehicles the first pass left idle (splits a pool that only a big truck could take), (2) hire non-refrigerated spot trucks (`SPOT_MARKUP` 1.15x rate, max 6 per type). Each pass is kept only if it adds value; every farmer still appears exactly once. Switch off with `rescue_unserved=False` / `spot_fallback=False`. Details in `meta["rescue"]`.
+- Pools that still get no truck carry `no_truck_reason` (needs reefer / bigger than the biggest vehicle / all vehicles dispatched / deadline).
+- Trips from a pass that fell back to its direct baseline now get a synthesized trace entry, so the map shows their market receipts.
+- `GET /plan/{id}/fleet-usage` + Fleet usage panel: vehicles dispatched vs idle, average load as % of capacity, hired trips, per-type rows, unserved pools with reasons. The summary line now reads "% of fleet dispatched" (it was labelled "utilised", but never measured load).
+- Plan tab: "Infeasible" tag replaced by "No truck: <reason>".
+- Tests: `backend/tests/test_rescue.py` (6).
+
 ## Fairer payouts: range, operator fee, split rule, fairness report (Nov 2026)
 - Payout statements and farmer cards show a downside range (`range_inr`: mandi prices -10%, running cost +10%); the farmer app slip shows "as little as Rs X" when it is meaningfully lower (en/te/hi/ta). Service worker cache v11.
 - `OPERATOR_FEE_PCT` (default 0): an explicit fee line taken only from a farmer's gain over their doorstep value; totals plus fee reconcile to the plan value.
