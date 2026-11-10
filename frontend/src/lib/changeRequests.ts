@@ -32,6 +32,9 @@ export interface PreviewRow { farmerId: number; asked: boolean; why: string[]; p
  *  "Participation: leaves the plan". */
 export function lineText(l: ChangeLine): string {
   if (l.field === "active") return l.to === "out" ? "Leaves the plan (will not sell this time)" : "Rejoins the plan";
+  // from = the doorstep price the plan assumed for this farmer, to = what their own trader offers (Rs/kg). Approving
+  // prices only this farmer's doorstep sale at the offer, so the planner may now put them on a truck.
+  if (l.field === "trader_quote_per_kg") return `Own trader offers \u20B9${l.to}/kg${l.from ? ` (plan assumed \u20B9${l.from}/kg)` : ""}: asks to join the pooling`;
   const day = (d: number) => (d > 0 ? ` (+${d} day${d > 1 ? "s" : ""})` : "");
   return `${l.label}: ${l.from}${day(l.from_day)} \u2192 ${l.to}${day(l.to_day)}`;
 }

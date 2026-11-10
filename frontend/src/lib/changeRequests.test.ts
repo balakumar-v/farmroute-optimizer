@@ -55,6 +55,10 @@ describe("v2: next-day times, leaving the plan, clashes", () => {
     expect(lineText(line({ to_day: 1 }))).toBe("Ready time: 06:00 \u2192 06:30 (+1 day)");
     expect(lineText(line({ to_day: 2 }))).toBe("Ready time: 06:00 \u2192 06:30 (+2 days)");
     expect(lineText(line({ field: "qty_kg", label: "Quantity", from: "400 kg", to: "300 kg" }))).toBe("Quantity: 400 kg \u2192 300 kg");
+    expect(lineText(line({ field: "trader_quote_per_kg", label: "Trader's offer", from: "16", to: "12" })))
+      .toBe("Own trader offers \u20B912/kg (plan assumed \u20B916/kg): asks to join the pooling");
+    expect(lineText(line({ field: "trader_quote_per_kg", label: "Trader's offer", from: "", to: "12" })))
+      .toBe("Own trader offers \u20B912/kg: asks to join the pooling");
   });
   it("says in words when a farmer leaves or rejoins the plan", () => {
     expect(lineText(line({ field: "active", label: "Participation", from: "in", to: "out" }))).toMatch(/Leaves the plan/);

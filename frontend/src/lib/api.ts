@@ -43,7 +43,7 @@ export interface ApiClient {
 export type ChangeStatus = "draft" | "pending" | "approved" | "rejected" | "superseded" | "expired" | "withdrawn";
 export type ChangeReason = "too_late" | "not_possible" | "capacity" | "other";
 /** from_day / to_day: whole days after the plan day for a time ("06:00" with to_day 1 is 06:00 the next day). Participation lines use from/to "in" | "out". */
-export interface ChangeLine { field: "qty_kg" | "ready_hr" | "deadline_hr" | "active"; label: string; from: string; to: string; from_day: number; to_day: number }
+export interface ChangeLine { field: "qty_kg" | "ready_hr" | "deadline_hr" | "active" | "trader_quote_per_kg"; label: string; from: string; to: string; from_day: number; to_day: number }
 export interface ChangeRequest {
   id: number; farmer_id: number; crop: string | null; status: ChangeStatus;
   raw_text: string;                       // what the farmer typed, or "[form]"; untrusted: show as plain text

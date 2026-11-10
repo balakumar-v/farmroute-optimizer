@@ -57,7 +57,8 @@ DEFAULT_DISPATCH_MARGIN = 0.0     # tuned in benchmark_ilo_v3.py (--margin-sweep
 CW_ALL_PAIRS_MAX = 400            # above this many eligible farmers per (mandi, crop) use k-nearest pairs
 CW_KNN = 25
 CW_TOP_MARKETS = 3                # a farmer is eligible for a mandi only if it is among their 3 best by net/kg
-SP_TIME_LIMIT_S = 30.0
+SP_TIME_LIMIT_S = 5.0      # set-partition MILP wall-clock cap (was 30 s; ILO_SP_TIME_LIMIT overrides). Once capped, the best plan found moves by <0.5%
+SP_MIP_GAP = 1e-4     # set-partition MILP: stop once within this fraction of the best bound (ILO_SP_GAP overrides)
 DEFAULT_STRESS_DISCOUNTS = (0.05, 0.10, 0.20, 0.30, 0.35)   # farm-gate discounts the finished plan is stress-tested at
 FLEET_DT_HR = 0.25                # time grid of the fleet-capacity rows (conservative: occupancy rounded outward)
 FLEET_MAX_START_SLOTS = 6         # start-hour options kept per (trip, vehicle class)
@@ -406,7 +407,7 @@ def solve_set_partition(cands, markets, price_impact=None):
     A_m, ub_m, obj_m, lb_v, ub_v, integ = _impact_extend(A.tocsr(), ub, obj, items, price_impact, markets)
     try:
         res = milp(obj_m, constraints=LinearConstraint(A_m, -np.inf, ub_m), integrality=integ,
-                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": 1e-4})
+                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": _env_f("ILO_SP_GAP", SP_MIP_GAP)})
         if res.x is not None and res.status in (0, 1):
             return [items[k] for k in range(len(items)) if res.x[k] > 0.5], (
                 "optimal" if res.status == 0 else "time_limit_best_found")
@@ -535,7 +536,7 @@ def solve_fleet_set_partition(cols, markets, fleet, price_impact=None, lp_only=F
         return [], "lp_only", meta
     try:
         res = milp(obj, constraints=LinearConstraint(A, -np.inf, ub), integrality=integ,
-                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": 1e-4})
+                   bounds=Bounds(lb_v, ub_v), options={"time_limit": _env_f("ILO_SP_TIME_LIMIT", SP_TIME_LIMIT_S), "mip_rel_gap": _env_f("ILO_SP_GAP", SP_MIP_GAP)})
         if res.x is not None and res.status in (0, 1):
             return [cols[k] for k in range(len(cols)) if res.x[k] > 0.5], (
                 "optimal" if res.status == 0 else "time_limit_best_found"), meta

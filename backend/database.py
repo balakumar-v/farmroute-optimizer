@@ -199,6 +199,9 @@ CREATE TABLE IF NOT EXISTS change_window (
 DROP INDEX IF EXISTS change_requests_one_pending;
 -- Cancelling participation keeps the farmer's row and marks them out of the plan (rejoining flips it back).
 ALTER TABLE farmers ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+-- What this one farmer's own trader offered (Rs/kg), set when an admin approves a 'join the pool' request. NULL = use the
+-- assumed doorstep price. It prices only this farmer's doorstep sale; nobody else's price reads it.
+ALTER TABLE farmers ADD COLUMN IF NOT EXISTS trader_quote_per_kg DOUBLE PRECISION;
 -- The calendar date that hour 0 of the plan means, so "tomorrow 6 AM" can become an hour. NULL = the day the plan
 -- was published.
 ALTER TABLE change_window ADD COLUMN IF NOT EXISTS plan_day TEXT;

@@ -52,7 +52,12 @@ def farmer_status(pools, farmer_id):
 def _prices(snapshot, discount):
     markets = [Market(id=m["id"], lat=m["lat"], lng=m["lng"], price=m["price"], capacity_kg=m["capacity_kg"])
                for m in snapshot["markets"]]
-    return FarmgatePrices(markets, discount=discount)
+    base = FarmgatePrices(markets, discount=discount)
+    quotes = snapshot.get("trader_quotes")          # {farmer_id (str): Rs/kg}: only farmers whose own trader quoted
+    if not quotes:
+        return base
+    return FarmgatePrices(markets, discount=discount,
+                          price_fn=lambda f: float(quotes[str(f.id)]) if str(f.id) in quotes else base.per_kg(f))
 
 
 def _discount(plan):

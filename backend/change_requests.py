@@ -33,8 +33,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 FIELDS = ("qty_kg", "ready_hr", "deadline_hr")
-COLUMNS = FIELDS + ("active",)              # the farmers columns a request may write
-LABEL = {"qty_kg": "Quantity", "ready_hr": "Ready time", "deadline_hr": "Deadline", "active": "Participation"}
+COLUMNS = FIELDS + ("active", "trader_quote_per_kg")   # the farmers columns a request may write
+LABEL = {"qty_kg": "Quantity", "ready_hr": "Ready time", "deadline_hr": "Deadline", "active": "Participation",
+         "trader_quote_per_kg": "Trader's offer"}
 # How different two values must be to count as a change (a farmer typing 342.7 for 342.7384 changed nothing).
 _TOL = {"qty_kg": 0.05, "ready_hr": 0.005, "deadline_hr": 0.005}
 REASONS = ("too_late", "not_possible", "capacity", "other")
@@ -63,6 +64,10 @@ def pending_ttl_s() -> float:
 
 def rate_limit_per_hour() -> int:
     return int(os.environ.get("CHAT_RATE_PER_HOUR", "20"))
+
+
+def max_quote_per_kg() -> float:
+    return float(os.environ.get("CHANGE_MAX_QUOTE_PER_KG", "500"))    # Rs/kg; above this it is a typo, not a quote
 
 
 def max_pending() -> int:
@@ -128,16 +133,26 @@ class Change(BaseModel):
         return self
 
 
+class PoolJoin(BaseModel):
+    """\"My trader pays less than expected, put me in the pooling.\" The only number is what the farmer's own trader
+    offers per kg, copied from the message."""
+    model_config = ConfigDict(extra="forbid")
+    quote_per_kg: float = Field(gt=0, allow_inf_nan=False)
+
+
 class ChangeParse(BaseModel):
     model_config = ConfigDict(extra="forbid")
     changes: List[Change] = Field(default_factory=list, max_length=3)
     participation: Optional[Literal["cancel", "rejoin"]] = None   # "I will not sell this time" / "I want to sell again"
+    pool_join: Optional[PoolJoin] = None                          # "my trader pays less, I want to join the pool"
     clarify: Optional[str] = Field(default=None, max_length=200)  # a question for the farmer when info is missing
 
     @model_validator(mode="after")
     def _exclusive(self):
         if self.participation and self.changes:
             raise ValueError("participation cannot be combined with changes")
+        if self.pool_join and (self.changes or self.participation):
+            raise ValueError("pool_join cannot be combined with changes or participation")
         return self
 
 
@@ -257,10 +272,40 @@ def _check_final(final: dict) -> None:
         raise ChangeError("The ready time must be earlier than the deadline.", "order")
 
 
+def _resolve_pool_join(join: PoolJoin, current: dict, active: bool) -> dict:
+    """A farmer whose own trader pays less than the plan assumed asks to be pooled. `current` carries `pool_status`
+    (the farmer's published card: hauled / farmgate / unserved) and `expected_per_kg` (the doorstep price the plan
+    assumed for them), added by with_card(). The quote is saved for THIS farmer only, once an admin approves."""
+    if not active:
+        raise ChangeError("You are not in this plan right now. Ask to join again first.", "inactive")
+    status, expected = current.get("pool_status"), current.get("expected_per_kg")
+    if status is None:
+        raise ChangeError("I cannot see your trip right now. Please try again later.", "no_card")
+    if status == "hauled":
+        raise ChangeError("A truck is already planned for your produce. Use 'Check a trader's offer' to compare.",
+                          "already_hauled")
+    if status == "unserved":
+        raise ChangeError("You are already waiting for a truck, and your FPO knows. A lower offer will not change that.",
+                          "waiting_truck")
+    q = round(join.quote_per_kg, 2)
+    if q > max_quote_per_kg():
+        raise ChangeError(f"That price looks too high for one kilo (more than {max_quote_per_kg():g} rupees).",
+                          "quote_range", max=max_quote_per_kg())
+    if expected is not None and q >= float(expected):
+        raise ChangeError(f"Your trader's offer is not below the expected price (about {float(expected):g} rupees a "
+                          "kilo), so selling at your door is fine.", "not_lower", quote=q, expected=float(expected))
+    prev = current.get("trader_quote_per_kg")
+    if prev is not None and abs(float(prev) - q) < 0.005:
+        raise ChangeError("That is the same as the offer you already gave.", "same")
+    return {"trader_quote_per_kg": q}
+
+
 def resolve(parse: ChangeParse, current: dict, clock: Optional[Clock] = None) -> dict:
     """ChangeParse + the farmer's current values -> {column: new value} for what changes. Raises ChangeError
     (farmer-safe text) if the result is not a sensible plan input."""
     active = bool(current.get("active", True))
+    if parse.pool_join is not None:
+        return _resolve_pool_join(parse.pool_join, current, active)
     if parse.participation == "cancel":
         if not active:
             raise ChangeError("You are already out of this plan.", "already_out")
@@ -296,6 +341,11 @@ def resolve(parse: ChangeParse, current: dict, clock: Optional[Clock] = None) ->
 def change_lines(current: dict, proposed: dict) -> list:
     """The confirm card, built by code from resolved numbers (the LLM's words are never shown as a result).
     Times are "HH:MM" on the clock plus from_day / to_day (whole days after the plan day) for a next-day time."""
+    if "trader_quote_per_kg" in proposed:
+        exp = current.get("expected_per_kg")
+        return [{"field": "trader_quote_per_kg", "label": LABEL["trader_quote_per_kg"],
+                 "from": "" if exp is None else f"{round(float(exp), 2):g}",
+                 "to": f"{round(float(proposed['trader_quote_per_kg']), 2):g}", "from_day": 0, "to_day": 0}]
     if "active" in proposed:
         was = "in" if current.get("active", True) else "out"
         return [{"field": "active", "label": LABEL["active"], "from": was, "to": "in" if proposed["active"] else "out",
@@ -339,10 +389,32 @@ def rate_limit_ok(farmer_id: int, now: Optional[float] = None) -> bool:
 # ---------------------------------------------------------------- database (conn = database.get_conn(), dict rows)
 def fetch_current(conn, farmer_id: int) -> Optional[dict]:
     """The one fixed query that tells the LLM (and resolve) what this farmer has now. The id comes from the token."""
-    r = conn.execute("SELECT qty_kg, ready_hr, deadline_hr, active FROM farmers WHERE id = %s", (farmer_id,)).fetchone()
+    r = conn.execute("SELECT qty_kg, ready_hr, deadline_hr, active, trader_quote_per_kg FROM farmers WHERE id = %s",
+                     (farmer_id,)).fetchone()
     if r is None:
         return None
-    return {**{k: float(r[k]) for k in FIELDS}, "active": bool(r["active"])}
+    q = r["trader_quote_per_kg"]
+    return {**{k: float(r[k]) for k in FIELDS}, "active": bool(r["active"]),
+            "trader_quote_per_kg": None if q is None else float(q)}
+
+
+def published_card(conn, farmer_id: int) -> Optional[dict]:
+    """This farmer's own card from the published plan (None if there is none). Fixed query; the id is the token's."""
+    r = conn.execute("SELECT cards FROM published_plan WHERE id = 1").fetchone()
+    return None if r is None else json.loads(r["cards"]).get(str(farmer_id))
+
+
+def with_card(current: Optional[dict], card: Optional[dict]) -> Optional[dict]:
+    """`current` plus what the farmer's card says about their trip, for pool-join checks and the confirm card. The
+    extra keys are never written to the farmers table (COLUMNS decides that)."""
+    if current is None:
+        return None
+    out = dict(current)
+    if card:
+        out["pool_status"] = card.get("status")
+        if card.get("doorstep_per_kg") is not None:
+            out["expected_per_kg"] = float(card["doorstep_per_kg"])
+    return out
 
 
 def get_window(conn):

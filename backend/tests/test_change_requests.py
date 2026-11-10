@@ -849,3 +849,67 @@ def test_v2_a_plan_with_nobody_in_it_is_refused(api):
     with pytest.raises(HTTPException) as e:
         main._compute_plan_impl(road_distances=False, farmer_overrides=everyone)
     assert e.value.status_code == 400
+
+
+# ---------------------------------------------------------------- "my trader pays less: I want to join the pooling"
+def _card_of(api, status):
+    return next((c for c in api.get("/published/cards").json()["cards"] if c["status"] == status), None)
+
+
+def _quotes_in_db():
+    import database
+    with database.get_conn() as conn:
+        return {r["id"]: r["trader_quote_per_kg"] for r in
+                conn.execute("SELECT id, trader_quote_per_kg FROM farmers WHERE trader_quote_per_kg IS NOT NULL").fetchall()}
+
+
+@pytestmark_db
+def test_pool_join_is_refused_for_a_farmer_who_has_a_truck_or_an_offer_that_is_not_low(api):
+    anon = _anon()
+    hauled, door = _card_of(api, "hauled"), _card_of(api, "farmgate")
+    assert hauled and door
+    r = anon.post("/farmer/chat", json={"structured": {"pool_join": {"quote_per_kg": 0.5}}},
+                  headers=_as(api, hauled["farmer_id"])).json()
+    assert (r["status"], r["code"]) == ("invalid", "already_hauled")
+    r = anon.post("/farmer/chat", json={"structured": {"pool_join": {"quote_per_kg": door["doorstep_per_kg"] + 1}}},
+                  headers=_as(api, door["farmer_id"])).json()
+    assert (r["status"], r["code"]) == ("invalid", "not_lower")
+    assert r["params"]["expected"] == pytest.approx(door["doorstep_per_kg"])
+    assert _quotes_in_db() == {}                                                       # nothing was saved
+
+
+@pytestmark_db
+def test_a_doorstep_farmer_whose_trader_pays_less_joins_the_pool_and_only_their_price_changes(api):
+    anon = _anon()
+    card = _card_of(api, "farmgate")
+    fid, door = card["farmer_id"], card["doorstep_per_kg"]
+    h, quote = _as(api, fid), round(door * 0.3, 2)
+    before = {f["id"]: f for f in api.get("/farmers").json()}
+
+    r = anon.post("/farmer/chat", json={"structured": {"pool_join": {"quote_per_kg": quote}}}, headers=h).json()
+    assert r["status"] == "confirm", r
+    assert [(c["field"], c["from"], c["to"]) for c in r["changes"]] == [
+        ("trader_quote_per_kg", f"{round(door, 2):g}", f"{quote:g}")]
+    assert _quotes_in_db() == {}                                                       # a draft saves nothing
+    assert anon.post(f"/farmer/requests/{r['request_id']}/confirm", headers=h).json()["status"] == "pending"
+    queue = api.get("/change-requests").json()["requests"]
+    assert [(q["farmer_id"], q["changes"][0]["to"]) for q in queue] == [(fid, f"{quote:g}")]
+    assert _quotes_in_db() == {}                                                       # waiting for the admin saves nothing
+
+    base = _published(api)
+    assert api.post("/change-requests/preview", json={"ids": [r["request_id"]]}).status_code == 200
+    assert _quotes_in_db() == {}                                                       # previewing saves nothing
+    done = api.post("/change-requests/approve", json={"ids": [r["request_id"]], "base_plan_id": base})
+    assert done.status_code == 200, done.text
+
+    assert _quotes_in_db() == {fid: quote}                                             # only this farmer carries a quote
+    after = {f["id"]: f for f in api.get("/farmers").json()}
+    assert after == before                                                             # no one's quantity or times moved
+    plan = api.get(f"/plan/{_published(api)}").json()
+    assert plan["input_snapshot"]["trader_quotes"] == {str(fid): quote}
+    new_card = api.get("/published/cards").json()["cards"]
+    me = next(c for c in new_card if c["farmer_id"] == fid)
+    assert me["status"] == "hauled", "a quote this far below the assumed price puts the farmer on a truck"
+    # asking again with the same price says so, and does not queue a second request
+    again = anon.post("/farmer/chat", json={"structured": {"pool_join": {"quote_per_kg": quote}}}, headers=h).json()
+    assert again["status"] == "invalid" and again["code"] == "already_hauled"

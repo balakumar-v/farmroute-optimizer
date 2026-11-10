@@ -281,6 +281,18 @@ def compute_plan(road_circuity: Optional[float] = None, road_distances: bool = T
     return _compute_plan_impl(road_circuity, road_distances, mode, max_value_sacrifice, split_rule=split_rule)
 
 
+def farmer_prices(markets, quotes):
+    """The doorstep-price model for a plan. `quotes` is {farmer_id: Rs/kg} for the few farmers whose own trader offered
+    less than assumed (approved join-the-pool requests). Those farmers use their quote; every other farmer keeps the
+    price the planner always assumed (median mandi price less the farm-gate discount), so one farmer's trader never
+    moves anyone else's price. Returns None when there are no quotes, so the optimizer's default path is untouched."""
+    if not quotes:
+        return None
+    from baselines_v3 import FarmgatePrices
+    base = FarmgatePrices(markets)
+    return FarmgatePrices(markets, price_fn=lambda f: quotes[f.id] if f.id in quotes else base.per_kg(f))
+
+
 def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
                        max_value_sacrifice: float = 0.10, farmer_overrides: Optional[dict] = None,
                        split_rule: str = "kg"):
@@ -296,6 +308,9 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
     # a farmer who cancelled (active = false) keeps their row but is not planned; rejoining flips it back
     everyone = len(farmer_rows)
     farmer_rows = [r for r in farmer_rows if r.get("active", True)]
+    # what each farmer's OWN trader offered (set when a join-the-pool request was approved). Only these farmers are
+    # priced differently; everyone else keeps the assumed doorstep price.
+    quotes = {r["id"]: float(r["trader_quote_per_kg"]) for r in farmer_rows if r.get("trader_quote_per_kg")}
     if not farmer_rows:
         raise HTTPException(400, "No farmers in the database yet -- add some via POST /farmers first."
                             if everyone == 0 else "Every farmer has left the plan, so there is nothing to plan.")
@@ -339,10 +354,11 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
             model, matrix = roads.plan_distance_model(conn, farmers, markets, enabled=road_distances)
     from logistics_lib_v2 import road_circuity as _rc, use_road_matrix
     with (use_road_matrix(matrix) if matrix is not None else _rc(model["k"])):
-        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule)
+        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule, quotes)
 
 
-def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10, split_rule="kg"):
+def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10, split_rule="kg",
+              quotes=None):
     # Imported lazily here (not at module load) so a problem with
     # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
     # requirements.txt) only breaks this one endpoint, not the whole API.
@@ -386,13 +402,17 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
     # price, merges farmers heading to the same mandi into full trucks, picks the trip set with an exact solver,
     # and returns the best of its own plans and every baseline under identical accounting (meta["chosen"] says
     # which). ILO v2 is still computed, only as a legacy reference under realistic_baselines.
+    # Per-farmer doorstep prices (see farmer_prices): None when nobody has a quote, so every plan without one runs
+    # exactly the code it always did.
+    prices = farmer_prices(markets, quotes)
+    pkw = {} if prices is None else {"prices": prices}
     if mode == "spoilage":
         res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3_spoilage_first(
             farmers, fleet_template, markets, max_value_sacrifice=max_value_sacrifice, return_meta=True,
-            return_trace=True, split_rule=split_rule)
+            return_trace=True, split_rule=split_rule, **pkw)
     else:
         res_ilo, ilo_meta, ilo_trace_json = run_ilo_v3(farmers, fleet_template, markets, return_meta=True,
-                                                       return_trace=True, split_rule=split_rule)
+                                                       return_trace=True, split_rule=split_rule, **pkw)
         ilo_meta["mode"] = "returns"
     ilo_meta["split_rule"] = split_rule
     res_ilo_v2 = run_ilo_v2(farmers, copy.deepcopy(fleet_template), markets)
@@ -406,7 +426,7 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
     # ILO v3 and the baselines share the same accounting: the empty return leg is charged and spoilage is
     # counted from pickup. (ILO v2, the legacy reference below, does neither, which is why it is not the
     # recommended plan any more.)
-    like = {}
+    like = dict(pkw)
     res_ind = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
     res_prox = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
     res_ind_legacy = run_individual_transport_v2(
@@ -426,7 +446,7 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
     # who chose the farm gate) is valued at the doorstep price, so net_return_incl_farmgate is the number to
     # compare across approaches. The doorstep price is an ASSUMPTION (FARMGATE_DISCOUNT below the median
     # mandi price); it is echoed in every summary as farmgate_discount so the UI can say so.
-    S = lambda res: summarize_with_farmgate(res, farmers, markets, fs)  # noqa: E731
+    S = lambda res: summarize_with_farmgate(res, farmers, markets, fs, **pkw)  # noqa: E731
     result_payload = {
         "integrated_logistics_optimization": {"pools": res_ilo, "summary": S(res_ilo)},
         "individual_transport": {"pools": res_ind, "summary": S(res_ind)},
@@ -456,6 +476,8 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
             {"id": m.id, "lat": m.lat, "lng": m.lng, "price": m.price, "capacity_kg": m.capacity_kg}
             for m in markets
         ],
+        # only present when some farmer's own trader quote priced them; advisor.py reads it so cards agree with the plan
+        **({"trader_quotes": {str(k): v for k, v in quotes.items()}} if quotes else {}),
     }
 
     created_at = datetime.datetime.utcnow().isoformat()
@@ -898,7 +920,8 @@ def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
             raise HTTPException(409, "Changes are closed right now. Please call your FPO.")
         if change_requests.published_plan_id(conn) is None:
             raise HTTPException(409, "No plan has been published yet, so there is nothing to change.")
-        current = change_requests.fetch_current(conn, farmer_id)
+        current = change_requests.with_card(change_requests.fetch_current(conn, farmer_id),
+                                            change_requests.published_card(conn, farmer_id))
         clock = change_requests.get_clock(conn)
         history = change_requests.load_context(conn, farmer_id) if body.message is not None else []
     if current is None:
@@ -922,10 +945,10 @@ def farmer_chat(body: ChatIn, farmer_id: int = Depends(auth.current_farmer)):
         except chat_llm.LLMUnavailable:
             return {"status": "llm_unavailable",
                     "message": "I could not read that right now. Please use the form instead."}
-    if not parse.changes and not parse.participation:
+    if not parse.changes and not parse.participation and not parse.pool_join:
         remember(parse.model_dump_json())
         return {"status": "clarify", "code": "llm" if parse.clarify else "empty", "message": parse.clarify or
-                "I can only help change your quantity, ready time, deadline or whether you sell. What would you like to change?"}
+                "I can only help change your quantity, ready time, deadline, whether you sell, or join the pooling if your trader pays less. What would you like to do?"}
     try:
         proposed = change_requests.resolve(parse, current, clock)
     except ChangeError as e:

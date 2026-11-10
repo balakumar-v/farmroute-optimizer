@@ -1,5 +1,29 @@
 # Changelog
 
+## Faster planning (Nov 2026)
+Measured on the same scenarios, original vs now (this machine; Render's free CPU is far slower, so the ratios matter more than the seconds):
+
+| scenario | ILO v3 before | now |
+|---|---|---|
+| 40 farmers | 4.8 s | 0.8 s |
+| 60 farmers | 12.9 s | 2.8 s |
+| 100 farmers | 11.3 s | 3.3 s |
+| 100 farmers (hard case) | 42.3 s | ~10 s |
+| 200 farmers | 33 s | ~8 s |
+
+- **Allocation cache** (`algorithms_v2.allocate_markets_lp`). The trip search asked for the same market allocation again and again (78% of 5,443 calls on a 100-farmer plan were exact repeats), each a separate HiGHS solve. The answer depends only on the pools' kg, positions, timing, vehicle cost and the markets' prices and room, so it is now remembered (bounded LRU, 4,000 entries, a few MB; `ALLOC_CACHE_MAX=0` turns it off) and handed back as a fresh copy.
+- **Single-pool shortcut.** A one-pool allocation is a fractional knapsack, so it is filled greedily instead of calling the LP solver (exactly the LP optimum; tested against the LP on random cases). The multi-pool LP is unchanged, but its matrix is now built directly in COO form instead of cell by cell.
+- **Set-partition time cap 30 s -> 5 s** (`ILO_SP_TIME_LIMIT`; `ILO_SP_GAP` sets the gap, default unchanged). On the hard cases the exact solver ran into its 30 s cap and returned its best-so-far anyway. With 5 s the plan value moved by 0.0% to -0.4% in our runs (and was sometimes higher, because a capped solver's best-found is noisy). Set `ILO_SP_TIME_LIMIT=30` to restore the old behaviour.
+- The plans are unchanged otherwise: on four scenarios every pool, vehicle, kg and rupee matched the original to 1e-6 with the cache and shortcut in place. Tests: `test_speed_paths.py`.
+
+## "My trader pays less": join the pooling from the chat (Nov 2026)
+- **New request type.** A farmer shown as "sell at your door" can say, in the chat, on the form, or with one tap from "Check a trader's offer", that their own trader pays less than expected and they want to join the pooling. The model returns only `pool_join: {quote_per_kg}` (a price for one kg, copied from the message; a total for the lot makes it ask). Code checks it against the farmer's own published card: refused if they already have a truck (`already_hauled`), are waiting for one (`waiting_truck`), or the offer is not below the expected door price (`not_lower`).
+- **Admin approves like any change.** Nothing is saved by drafting, confirming or previewing. Approving writes `farmers.trader_quote_per_kg` (new nullable column, added at startup) and the re-plan prices **only that farmer's** doorstep sale at the quote, through `FarmgatePrices(price_fn=...)`. Every other farmer keeps the assumed price (median mandi less the 20% farm-gate discount); with no quotes the optimizer runs exactly as before. The plan snapshot records `trader_quotes` so the cards, quote check and payout statements agree with the plan.
+- Whether the farmer gets a truck is up to the planner: a quote only helps if hauling now beats that farmer's own door price. The farmer sees the result on their new card and can still cancel in the chat.
+- `CHANGE_MAX_QUOTE_PER_KG` (default 500) rejects a typo'd price. Farmer app strings added in English, Telugu, Hindi and Tamil. Tests: `test_pool_join.py`, `test_change_requests.py` (DB), `changeRequests.test.ts`, `chat.test.mjs`.
+- Fixed: confirming a request that was refused for "too many waiting" or "already asked" showed the generic "your details changed" message; the farmer app now shows the right message (all four languages), keyed on the server's `code`.
+- Not done: a quote never expires on its own (clear `trader_quote_per_kg` when a new harvest cycle starts); no instant take-home figure for a doorstep farmer before the re-plan, because no trip exists to price until it runs.
+
 ## Change-request chat: follow-ups, several requests, "tomorrow 6 AM", cancel (Nov 2026)
 - **The bot remembers the chat.** The last few turns (the farmer's messages and what the app asked or refused) are kept per farmer for ten minutes and sent to the model, so an answer to "before what?" or "make it 200 then" is understood. The memory is cleared when a request is confirmed. New table `chat_context`.
 - **Several requests at once.** A farmer can have up to `CHANGE_MAX_PENDING` (5) requests waiting; a new one no longer replaces the old one. Asking for exactly the same thing twice is refused. The console flags requests of one farmer that clash (same thing, or one leaves the plan), refuses to preview or approve a clashing pair together, checks at approval that a farmer's numbers still hold together (ready before deadline), and marks the other request superseded when one is approved. A request is stale only if what it changes moved, so approving a quantity request does not spoil a waiting time request. Drafts are now deleted rather than kept when replaced or withdrawn. The unique one-pending index is dropped at startup.

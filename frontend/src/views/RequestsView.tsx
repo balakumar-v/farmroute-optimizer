@@ -73,7 +73,7 @@ export function RequestsView() {
 
   return (
     <>
-      <PageHead title="Farmer requests" lede="Farmers ask for a different quantity or time, or to leave the plan, in the farmer app. Nothing changes until you approve." />
+      <PageHead title="Farmer requests" lede="Farmers ask for a different quantity or time, to leave the plan, or to join the pooling because their own trader pays less, in the farmer app. Nothing changes until you approve." />
       <div className="sec">
         <p className="hint">
           {list === null ? "Checking…" : list.published_plan_id === null

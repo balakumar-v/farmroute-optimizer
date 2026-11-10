@@ -374,3 +374,46 @@ test("every language has the v2 strings", () => {
       assert.ok(L[lang][k], `${lang}.${k}`);
   assert.match(L.en.dMany, /\{n\}/); assert.match(L.te.dMany, /\{n\}/); assert.match(L.hi.dMany, /\{n\}/); assert.match(L.ta.dMany, /\{n\}/);
 });
+
+// ---------------------------------------------------------------- "my trader pays less: I want to join the pooling"
+const JOINED = [{ field: "trader_quote_per_kg", label: "Trader's offer", from: "14", to: "10", from_day: 0, to_day: 0 }];
+
+test("a low trader offer on the offer screen can be handed to the chat as a join-the-pooling request", async () => {
+  const a = await boot({ chat: [{ status: "confirm", request_id: 9, changes: JOINED }] });
+  await a.click("[data-act=quote]");
+  assert.equal(a.$("#qjoin").hidden, true, "nothing typed yet");
+  a.type("#q", "16"); assert.equal(a.$("#qjoin").hidden, true, "16 is not below the expected door price of 14");
+  a.type("#q", "10"); assert.equal(a.$("#qjoin").hidden, false);
+  await a.click("[data-act=qJoin]");
+  assert.deepEqual(posts(a, "/farmer/chat")[0].body, { structured: { pool_join: { quote_per_kg: 10 } } });
+  assert.match(a.text(), /Your trader offers 10 rupees a kilo \(expected about 14\)/);
+  await a.click("[data-act=cYes]");
+  assert.equal(posts(a, "/confirm").length, 1);
+});
+
+test("a farmer who already has a truck is not offered the join button", async () => {
+  const hauled = { ...CARD, status: "hauled", trip: { pickup_eta: "06:30", mandis: [{ id: 1, lat: 1, lng: 1 }] } };
+  const a = await boot({ card: hauled });
+  await a.click("[data-act=quote]");
+  assert.equal(a.$("#qjoin"), null);
+});
+
+test("the trader-pays-less refusals are shown in the farmer's language with the numbers", async () => {
+  const a = await boot({ chat: [{ status: "invalid", code: "not_lower", params: { quote: 16, expected: 14 }, message: "SERVER-ENGLISH-TEXT" }] });
+  await a.click("#fab"); await a.click("[data-lang=hi]");
+  a.type("#cq", "x"); await a.click("[data-act=cSend]");
+  assert.match(a.text(), /16 रुपये किलो.*14 रुपये किलो/);
+  assert.doesNotMatch(a.text(), /SERVER-ENGLISH-TEXT/);
+});
+
+test("the form fallback can ask to join the pooling with the trader's price per kg", async () => {
+  const a = await boot({ chat: [{ status: "llm_unavailable", message: "x" }, { status: "confirm", request_id: 11, changes: JOINED }] });
+  await a.click("#fab"); a.type("#cq", "hi"); await a.click("[data-act=cSend]");
+  assert.match([...a.$$("#cf option")].map((o) => o.textContent).join("|"), /My trader pays less/);
+  await a.pick("#cf", "join");
+  assert.equal(a.$("#ch"), null, "no how-box for a price");
+  a.type("#cv", "0"); await a.click("[data-act=cFormSend]");
+  assert.equal(posts(a, "/farmer/chat").length, 1, "a price that is not positive is never sent");
+  a.type("#cv", "10"); await a.click("[data-act=cFormSend]");
+  assert.deepEqual(posts(a, "/farmer/chat")[1].body, { structured: { pool_join: { quote_per_kg: 10 } } });
+});

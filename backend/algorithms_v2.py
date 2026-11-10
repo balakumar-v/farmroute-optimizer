@@ -27,11 +27,12 @@ import itertools
 import os
 import math
 import random
-from collections import defaultdict
+import threading
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 import numpy as np
 from scipy.optimize import linprog, linear_sum_assignment
-from scipy.sparse import lil_matrix
+from scipy.sparse import coo_matrix, lil_matrix
 
 from logistics_lib_v2 import (
     haversine, get_road_circuity, spoilage_fraction, spoilage_fraction_from_temp, CROPS,
@@ -619,6 +620,24 @@ def _assign_fleet_joint_attempt(pool_descs, fleet):
 # ----------------------------------------------------------------------
 # B) Global LP market allocation (one crop at a time)
 # ----------------------------------------------------------------------
+# The planner asks for the same allocation over and over (the trip search re-evaluates the same pool groupings
+# many times: on a 100-farmer plan ~78% of the calls repeat an earlier one exactly). The answer depends only on the
+# numbers below, so it is remembered. Bounded LRU: a few thousand small entries (a few MB), safe on a 512 MB host.
+# ALLOC_CACHE_MAX=0 switches it off (the tests compare both paths).
+_ALLOC_CACHE = OrderedDict()
+_ALLOC_LOCK = threading.Lock()
+
+
+def _alloc_cache_max() -> int:
+    return int(os.environ.get("ALLOC_CACHE_MAX", "4000"))
+
+
+def _copy_allocs(result):
+    """Callers tag and reuse the dicts they get back (alloc["crop"] = ..., edges extended elsewhere), so a cached
+    answer is always handed out as a fresh copy."""
+    return [{**r, "market_dist": dict(r["market_dist"]), "edges": [dict(e) for e in r["edges"]]} for r in result]
+
+
 def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranches=3, top_k=6,
                         return_leg=False):
     """pool_infos: list of dicts with 'total_qty', 'last_point' (lat,lng),
@@ -628,8 +647,32 @@ def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranch
     Sparsified to the top_k markets/tranches per pool by net value/kg --
     keeps the LP's variable count linear in pool count regardless of
     how many markets exist, which is what keeps this tractable at scale.
+
+    Same inputs give the same answer, so repeats come from a small in-memory cache (see above).
     """
     nodes = market_demand_nodes(markets, crop, elastic_pricing, tranches)
+    cap = _alloc_cache_max()
+    if cap <= 0:
+        return _solve_allocation(pool_infos, crop, nodes, top_k, return_leg)
+    key = (crop, top_k, bool(return_leg),
+           tuple((n["market"].id, n["market"].lat, n["market"].lng, n["price"], n["capacity_kg"]) for n in nodes),
+           tuple((p["total_qty"], tuple(p["last_point"]), p["t_after_pickup"], p["vehicle"].refrigerated,
+                  p["vehicle"].per_km_cost, tuple(p["first_point"]) if (return_leg and p.get("first_point")) else None)
+                 for p in pool_infos))
+    with _ALLOC_LOCK:
+        hit = _ALLOC_CACHE.get(key)
+        if hit is not None:
+            _ALLOC_CACHE.move_to_end(key)
+    if hit is None:
+        hit = _solve_allocation(pool_infos, crop, nodes, top_k, return_leg)
+        with _ALLOC_LOCK:
+            _ALLOC_CACHE[key] = hit
+            while len(_ALLOC_CACHE) > cap:
+                _ALLOC_CACHE.popitem(last=False)
+    return _copy_allocs(hit)
+
+
+def _solve_allocation(pool_infos, crop, nodes, top_k, return_leg):
     n_pools = len(pool_infos)
     n_nodes = len(nodes)
     result = [{"revenue": 0.0, "spoil_loss_kg": 0.0, "market_dist": {}, "unsold_kg": p["total_qty"], "edges": []}
@@ -659,22 +702,36 @@ def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranch
         return result
 
     n_edges = len(edges)
-    c = np.array([-e[2] for e in edges])  # maximize net_val == minimize -net_val
-    A_ub = lil_matrix((n_pools + n_nodes, n_edges))
-    b_ub = np.zeros(n_pools + n_nodes)
-    for ei, (pi, ni, *_r) in enumerate(edges):
-        A_ub[pi, ei] = 1
-        A_ub[n_pools + ni, ei] = 1
-    for pi, p in enumerate(pool_infos):
-        b_ub[pi] = p["total_qty"]
-    for ni, node in enumerate(nodes):
-        b_ub[n_pools + ni] = node["capacity_kg"]
+    if n_pools == 1:
+        # One pool: every demand node belongs to it alone, so the LP is a fractional knapsack. Fill the best
+        # net-value edges first, each up to its market's room, until the pool's kg run out. Exactly the LP's optimum
+        # (an edge that earns nothing is never taken), without paying for a solver call.
+        x = [0.0] * n_edges
+        left = float(pool_infos[0]["total_qty"])
+        for ei in sorted(range(n_edges), key=lambda i: -edges[i][2]):
+            if left <= 0 or edges[ei][2] <= 0:
+                break
+            take = min(left, float(nodes[edges[ei][1]]["capacity_kg"]))
+            x[ei] = take
+            left -= take
+    else:
+        c = np.array([-e[2] for e in edges])  # maximize net_val == minimize -net_val
+        e_idx = np.arange(n_edges)
+        rows = np.concatenate([np.fromiter((e[0] for e in edges), dtype=np.int64, count=n_edges),
+                               n_pools + np.fromiter((e[1] for e in edges), dtype=np.int64, count=n_edges)])
+        A_ub = coo_matrix((np.ones(2 * n_edges), (rows, np.concatenate([e_idx, e_idx]))),
+                          shape=(n_pools + n_nodes, n_edges)).tocsr()
+        b_ub = np.zeros(n_pools + n_nodes)
+        for pi, p in enumerate(pool_infos):
+            b_ub[pi] = p["total_qty"]
+        for ni, node in enumerate(nodes):
+            b_ub[n_pools + ni] = node["capacity_kg"]
 
-    res = linprog(c, A_ub=A_ub.tocsr(), b_ub=b_ub, bounds=(0, None), method="highs")
-    if not res.success:
-        return result  # solver failure -> treat conservatively as unsold
+        res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=(0, None), method="highs")
+        if not res.success:
+            return result  # solver failure -> treat conservatively as unsold
+        x = res.x
 
-    x = res.x
     for ei, (pi, ni, net_val, dist, spoil) in enumerate(edges):
         take = x[ei]
         if take <= 1e-6:
