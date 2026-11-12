@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { FairnessPanel } from "../components/FairnessPanel";
 import { FleetUsagePanel } from "../components/FleetUsagePanel";
+import { TemperaturePanel } from "../components/TemperaturePanel";
 import { Icon } from "../components/Icon";
 import { BusyButton, PageHead, StaleBanner } from "../components/Shell";
 import { fmt, inr } from "../lib/format";
@@ -172,6 +173,8 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
           </div>
         </div>
 
+        {plan.realistic_baselines?.temperature && <TemperaturePanel t={plan.realistic_baselines.temperature} />}
+
         <FleetUsagePanel planId={plan.id} />
         <FairnessPanel planId={plan.id} />
 
@@ -189,7 +192,7 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
           <div className="tablewrap"><PoolsTable pools={pools} /></div>
         </div>
 
-        <p className="sensor-strip"><strong>Live sensors:</strong> ESP32 readings are received by the backend, but the planner can{"’"}t recompute from them yet. Nothing is simulated here.</p>
+        <p className="sensor-strip"><strong>Live sensors:</strong> ESP32 readings are received by the backend, but the planner can{"’"}t recompute from live ones yet. The “Current temperature” above is simulated for the demo.</p>
       </div>
     </>
   );

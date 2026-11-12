@@ -295,9 +295,11 @@ def farmer_prices(markets, quotes):
 
 def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bool = True, mode: str = "returns",
                        max_value_sacrifice: float = 0.10, farmer_overrides: Optional[dict] = None,
-                       split_rule: str = "kg"):
+                       split_rule: str = "kg", temp_c: Optional[float] = None):
     """`farmer_overrides` ({farmer_id: {column: value}}) plans as if those farmer values were already saved, without
-    writing them: used to preview and apply farmer change requests. The farmers table is not touched here."""
+    writing them: used to preview and apply farmer change requests. The farmers table is not touched here.
+    `temp_c` pins the (simulated DHT22) room temperature instead of drawing a new reading: previews reuse the published
+    plan's temperature so they differ from it only by the farmer change, not by temperature noise."""
     with get_conn() as conn:
         farmer_rows = conn.execute("SELECT * FROM farmers ORDER BY id").fetchall()
         vehicle_rows = conn.execute("SELECT * FROM vehicles ORDER BY id").fetchall()
@@ -354,11 +356,26 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
             model, matrix = roads.plan_distance_model(conn, farmers, markets, enabled=road_distances)
     from logistics_lib_v2 import road_circuity as _rc, use_road_matrix
     with (use_road_matrix(matrix) if matrix is not None else _rc(model["k"])):
-        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule, quotes)
+        return _run_plan(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule, quotes,
+                         temp_c=temp_c)
 
 
 def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10, split_rule="kg",
-              quotes=None):
+              quotes=None, temp_c=None):
+    """Takes one (simulated) DHT22 room-temperature reading per plan and plans with it: unrefrigerated vehicles
+    spoil faster when it is warm (logistics_lib_v2.ambient_spoil_factor). Real build: ESP32 + DHT22 supplies the value."""
+    import temperature_sim
+    from logistics_lib_v2 import use_ambient_temp
+    if temp_c is None:
+        reading = temperature_sim.next_reading()
+    else:
+        reading = {"temp_c": float(temp_c), "previous_temp_c": None, "sensor": temperature_sim.SENSOR, "simulated": True}
+    with use_ambient_temp(reading["temp_c"]):
+        return _run_plan_at_temp(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule, quotes,
+                                 reading)
+
+
+def _run_plan_at_temp(farmers, fleet_template, markets, model, mode, max_value_sacrifice, split_rule, quotes, reading):
     # Imported lazily here (not at module load) so a problem with
     # algorithms_v2.py or one of its dependencies (numpy/scipy -- see
     # requirements.txt) only breaks this one endpoint, not the whole API.
@@ -452,7 +469,10 @@ def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value
         "individual_transport": {"pools": res_ind, "summary": S(res_ind)},
         "proximity_pooling": {"pools": res_prox, "summary": S(res_prox)},
     }
+    import temperature_sim
     realistic_baselines = {
+        "temperature": temperature_sim.describe(
+            reading, res_ilo, [{"id": v.id, "refrigerated": v.refrigerated} for v in fleet_template]),
         "assumptions": {"farmgate_discount": FARMGATE_DISCOUNT, "behaviour": dataclasses.asdict(DEFAULT_BEHAVIOUR),
                         "baselines_use_ilo_accounting": False},
         "ilo_meta": ilo_meta,
@@ -997,6 +1017,9 @@ def _replan_options(plan: dict) -> dict:
     meta = (plan.get("realistic_baselines") or {}).get("ilo_meta") or {}
     model = (plan.get("input_snapshot") or {}).get("distance_model") or {}
     opts = {"mode": meta["mode"] if meta.get("mode") in ("returns", "spoilage") else "returns"}
+    temp = ((plan.get("realistic_baselines") or {}).get("temperature") or {}).get("temp_c")
+    if isinstance(temp, (int, float)):
+        opts["temp_c"] = temp
     if isinstance(meta.get("max_value_sacrifice"), (int, float)):
         opts["max_value_sacrifice"] = meta["max_value_sacrifice"]
     if meta.get("split_rule") in ("kg", "cost_aware"):

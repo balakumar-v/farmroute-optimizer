@@ -35,7 +35,7 @@ from scipy.optimize import linprog, linear_sum_assignment
 from scipy.sparse import coo_matrix, lil_matrix
 
 from logistics_lib_v2 import (
-    haversine, get_road_circuity, spoilage_fraction, spoilage_fraction_from_temp, CROPS,
+    haversine, get_road_circuity, spoilage_fraction, spoilage_fraction_from_temp, get_ambient_temp, CROPS,
     AVG_SPEED_KMPH, DISPATCH_OVERHEAD_HR, STOP_OVERHEAD_HR,
     TURNAROUND_HR, WORKDAY_END_HR, market_demand_nodes,
     FARMERS_PER_DEPOT, DEPOT_CELL_KM, _grid_partition, _depot_partition,
@@ -654,7 +654,7 @@ def allocate_markets_lp(pool_infos, crop, markets, elastic_pricing=False, tranch
     cap = _alloc_cache_max()
     if cap <= 0:
         return _solve_allocation(pool_infos, crop, nodes, top_k, return_leg)
-    key = (crop, top_k, bool(return_leg),
+    key = (crop, top_k, bool(return_leg), get_ambient_temp(),   # temperature changes spoilage, so it is part of the key
            tuple((n["market"].id, n["market"].lat, n["market"].lng, n["price"], n["capacity_kg"]) for n in nodes),
            tuple((p["total_qty"], tuple(p["last_point"]), p["t_after_pickup"], p["vehicle"].refrigerated,
                   p["vehicle"].per_km_cost, tuple(p["first_point"]) if (return_leg and p.get("first_point")) else None)

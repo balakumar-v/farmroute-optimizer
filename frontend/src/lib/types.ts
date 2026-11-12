@@ -131,6 +131,23 @@ export interface BehaviourAssumptions {
   spot_lead_hr: number;
 }
 
+/** Simulated DHT22 room-temperature reading taken for a plan, and how it moved spoilage (backend/temperature_sim.py). */
+export interface TemperatureInfo {
+  sensor: string;
+  simulated: boolean;
+  temp_c: number;
+  previous_temp_c: number | null;
+  reference_c: number;
+  q10: number;
+  rate_factor: number;
+  unrefrigerated_trips: number;
+  refrigerated_trips: number;
+  unrefrigerated_spoilage_kg: number;
+  refrigerated_spoilage_kg: number;
+  at_reference_spoilage_kg: number;
+  curve: { temp_c: number; spoilage_kg: number }[];
+}
+
 export interface PlanResponse {
   id: number;
   integrated_logistics_optimization: AlgoResult;
@@ -138,6 +155,7 @@ export interface PlanResponse {
   individual_transport: AlgoResult;
   realistic_baselines?: {
     ilo_meta?: RealisticMeta;
+    temperature?: TemperatureInfo;
     assumptions?: { behaviour?: BehaviourAssumptions };
   };
   [key: string]: unknown;

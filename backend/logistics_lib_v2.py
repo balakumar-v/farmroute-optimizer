@@ -260,11 +260,45 @@ def spoilage_params(rate_scale=1.0, unrefrig_mult=None, cap=None):
             CROPS[c]["base_spoil_per_hr"] = r
 
 
+# Ambient-temperature effect on spoilage in UNREFRIGERATED vehicles (demo model, uncalibrated).
+# Rule of thumb for fresh produce: respiration/decay rate roughly doubles per +10 C (Q10 ~ 2). The CROPS rates above are
+# taken to hold at AMBIENT_REF_C, so a plan computed at 25 C is unchanged and warmer/cooler days scale the rate around it.
+# A refrigerated vehicle holds its own set-point, so room temperature does not move its spoilage.
+# Default (no temperature set) = factor 1.0 everywhere, i.e. exactly the pre-existing behaviour.
+AMBIENT_REF_C = 25.0
+SPOIL_Q10 = 2.0
+_AMBIENT_TEMP_C = contextvars.ContextVar("ambient_temp_c", default=None)
+
+
+def get_ambient_temp():
+    """The ambient temperature (C) currently driving spoilage, or None when the model is off."""
+    return _AMBIENT_TEMP_C.get()
+
+
+def ambient_spoil_factor(temp_c):
+    """Multiplier on the hourly spoilage rate of an unrefrigerated load at temp_c (1.0 at AMBIENT_REF_C)."""
+    return SPOIL_Q10 ** ((float(temp_c) - AMBIENT_REF_C) / 10.0)
+
+
+@contextlib.contextmanager
+def use_ambient_temp(temp_c):
+    """Plan/evaluate with this ambient temperature (C) driving unrefrigerated spoilage; None = off. Context-local."""
+    token = _AMBIENT_TEMP_C.set(temp_c)
+    try:
+        yield
+    finally:
+        _AMBIENT_TEMP_C.reset(token)
+
+
 def spoilage_fraction(crop, vehicle_refrigerated, transit_hours):
     info = CROPS[crop]
     rate = info["base_spoil_per_hr"]
     if not vehicle_refrigerated and (info["needs_refrigeration"] or "unrefrig_mult" in info):
         rate *= _UNREFRIG_OVERRIDE or info.get("unrefrig_mult", SPOIL_UNREFRIG_MULT)
+    if not vehicle_refrigerated:
+        t = _AMBIENT_TEMP_C.get()
+        if t is not None:
+            rate *= ambient_spoil_factor(t)
     return min(rate * transit_hours, SPOIL_CAP)
 
 
