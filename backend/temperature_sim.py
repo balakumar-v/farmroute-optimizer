@@ -2,7 +2,7 @@
 
 In the real build an ESP32 reads a DHT22 (range -40..80 C, +/-0.5 C, 0.1 C resolution) beside the produce. For the demo
 there is no hardware, so this module imitates what that sensor would plausibly report in a room: a slow mean-reverting
-wander between 20 and 30 C plus a little sensor noise, quantised to 0.1 C. One new reading is drawn per plan compute.
+wander between 27 and 30 C plus a little sensor noise, quantised to 0.1 C. One new reading is drawn per plan compute.
 Nothing here is a measurement.
 """
 import random
@@ -34,7 +34,7 @@ def next_reading():
             base = _rng.uniform(ROOM_MIN_C + 1.5, ROOM_MAX_C - 1.5)
         else:
             for _ in range(50):
-                step = _rng.gauss(0.15 * (ROOM_MID_C - prev), 1.8)      # gentle pull back toward 25 C
+                step = _rng.gauss(0.15 * (ROOM_MID_C - prev), 1.8)      # gentle pull back toward the middle of the band
                 cand = min(ROOM_MAX_C, max(ROOM_MIN_C, prev + step))
                 if abs(cand - prev) >= MIN_MOVE_C:
                     break

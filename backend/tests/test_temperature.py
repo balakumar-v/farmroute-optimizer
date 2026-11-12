@@ -38,7 +38,7 @@ def test_readings_stay_in_room_range_and_always_move():
             assert r["temp_c"] != prev
         prev = r["temp_c"]
         seen.append(prev)
-    assert max(seen) - min(seen) > 4.0
+    assert max(seen) - min(seen) > 1.5                      # wanders across most of the 27-30 C room band
 
 
 def test_plan_spoilage_follows_temperature():

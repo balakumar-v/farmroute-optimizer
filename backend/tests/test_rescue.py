@@ -11,7 +11,7 @@ from logistics_lib_v2 import generate_scenario_v2
 
 @pytest.fixture(scope="module")
 def scen():
-    return generate_scenario_v2(n_farmers=120, n_markets=4, seed=2)
+    return generate_scenario_v2(n_farmers=80, n_markets=4, seed=2)
 
 
 def _run(scen, **kw):

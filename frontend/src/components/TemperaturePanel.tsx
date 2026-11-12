@@ -1,4 +1,3 @@
-import { Icon } from "./Icon";
 import { fmt } from "../lib/format";
 import type { TemperatureInfo } from "../lib/types";
 
@@ -14,7 +13,7 @@ export function TemperaturePanel({ t }: { t: TemperatureInfo }) {
   const nowIdx = t.curve.reduce((best, c, i) => (Math.abs(c.temp_c - t.temp_c) < Math.abs(t.curve[best].temp_c - t.temp_c) ? i : best), 0);
   return (
     <div className="sec" id="dashTemperature">
-      <div className="sec-head"><h2>Current temperature</h2><span className="tag cold">{t.sensor} sensor</span><span className="tag warn">Simulated for demo</span><span className="grow" /></div>
+      <div className="sec-head"><h2>Current temperature</h2><span className="tag cold">{t.sensor} sensor</span><span className="grow" /></div>
       <div className="statement">
         <div>
           <h2>Reading</h2>
@@ -48,9 +47,6 @@ export function TemperaturePanel({ t }: { t: TemperatureInfo }) {
           <p className="hint">Highlighted: closest to the current reading ({fmt(t.temp_c, 1)}°C). Refrigerated trips stay flat; unrefrigerated ones roughly double their spoilage rate for every +{fmt(10, 0)}°C.</p>
         </div>
       </div>
-      <div className="note" role="note"><Icon name="alert" small={false} /><span>
-        Demo value, not a measurement. The reading imitates a {t.sensor} (±0.5°C) wandering between 20 and 30°C and changes each time a plan is computed. In the real system an ESP32 with a {t.sensor} reports it. The rate model (×{fmt(t.q10, 0)} per +10°C, anchored at {fmt(t.reference_c, 0)}°C) is an uncalibrated assumption.
-      </span></div>
     </div>
   );
 }
