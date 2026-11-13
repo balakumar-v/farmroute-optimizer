@@ -59,3 +59,23 @@ def test_describe_curve_matches_current_reading():
     at = {c["temp_c"]: c["spoilage_kg"] for c in d["curve"]}
     assert at[30.0] > at[20.0] > 4.0                         # reefer share (4 kg) never moves
     assert abs(d["unrefrigerated_spoilage_kg"] + d["refrigerated_spoilage_kg"] - 14.0) < 1e-9
+
+
+def test_real_reading_uses_fresh_esp32_value_and_rejects_stale_or_bad():
+    import temperature_sim as ts
+    now = 1_000_000.0
+    fresh = {"temperature": 31.46, "received_at": now - 20}
+    r = ts.real_reading(fresh, previous_temp_c=28.04, now=now)
+    assert r == {"temp_c": 31.5, "previous_temp_c": 28.0, "sensor": "DHT22", "simulated": False}
+    assert ts.real_reading({"temperature": 31.0, "received_at": now - ts.FRESH_S - 1}, now=now) is None   # stale
+    assert ts.real_reading({"temperature": 31.0, "received_at": None}, now=now) is None                   # old row, no arrival time
+    assert ts.real_reading({"temperature": float("nan"), "received_at": now}, now=now) is None
+    assert ts.real_reading({"temperature": 120.0, "received_at": now}, now=now) is None                   # outside DHT22 range
+    assert ts.real_reading(None, now=now) is None
+
+
+def test_describe_reports_real_reading_as_not_simulated():
+    import temperature_sim as ts
+    real = {"temp_c": 33.0, "previous_temp_c": None, "sensor": "DHT22", "simulated": False}
+    assert ts.describe(real, [], [])["simulated"] is False
+    assert ts.describe({**real, "simulated": True}, [], [])["simulated"] is True

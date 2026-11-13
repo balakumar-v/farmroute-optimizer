@@ -192,7 +192,7 @@ export function PlanView({ go }: { go: (v: ViewName) => void }) {
           <div className="tablewrap"><PoolsTable pools={pools} /></div>
         </div>
 
-        <p className="sensor-strip"><strong>Live sensors:</strong> ESP32 readings are received by the backend, but the planner can{"’"}t recompute from live ones yet. The “Current temperature” above is simulated for the demo.</p>
+        <p className="sensor-strip"><strong>Live sensors:</strong> each time you compute a plan it uses the latest reading from the ESP32 room sensor (posted in the last 5 minutes). If no sensor has reported recently, the “Current temperature” above falls back to a simulated value.</p>
       </div>
     </>
   );

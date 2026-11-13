@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Plan compute now uses the latest fresh ESP32 `room` reading as the plan temperature (simulated fallback); added `hardware/` firmware.
+
 ## Faster planning (Nov 2026)
 Measured on the same scenarios, original vs now (this machine; Render's free CPU is far slower, so the ratios matter more than the seconds):
 

@@ -4,11 +4,16 @@ In the real build an ESP32 reads a DHT22 (range -40..80 C, +/-0.5 C, 0.1 C resol
 there is no hardware, so this module imitates what that sensor would plausibly report in a room: a slow mean-reverting
 wander between 27 and 30 C plus a little sensor noise, quantised to 0.1 C. One new reading is drawn per plan compute.
 Nothing here is a measurement.
+
+When a real ESP32 + DHT22 is posting to the pool id ROOM_POOL_ID ("room"), a plan compute uses its latest FRESH reading
+instead (see real_reading); the simulation is only the fallback when no node has reported recently.
 """
 import random
 import threading
 
 SENSOR = "DHT22"
+ROOM_POOL_ID = "room"      # pool_id the ESP32 posts under for the room/cargo temperature that feeds every plan
+FRESH_S = 300.0            # a real reading older than this (server clock) is ignored and the simulation is used
 ROOM_MIN_C, ROOM_MAX_C, ROOM_MID_C = 27.0, 30.0, 29.0
 MIN_MOVE_C = 0.8          # a new reading always moves at least this much, so the change is visible in a demo
 
@@ -23,6 +28,27 @@ def seed(value):
     with _lock:
         _rng.seed(value)
         _last = None
+
+
+def real_reading(row, previous_temp_c=None, now=None, fresh_s=None):
+    """A stored ESP32 row -> the same dict next_reading() returns, or None when there is no usable real reading.
+
+    `row` needs temperature and received_at (Unix seconds, server clock). Stale rows (older than fresh_s), missing
+    timestamps and non-finite or outside-the-DHT22-range values (-40..80 C) are rejected so a dead or glitching node
+    falls back to the simulation instead of poisoning a plan.
+    """
+    import math
+    import time
+    if not row or row.get("temperature") is None or row.get("received_at") is None:
+        return None
+    t = float(row["temperature"])
+    if not math.isfinite(t) or not -40.0 <= t <= 80.0:
+        return None
+    now = time.time() if now is None else now
+    if now - float(row["received_at"]) > (FRESH_S if fresh_s is None else fresh_s):
+        return None
+    return {"temp_c": round(t, 1), "previous_temp_c": None if previous_temp_c is None else round(float(previous_temp_c), 1),
+            "sensor": SENSOR, "simulated": False}
 
 
 def next_reading():
@@ -71,7 +97,7 @@ def describe(reading, pools, fleet):
     temps = [20.0, 22.0, 24.0, 26.0, 28.0, 30.0]
     curve = [{"temp_c": x, "spoilage_kg": warm * ambient_spoil_factor(x) / now + cold} for x in temps]
     return {
-        "sensor": reading["sensor"], "simulated": True, "temp_c": t, "previous_temp_c": reading["previous_temp_c"],
+        "sensor": reading["sensor"], "simulated": bool(reading.get("simulated", True)), "temp_c": t, "previous_temp_c": reading["previous_temp_c"],
         "reference_c": AMBIENT_REF_C, "q10": SPOIL_Q10, "rate_factor": now,
         "unrefrigerated_trips": sum(1 for p in hauled if not refrigerated(p)),
         "refrigerated_trips": sum(1 for p in hauled if refrigerated(p)),

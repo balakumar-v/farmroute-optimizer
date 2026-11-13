@@ -31,6 +31,7 @@ import dataclasses
 import datetime
 import json
 import os
+import time
 from typing import Optional, List
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
@@ -360,14 +361,36 @@ def _compute_plan_impl(road_circuity: Optional[float] = None, road_distances: bo
                          temp_c=temp_c)
 
 
+def _latest_real_reading():
+    """The newest FRESH ESP32 reading posted under temperature_sim.ROOM_POOL_ID, shaped like a simulated reading, or None.
+    previous_temp_c is the temperature the previous plan used, so the panel can show the change between computes.
+    Any database problem returns None: planning must never fail because the sensor lookup did."""
+    import temperature_sim
+    try:
+        with get_conn() as conn:
+            row = conn.execute(
+                "SELECT temperature, received_at FROM sensor_readings WHERE pool_id = %s AND received_at IS NOT NULL "
+                "ORDER BY received_at DESC LIMIT 1", (temperature_sim.ROOM_POOL_ID,)).fetchone()
+            prev_row = conn.execute(
+                "SELECT result_realistic_baselines FROM plan_runs WHERE result_realistic_baselines IS NOT NULL "
+                "ORDER BY id DESC LIMIT 1").fetchone()
+        prev = None
+        if prev_row and prev_row["result_realistic_baselines"]:
+            prev = ((json.loads(prev_row["result_realistic_baselines"]) or {}).get("temperature") or {}).get("temp_c")
+        return temperature_sim.real_reading(row, previous_temp_c=prev)
+    except Exception:
+        return None
+
+
 def _run_plan(farmers, fleet_template, markets, model, mode="returns", max_value_sacrifice=0.10, split_rule="kg",
               quotes=None, temp_c=None):
-    """Takes one (simulated) DHT22 room-temperature reading per plan and plans with it: unrefrigerated vehicles
-    spoil faster when it is warm (logistics_lib_v2.ambient_spoil_factor). Real build: ESP32 + DHT22 supplies the value."""
+    """Takes one DHT22 room-temperature reading per plan and plans with it: unrefrigerated vehicles spoil faster when
+    it is warm (logistics_lib_v2.ambient_spoil_factor). The value is the latest fresh reading the ESP32 posted under
+    pool id "room" (see _latest_real_reading); with no recent real reading it falls back to the simulated feed."""
     import temperature_sim
     from logistics_lib_v2 import use_ambient_temp
     if temp_c is None:
-        reading = temperature_sim.next_reading()
+        reading = _latest_real_reading() or temperature_sim.next_reading()
     else:
         reading = {"temp_c": float(temp_c), "previous_temp_c": None, "sensor": temperature_sim.SENSOR, "simulated": True}
     with use_ambient_temp(reading["temp_c"]):
@@ -1233,11 +1256,15 @@ def whatsapp_notify_payment_confirmation(body: PaymentConfirmationIn):
 def post_sensor_reading(reading: SensorReadingIn):
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO sensor_readings (pool_id, temperature, humidity, timestamp) VALUES (%s, %s, %s, %s) RETURNING id",
-            (reading.pool_id, reading.temperature, reading.humidity, reading.timestamp),
+            "INSERT INTO sensor_readings (pool_id, temperature, humidity, timestamp, received_at) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (reading.pool_id, reading.temperature, reading.humidity, reading.timestamp, time.time()),
         )
         conn.commit()
         rid = cur.fetchone()["id"]
+        if reading.pool_id == "room":   # the plan-feeding node posts every few seconds: keep only the last day
+            conn.execute("DELETE FROM sensor_readings WHERE pool_id = 'room' AND received_at < %s", (time.time() - 86400,))
+            conn.commit()
 
     return SensorReadingOut(id=rid, **reading.model_dump())
 
