@@ -2,8 +2,6 @@
 
 A decision layer for farmer produce pooling and market allocation. Small farmers each need a truck and a market; this system decides who rides together, on which vehicle, to which mandi [wholesale produce market], and what each farmer ends up with. Then it explains every decision on a map.
 
-Course project (first-semester design thinking). A prototype on synthetic farmers and dated real mandi data, not a production system.
-
 ## What it decides
 
 Given farmers (location, crop, quantity, ready and deadline hours, refrigeration need), a vehicle fleet, and markets (price and capacity per crop), the optimizer returns a plan: which farmers pool onto which trips, which trips are worth running at all, and where each load sells.
