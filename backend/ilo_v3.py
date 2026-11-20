@@ -460,8 +460,11 @@ def expand_fleet_columns(cands, fleet, markets, prices, margin, cap_mult=1.0, ke
             continue
         K = int(np.floor((s_max - s0) / dt + 1e-9))
         idx = sorted({int(round(x)) for x in np.linspace(0, K, min(FLEET_MAX_START_SLOTS, K + 1))})
+        needs_refrig = any(f.needs_refrigeration for f in order)
         for key, vs in classes.items():
             if key[0] < qty:
+                continue
+            if needs_refrig and not key[1]:
                 continue
             rep = vs[0]
             for k in idx:
@@ -697,7 +700,7 @@ def _run_ilo_v3_core(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices
                safeguard=True, repair=True, return_meta=False, return_trace=False,
                fleet_aware=True, keep_blind_plan=True, price_impact=None, true_price_impact=None,
                stress_discounts=DEFAULT_STRESS_DISCOUNTS, mc_draws=0, mc_min_prob=None, mc_kwargs=None,
-               markets_per_trip=None, spoil_weight=0.0, split_rule="kg"):
+               markets_per_trip=None, spoil_weight=0.0, split_rule="kg", safeguard_plans_override=None):
     """See module docstring. `fleet` is not mutated. Returns the pool-result list (same shape as ILO v2); with
     return_meta=True, (results, meta); with return_trace=True as well, (results, meta, trace_json) where
     trace_json is what the visualization adapter needs for exact per-market receipts ({} when the returned plan
@@ -731,13 +734,17 @@ def _run_ilo_v3_core(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices
         cands, cstats = generate_candidates(farmers, fleet, markets, prices, dispatch_margin, consolidate,
                                             cap_mult=belief_mult, markets_per_trip=markets_per_trip,
                                             spoil_weight=spoil_weight)
-        chosen, sp_status = solve_set_partition(cands, markets, price_impact)
-        covered = {i for c in chosen for i in c["ids"]}
-        pools = [c["order"] for c in chosen] + [[f] for f in farmers if f.id not in covered]
         blind_name = "B0:set_partition_fleet_blind" if fleet_aware else "B:set_partition"
-        if (not fleet_aware) or keep_blind_plan:
+        run_blind = (not fleet_aware) or keep_blind_plan
+        if run_blind:
+            chosen, sp_status = solve_set_partition(cands, markets, price_impact)
+            covered = {i for c in chosen for i in c["ids"]}
+            pools = [c["order"] for c in chosen] + [[f] for f in farmers if f.id not in covered]
             plans[blind_name], traces[blind_name] = run_our_system_v2(
                 farmers, copy.deepcopy(fleet), markets, raw_pools_override=pools, return_trace=True, **kw)
+        else:
+            chosen, sp_status = [], "skipped_fleet_aware"
+            pools = []
         fl_meta = {}
         if fleet_aware and fleet:
             cols = expand_fleet_columns(cands, fleet, markets, prices, dispatch_margin, cap_mult=belief_mult,
@@ -763,28 +770,47 @@ def _run_ilo_v3_core(farmers, fleet, markets, discount=FARMGATE_DISCOUNT, prices
                 fl_meta["classes_used"] = {_class_label(k): sum(1 for c in fchosen if c["cls"] == k)
                                            for k in {c["cls"] for c in fchosen}}
             elif blind_name not in plans:
+                chosen, sp_status = solve_set_partition(cands, markets, price_impact)
+                covered = {i for c in chosen for i in c["ids"]}
+                pools = [c["order"] for c in chosen] + [[f] for f in farmers if f.id not in covered]
                 plans[blind_name], traces[blind_name] = run_our_system_v2(
                     farmers, copy.deepcopy(fleet), markets, raw_pools_override=pools, return_trace=True, **kw)
         meta["fleet_aware"] = fl_meta
         meta["candidates"] = {"total_kept": len(cands), **cstats, "sp_status": sp_status,
-                              "sp_trips_chosen": len(chosen),
+                              "sp_trips_chosen": len(chosen) if chosen else fl_meta.get("trips_chosen", 0),
                               "sp_trips_chosen_by_source": {
-                                  src: sum(1 for c in chosen if c["source"] == src)
-                                  for src in {c["source"] for c in chosen}},
+                                  src: sum(1 for c in (chosen or fchosen if 'fchosen' in locals() else []) if c["source"] == src)
+                                  for src in {c["source"] for c in (chosen or fchosen if 'fchosen' in locals() else [])}},
                               "sp_seconds": round(time.time() - t1, 2)}
 
     if safeguard:
-        true_mult = acct.capacity_multiple if acct is not None else 1.0                 # the scoring world's capacity
+        if safeguard_plans_override:
+            plans.update(safeguard_plans_override)
+            meta["safeguard_plans"] = safeguard_plans_override
+        else:
+            true_mult = acct.capacity_multiple if acct is not None else 1.0                 # the scoring world's capacity
 
-        def mk():
-            cap = fresh_capacity(markets)
-            return {mid: {c: v * true_mult for c, v in d.items()} for mid, d in cap.items()}
-        plans["fallback:farm_gate_only"] = run_farmgate_baseline_v2(farmers, markets)
-        for tag, beh in (("rational", None), ("behavioural", DEFAULT_BEHAVIOUR)):
-            plans[f"fallback:self_haul_{tag}"] = run_self_haul_v2(farmers, fleet, markets, mk(), prices=prices,
-                                                                   behaviour=beh, price_impact=acct)
-            plans[f"fallback:neighbour_{tag}"] = run_neighbour_pooling_v2(farmers, fleet, markets, mk(), prices=prices,
-                                                                          behaviour=beh, price_impact=acct)
+            def mk():
+                cap = fresh_capacity(markets)
+                return {mid: {c: v * true_mult for c, v in d.items()} for mid, d in cap.items()}
+            plans["fallback:farm_gate_only"] = run_farmgate_baseline_v2(farmers, markets)
+            for tag, beh in (("rational", None), ("behavioural", DEFAULT_BEHAVIOUR)):
+                plans[f"fallback:self_haul_{tag}"] = run_self_haul_v2(farmers, fleet, markets, mk(), prices=prices,
+                                                                       behaviour=beh, price_impact=acct)
+                plans[f"fallback:neighbour_{tag}"] = run_neighbour_pooling_v2(farmers, fleet, markets, mk(), prices=prices,
+                                                                              behaviour=beh, price_impact=acct)
+            meta["safeguard_plans"] = {
+                "farm_gate_only": plans["fallback:farm_gate_only"],
+                "self_haul_rational": plans["fallback:self_haul_rational"],
+                "neighbour_rational": plans["fallback:neighbour_rational"],
+                "self_haul_behavioural": plans["fallback:self_haul_behavioural"],
+                "neighbour_behavioural": plans["fallback:neighbour_behavioural"],
+                "fallback:farm_gate_only": plans["fallback:farm_gate_only"],
+                "fallback:self_haul_rational": plans["fallback:self_haul_rational"],
+                "fallback:neighbour_rational": plans["fallback:neighbour_rational"],
+                "fallback:self_haul_behavioural": plans["fallback:self_haul_behavioural"],
+                "fallback:neighbour_behavioural": plans["fallback:neighbour_behavioural"],
+            }
     values = {name: S(res) for name, res in plans.items()}
     if spoil_weight:                               # spoilage-first: rank plans by net minus the extra spoilage charge
         values = {name: v - spoil_weight * _spoil_value(plans[name], farmers, markets) for name, v in values.items()}
@@ -968,6 +994,7 @@ def _rescue(results, meta, trace, farmers, fleet, markets, args, kw, use_idle, u
     stuck = [by_id[i] for i in sorted(stuck_ids)]
     kw2 = {k: v for k, v in kw.items() if k not in ("return_meta", "return_trace")}
     kw2.pop("prices", None)
+    kw2.pop("safeguard_plans_override", None)
     kw2["prices"] = prices
 
     def value(res, members):
@@ -1070,9 +1097,12 @@ def run_ilo_v3_spoilage_first(farmers, fleet, markets, max_value_sacrifice=0.10,
         raise ValueError("max_value_sacrifice must be in [0, 1)")
     prices = _as_prices(markets, kw.get("discount", FARMGATE_DISCOUNT), kw.get("prices"))
     runs = []
+    sg_cache = None
     for w in weights:
         res, meta, trace = run_ilo_v3(farmers, fleet, markets, spoil_weight=w, return_meta=True, return_trace=True,
-                                      **kw)
+                                      safeguard_plans_override=sg_cache, **kw)
+        if sg_cache is None and meta.get("safeguard_plans"):
+            sg_cache = meta["safeguard_plans"]
         sm = summarize_with_farmgate(res, farmers, markets, len(fleet), prices=prices)
         runs.append({"weight": w, "res": res, "meta": meta, "trace": trace, "value": sm["net_return_incl_farmgate"],
                      "spoilage_kg": sm["total_spoilage_kg"], "unsold_kg": sm["total_unsold_kg"],

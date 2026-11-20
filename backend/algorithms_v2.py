@@ -395,14 +395,17 @@ def _nearest_neighbor_order(pool):
 def _two_opt(order, max_iters=100):
     improved = True
     it = 0
+    cur_dist = _route_distance(order)
     while improved and it < max_iters:
         improved = False
         it += 1
         for i in range(1, len(order) - 1):
             for j in range(i + 1, len(order)):
                 new_order = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
-                if _route_distance(new_order) < _route_distance(order):
+                new_dist = _route_distance(new_order)
+                if new_dist < cur_dist - 1e-6:
                     order = new_order
+                    cur_dist = new_dist
                     improved = True
     return order
 
@@ -416,16 +419,16 @@ def order_route(pool, enforce_windows=True):
     if len(pool) <= 1:
         t_end = DISPATCH_OVERHEAD_HR + (pool[0].ready_hr if pool else 0) + (STOP_OVERHEAD_HR if pool else 0)
         return pool, 0.0, t_end
-    if len(pool) <= 7:
+    if len(pool) <= 5:
         best = None
         for perm in itertools.permutations(pool):
-            feasible, t_end = _simulate_end_time(list(perm), enforce_windows)
+            p_list = list(perm)
+            feasible, t_end = _simulate_end_time(p_list, enforce_windows)
             if enforce_windows and not feasible:
                 continue
-            dist = _route_distance(list(perm))
+            dist = _route_distance(p_list)
             if best is None or dist < best[1]:
-                _, t_end_actual = _simulate_end_time(list(perm), enforce_windows=False)
-                best = (list(perm), dist, t_end_actual)
+                best = (p_list, dist, t_end)
         if best:
             return best
         order = _nearest_neighbor_order(pool)

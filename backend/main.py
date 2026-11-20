@@ -467,19 +467,35 @@ def _run_plan_at_temp(farmers, fleet_template, markets, model, mode, max_value_s
     # counted from pickup. (ILO v2, the legacy reference below, does neither, which is why it is not the
     # recommended plan any more.)
     like = dict(pkw)
-    res_ind = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
-    res_prox = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
+    sg = ilo_meta.get("safeguard_plans") or {}
+    res_ind = sg.get("self_haul_behavioural")
+    if res_ind is None:
+        res_ind = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
+
+    res_prox = sg.get("neighbour_behavioural")
+    if res_prox is None:
+        res_prox = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets), **like)
+
+    res_selfhaul_rat = sg.get("self_haul_rational")
+    if res_selfhaul_rat is None:
+        res_selfhaul_rat = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets),
+                                            behaviour=None, **like)
+
+    res_neighbour_rat = sg.get("neighbour_rational")
+    if res_neighbour_rat is None:
+        res_neighbour_rat = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets),
+                                                     behaviour=None, **like)
+
+    res_farmgate = sg.get("farm_gate_only")
+    if res_farmgate is None:
+        res_farmgate = run_farmgate_baseline_v2(farmers, markets)
+
     res_ind_legacy = run_individual_transport_v2(
         farmers, copy.deepcopy(fleet_template), markets, fresh_capacity(markets)
     )
     res_prox_legacy = run_proximity_pooling_v2(
         farmers, copy.deepcopy(fleet_template), markets, fresh_capacity(markets)
     )
-    res_selfhaul_rat = run_self_haul_v2(farmers, fleet_template, markets, fresh_capacity(markets),
-                                        behaviour=None, **like)
-    res_neighbour_rat = run_neighbour_pooling_v2(farmers, fleet_template, markets, fresh_capacity(markets),
-                                                 behaviour=None, **like)
-    res_farmgate = run_farmgate_baseline_v2(farmers, markets)
 
     fs = len(fleet_template)
     # Every summary carries the farm-gate fields: produce a plan did not haul (withheld, no truck, or a farmer
